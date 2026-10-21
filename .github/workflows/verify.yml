@@ -180,6 +180,12 @@ jobs:
         working-directory: tests
         run: |
           set -euo pipefail
+          bun install
+
+      - name: Unit tests (waves)
+        working-directory: tests
+        run: |
+          set -euo pipefail
           npx vitest run --reporter=verbose \
             unit/wave1-bun-ts-redis-sqlite.test.js \
             unit/wave2-migrations.test.js \
