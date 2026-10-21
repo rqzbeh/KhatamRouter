@@ -28,8 +28,8 @@ The table below mirrors the shipped rows of the authoritative status table in [R
 | **Bun v1.4.3 + TypeScript Runtime** | 🟢 Shipped | Wave 1: Native Bun execution, `@/*` mapping, `Dockerfile.bun` |
 | **SQLite WAL Engine + Integrity Preflight** | 🟢 Shipped | Wave 1: `bun:sqlite` WAL, `busy_timeout=5000`, startup integrity check |
 | **Redis Accelerator & Real-Time Pub/Sub** | 🟢 Shipped | Wave 1: `khatam:` namespace, cluster invalidation, transparent SQLite fallback |
-| **Hardened Request Ingestion & Smuggling Defense** | 🟢 Shipped | HTTP/1.1 & h2c smuggling defenses, 8 MiB JSON cap, 64 MiB chunked cap |
-| **Token Savers (RTK, Caveman, Ponytail)** | 🟢 Shipped | Pre-translation tool compression with 512 KiB cap, prompt injection modes |
+| **Hardened Request Ingestion & Smuggling Defense** | 🟢 Shipped | HTTP/1.1 & h2c smuggling defenses, 128 MiB JSON body cap, 64 MiB chunked cap |
+| **Token Savers (RTK, Caveman, Ponytail)** | 🟢 Shipped | Pre-translation tool compression with 10 MiB cap, prompt injection modes |
 
 ### Operational Baseline (Shipped)
 
@@ -38,8 +38,8 @@ Only the following capabilities are shipped and operational today:
 - **Bun v1.4.3 + TypeScript runtime**: Native Bun execution via `bun run dev:bun` and `bun run start:bun`, `@/*` path mapping to `./src/*`, and multi-stage container builds via `Dockerfile.bun`.
 - **SQLite WAL engine + integrity preflight**: Native `bun:sqlite` adapter running Write-Ahead Logging (`PRAGMA journal_mode = WAL`), a 5000ms lock timeout (`PRAGMA busy_timeout = 5000`), in-memory temporary storage (`PRAGMA temp_store = MEMORY`), and mandatory startup integrity validation (`PRAGMA integrity_check`) refusing silent fallback over existing data.
 - **Redis client and pub/sub (connection and event bus only, NOT quota or circuit logic)**: Connection management and Pub/Sub event bus under `src/lib/redis/` enforcing the `khatam:` namespace prefix for cluster-wide cache invalidation (`khatam:events:config_reload`), with automatic fail-safe fallback to in-memory/SQLite when `REDIS_URL` is omitted. Redis does not yet handle rate limiting, token counters, spend quotas, or circuit breaker logic.
-- **Hardened request ingestion (8 MiB JSON, 64 MiB h2c, CL+TE smuggling rejection)**: Defense-in-depth HTTP request parsing enforcing an 8 MiB ceiling on JSON request bodies, a 64 MiB ceiling on chunked h2c streams, strict CRLF framing validation, and immediate rejection of HTTP smuggling attempts combining `Content-Length` and `Transfer-Encoding`.
-- **Token savers (RTK/Caveman/Ponytail)**: Pre-translation tool compression via RTK (lossless compression of `tool_result` content with a 512 KiB ceiling), Caveman terseness prompts, and Ponytail prompt modes saving 20-40% input tokens and up to 65% output tokens.
+- **Hardened request ingestion (128 MiB JSON, 64 MiB h2c, CL+TE smuggling rejection)**: Defense-in-depth HTTP request parsing enforcing a 128 MiB ceiling on JSON request bodies via Next.js `experimental.proxyClientMaxBodySize` (default `128mb`, overridable with `NINEROUTER_PROXY_CLIENT_MAX_BODY_SIZE`), a 64 MiB ceiling on chunked h2c streams (`MAX_H2C_BODY_BYTES` in `custom-server.js`), strict CRLF framing validation, and immediate rejection of HTTP smuggling attempts combining `Content-Length` and `Transfer-Encoding`.
+- **Token savers (RTK/Caveman/Ponytail)**: Pre-translation tool compression via RTK (lossless compression of `tool_result` content with a 10 MiB ceiling per `RAW_CAP` in `open-sse/rtk/constants.js`), Caveman terseness prompts, and Ponytail prompt modes saving 20-40% input tokens and up to 65% output tokens.
 - **Inherited 9router feature set (providers, translators, executors, quotas UI, combos)**: Upstream provider registry supporting 40+ providers, protocol translation pivoting across OpenAI, Claude, Gemini, and Kiro formats, specialized executors, Next.js control-plane dashboard, model combos with multi-tier fallback, and automated OAuth token refresh flows.
 
 ---
@@ -174,7 +174,7 @@ To ensure clear operational expectations, the following limitations exist in the
 - **Redis is connection plus pubsub only (no distributed quotas)**: While Redis connection management and Pub/Sub invalidation are operational, distributed sliding-window rate limiting, atomic spend tracking, and circuit breaker state storage in Redis are not yet built (scheduled for Waves 2 & 3).
 - **No circuit breaker yet**: Requests currently rely on basic try/catch fallback loops without stateful 4-state circuit trip transitions (`CLOSED → DEGRADED → OPEN → HALF_OPEN`) or failure-kind cooldowns.
 - **20129 refuses connections**: While `ENDPOINT_PORT=20129` is documented and recognized in runtime configuration, no service is listening on port 20129 today.
-- **The full test suite is not green on a bare checkout**: Roughly 91 documented expected failures are tracked via `tests/__baseline__/known-fails.txt` and repository baselines (including ~26 catalogued there, `unit/embeddings.cloud.test.js` targeting the uncommitted `cloud/` worker directory, `unit/xai-oauth-service.test.js` timing out without reachable discovery, and `tests/real/*.real.test.js` live provider calls requiring credentials). Judge regressions with `tests/__baseline__/verify-no-regression.mjs`, not a raw run.
+- **The full test suite is not green on a bare checkout**: `tests/__baseline__/known-fails.txt` catalogs exactly 24 known-failing test cases, and `CLAUDE.md` documents roughly 64 failing tests on a plain checkout. The CI verify gate (`.github/workflows/verify.yml`) cites a more conservative ~91 expected failures, counting the 24 catalogued cases plus `unit/embeddings.cloud.test.js` (targets the `cloud/` worker directory, which is not in this repo), `unit/xai-oauth-service.test.js` (times out without reachable discovery), and 13 `tests/**/*.real.test.js` live-provider files requiring credentials. Judge regressions with `tests/__baseline__/verify-no-regression.mjs`, not a raw run.
 
 ---
 

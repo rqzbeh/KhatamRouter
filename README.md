@@ -36,8 +36,8 @@
 - ⚡ **Bun v1.4.3 + TypeScript runtime** — Sub-second cold starts, lower resident memory, and type-safe control-plane orchestration powered by native `bun:sqlite`.
 - 🗄️ **SQLite in WAL mode with integrity preflight** — Concurrent multi-process database sharing with a 5000ms `busy_timeout` and startup validation that refuses silent in-memory fallback over existing data.
 - 🚀 **Optional Redis accelerator (`khatam:` namespace)** — Low-latency cluster-wide Pub/Sub event bus and real-time config invalidation, with automatic SQLite fallback when `REDIS_URL` is unset (rate limits & quotas in Waves 2 & 3).
-- 🧱 **Hardened request ingestion** — Bounded 8 MiB JSON request bodies, 64 MiB h2c chunked stream cap with strict CRLF enforcement, and immediate rejection of combined Content-Length/Transfer-Encoding smuggling attempts.
-- ✂️ **Multi-layer token savers** — Lossless 512 KiB RTK tool compression, Caveman terseness prompts, and YAGNI-first Ponytail (Lite/Full/Ultra) modes saving 20-40% input and up to 65% output tokens.
+- 🧱 **Hardened request ingestion** — Bounded 128 MiB JSON request bodies (`proxyClientMaxBodySize`), 64 MiB h2c chunked stream cap with strict CRLF enforcement, and immediate rejection of combined Content-Length/Transfer-Encoding smuggling attempts.
+- ✂️ **Multi-layer token savers** — Lossless 10 MiB RTK tool compression, Caveman terseness prompts, and YAGNI-first Ponytail (Lite/Full/Ultra) modes saving 20-40% input and up to 65% output tokens.
 - 🔄 **Unified API gateway & Next.js dashboard (port 20128)** — Single lightweight endpoint serving both web dashboard and OpenAI-compatible `/v1/*` proxy routing across 40+ providers.
 
 #### 🟡 Upcoming Roadmap Capabilities
@@ -58,8 +58,8 @@ We value engineering honesty over hype. Here is the exact status of each archite
 | **Bun v1.4.3 + TypeScript Runtime** | 🟢 Shipped | Wave 1: Native Bun execution, `@/*` mapping, `Dockerfile.bun` |
 | **SQLite WAL Engine + Integrity Preflight** | 🟢 Shipped | Wave 1: `bun:sqlite` WAL, `busy_timeout=5000`, startup integrity check |
 | **Redis Accelerator & Real-Time Pub/Sub** | 🟢 Shipped | Wave 1: `khatam:` namespace, cluster invalidation, transparent SQLite fallback |
-| **Hardened Request Ingestion & Smuggling Defense** | 🟢 Shipped | HTTP/1.1 & h2c smuggling defenses, 8 MiB JSON cap, 64 MiB chunked cap |
-| **Token Savers (RTK, Caveman, Ponytail)** | 🟢 Shipped | Pre-translation tool compression with 512 KiB cap, prompt injection modes |
+| **Hardened Request Ingestion & Smuggling Defense** | 🟢 Shipped | HTTP/1.1 & h2c smuggling defenses, 128 MiB JSON cap, 64 MiB chunked cap |
+| **Token Savers (RTK, Caveman, Ponytail)** | 🟢 Shipped | Pre-translation tool compression with 10 MiB cap, prompt injection modes |
 | **Split-Plane Dual-Port Architecture** | 🟡 Roadmap | Phase 2: Dedicated Go gateway (`cmd/khatam-gateway`) on port 20129 (currently unified on port 20128) |
 | **Versioned DB Migrations & Hybrid Quota** | 🟡 Roadmap | Wave 2: Versioned `_khatam_migrations` runner & hybrid quota tracking |
 | **Granular Per-Connection / Key Limits** | 🟡 Roadmap | Wave 3: Atomic sliding-window rate limiters, token counters, and USD spend tracking |
@@ -103,7 +103,7 @@ We actively build for the former, but we keep the latter in mind as a healthy re
 │   • OpenAI-compatible API Gateway (/v1/*)                   │
 │   • RTK Token Saver (cut tool_result tokens up to 40%)      │
 │   • Format translation (OpenAI ↔ Claude ↔ Gemini ↔ Kiro)    │
-│   • 8 MiB JSON cap + 64 MiB h2c CRLF smuggling defense      │
+│   • 128 MiB JSON cap + 64 MiB h2c CRLF smuggling defense    │
 │                                                             │
 │  [Shared State & Acceleration Layer]                        │
 │   • SQLite WAL ($DATA_DIR/db/data.sqlite, busy_timeout=5s)  │
