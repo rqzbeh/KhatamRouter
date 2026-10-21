@@ -104,6 +104,7 @@ export const TABLES = {
       allowedProviders: "TEXT",
       allowedCombos: "TEXT",
       allowedKinds: "TEXT",
+      allowedModels: "TEXT",
       rate_limits: "TEXT",
       throttle_delay_ms: "INTEGER DEFAULT 0",
       usage_limit_enabled: "INTEGER DEFAULT 0",

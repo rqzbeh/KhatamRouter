@@ -34,6 +34,14 @@ import {
 import { errorResponse } from "open-sse/utils/error.js";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
 import * as log from "../utils/logger.js";
+import { isTrustedInternalRequest } from "./internalTrust.js";
+import {
+  resolveKeyAcl,
+  isKindAllowed,
+  isProviderAllowed,
+  isComboAllowed,
+  isModelAllowed,
+} from "./allowedModels.js";
 
 const lower = (s) => String(s).toLowerCase();
 const canonicalModel = (provider, model) => lower(`${provider}/${model}`);
@@ -68,14 +76,41 @@ export function extractClientApiKey(request) {
  * decides what an identified key may call.
  */
 export async function getKeyAccessContext(request) {
+  if (await isTrustedInternalRequest(request)) return null;
   const apiKey = extractClientApiKey(request);
   if (!apiKey) return null;
   const record = await getApiKeyByKey(apiKey);
-  if (!record?.access?.restricted) return null;
+  if (!record) return null;
+
+  const hasNewFields =
+    record.allowedKinds !== undefined ||
+    record.allowedProviders !== undefined ||
+    record.allowedCombos !== undefined ||
+    record.allowedModels !== undefined;
+
+  if (hasNewFields && (
+    record.allowedKinds !== null ||
+    record.allowedProviders !== null ||
+    record.allowedCombos !== null ||
+    record.allowedModels !== null
+  )) {
+    const acl = resolveKeyAcl(record);
+    return {
+      keyId: record.id,
+      keyName: record.name || record.id,
+      acl,
+      allow: record.access?.allow || [],
+      _sets: null,
+    };
+  }
+
+  if (!record.access?.restricted && !record.accessRestricted) return null;
+
   return {
     keyId: record.id,
     keyName: record.name || record.id,
-    allow: record.access.allow || [],
+    acl: null,
+    allow: record.access?.allow || [],
     _sets: null,
   };
 }
@@ -179,6 +214,37 @@ export async function filterAdapterModels(ctx, augmented, original) {
 /** /v1/models: a restricted key sees only the combos and models it may call. */
 export async function filterModelsListForKey(ctx, list) {
   if (!ctx || !Array.isArray(list)) return list;
+  if (ctx.acl) {
+    const out = [];
+    for (const entry of list) {
+      if (!entry?.id) continue;
+      const kind = entry.kind || "llm";
+      if (!isKindAllowed(ctx.acl.allowedKinds, kind)) continue;
+
+      if (entry.owned_by === KEY_ACCESS_COMBO_OWNER) {
+        if (isComboAllowed(ctx.acl.allowedCombos, entry.id)) out.push(entry);
+        continue;
+      }
+
+      const info = await getModelInfo(entry.id);
+      if (!info?.provider) continue;
+
+      if (KEY_ACCESS_PROVIDER_AS_MODEL_KINDS.includes(entry.kind)) {
+        const provAllowed = await isProviderAllowed(ctx.acl.allowedProviders, info.provider);
+        const modelAllowed =
+          ctx.acl.allowedModels === null ||
+          (await isModelAllowed(ctx.acl.allowedModels, entry.id)) ||
+          (await isModelAllowed(ctx.acl.allowedModels, info.provider));
+        if (provAllowed && modelAllowed) out.push(entry);
+        continue;
+      }
+
+      if (!(await isProviderAllowed(ctx.acl.allowedProviders, info.provider))) continue;
+      if (!(await isModelAllowed(ctx.acl.allowedModels, entry.id))) continue;
+      out.push(entry);
+    }
+    return out;
+  }
   const sets = await getAllowSets(ctx);
   const out = [];
   for (const entry of list) {
