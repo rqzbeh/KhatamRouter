@@ -1,12 +1,20 @@
 import fs from "node:fs";
 import path from "node:path";
-import { LEGACY_FILES, DB_DIR } from "./paths.js";
-import { TABLES, buildCreateTableSql, SCHEMA_VERSION } from "./schema.js";
+import { LEGACY_FILES, DB_DIR, DATA_FILE } from "./paths.js";
+import { TABLES, VIEWS, buildCreateTableSql, SCHEMA_VERSION } from "./schema.js";
 import { MIGRATIONS, latestVersion } from "./migrations/index.js";
+import { runMigrations as runVersionedMigrationRunner, MIGRATIONS_TABLE } from "./migrationRunner.js";
 import { getMetaSync, setMetaSync } from "./helpers/metaStore.js";
 import { makeBackupDir, backupFile, backupDbLite, pruneOldBackups } from "./backup.js";
 import { getAppVersion } from "./version.js";
 import { stringifyJson } from "./helpers/jsonCol.js";
+
+// `_khatam_migrations` bookkeeping columns (mirrors migrationRunner's DDL).
+const MIGRATIONS_TABLE_COLUMNS = {
+  version: "TEXT PRIMARY KEY",
+  name: "TEXT NOT NULL",
+  applied_at: "TEXT NOT NULL",
+};
 
 // Marker file: prevents re-importing legacy JSON when user wipes data.sqlite.
 const MIGRATED_MARKER = path.join(DB_DIR, ".migrated-from-json");
@@ -54,25 +62,42 @@ function isFreshDb(adapter) {
 }
 
 // ─── Versioned migrations runner (skip-version safe) ─────────────────────
-function runVersionedMigrations(adapter) {
+export async function runKhatamMigrations(adapter, options = {}) {
+  return runVersionedMigrationRunner(adapter, {
+    dbFile: options.dbFile || DATA_FILE,
+    ...options,
+  });
+}
+
+async function runVersionedMigrations(adapter, fresh = null) {
   // Bootstrap _meta first so we can read schemaVersion
   adapter.exec(buildCreateTableSql("_meta", TABLES._meta));
 
-  const current = parseInt(getMetaSync(adapter, "schemaVersion", "0"), 10) || 0;
-  const target = latestVersion();
-  if (current >= target) return { applied: 0, from: current, to: current };
-
-  const pending = MIGRATIONS.filter((m) => m.version > current);
-  let lastApplied = current;
-  for (const m of pending) {
-    adapter.transaction(() => {
-      m.up(adapter);
-      setMetaSync(adapter, "schemaVersion", m.version);
-    });
-    lastApplied = m.version;
-    console.log(`[DB][migrate] applied #${m.version} ${m.name}`);
+  // Upgrade path from the pre-Wave-2 marker: a database stamped only in
+  // `_meta.schemaVersion` has no rows in `_khatam_migrations` yet. Seed the
+  // bookkeeping table from that legacy marker so already-applied migrations are
+  // not re-run on first boot after the upgrade.
+  const legacyVer = parseInt(getMetaSync(adapter, "schemaVersion", "0"), 10) || 0;
+  if (legacyVer > 0) {
+    adapter.exec(buildCreateTableSql(MIGRATIONS_TABLE, { columns: MIGRATIONS_TABLE_COLUMNS }));
+    const existing = adapter.get(`SELECT COUNT(*) AS c FROM ${MIGRATIONS_TABLE}`);
+    if (!existing || Number(existing.c) === 0) {
+      for (const m of MIGRATIONS.filter((mm) => mm.version <= legacyVer)) {
+        adapter.run(
+          `INSERT OR IGNORE INTO ${MIGRATIONS_TABLE} (version, name, applied_at) VALUES (?, ?, ?)`,
+          [String(m.version), m.name, new Date().toISOString()]
+        );
+      }
+    }
   }
-  return { applied: pending.length, from: current, to: lastApplied };
+
+  const result = await runVersionedMigrationRunner(adapter, {
+    dbFile: DATA_FILE,
+    fresh,
+  });
+
+  setMetaSync(adapter, "schemaVersion", latestVersion());
+  return result;
 }
 
 // ─── Auto-sync (additive only): add missing tables/columns/indexes ───────
@@ -244,10 +269,15 @@ export async function runMigrationOnce(adapter) {
   }
 
   // 1. Always run versioned migrations chain (skip-version safe)
-  const migInfo = runVersionedMigrations(adapter);
+  const migInfo = await runVersionedMigrations(adapter, fresh);
 
   // 2. Additive sync (auto add missing columns/indexes declared in TABLES)
   syncSchemaFromTables(adapter);
+
+  // 2b. Compatibility views for snake_case access (idempotent)
+  for (const viewSql of VIEWS) {
+    try { adapter.exec(viewSql); } catch (e) { console.warn(`[DB][migrate] view sync failed (continuing): ${e.message}`); }
+  }
 
   // Stamp the schema version we just reached so future boots skip re-backup.
   setMetaSync(adapter, "backupSchemaVersion", SCHEMA_VERSION);

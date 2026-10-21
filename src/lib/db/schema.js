@@ -3,7 +3,7 @@
 // pre-change safety backup in migrate.js: when the stored version is lower,
 // one lightweight DB backup is taken before applying schema changes. Forgetting
 // to bump only skips that backup — it does NOT break the additive auto-sync.
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const PRAGMA_SQL = `
 PRAGMA journal_mode = WAL;
@@ -14,6 +14,12 @@ PRAGMA cache_size = -64000;
 PRAGMA foreign_keys = ON;
 PRAGMA busy_timeout = 5000;
 `;
+
+// Compatibility views for snake_case table access
+export const VIEWS = [
+  "CREATE VIEW IF NOT EXISTS provider_connections AS SELECT * FROM providerConnections;",
+  "CREATE VIEW IF NOT EXISTS api_keys AS SELECT * FROM apiKeys;",
+];
 
 // Declarative current schema. Used by syncSchemaFromTables() to
 // auto-add missing tables/columns/indexes after versioned migrations.
@@ -43,6 +49,13 @@ export const TABLES = {
       data: "TEXT NOT NULL",
       createdAt: "TEXT NOT NULL",
       updatedAt: "TEXT NOT NULL",
+      // Wave 2 additions: rate limit overrides, concurrency & backoff
+      rate_limit_overrides_json: "TEXT",
+      max_concurrent: "INTEGER",
+      rate_limit_protection: "INTEGER DEFAULT 0",
+      rate_limited_until: "TEXT",
+      backoff_level: "INTEGER DEFAULT 0",
+      quota_window_thresholds_json: "TEXT",
     },
     indexes: [
       "CREATE INDEX IF NOT EXISTS idx_pc_provider ON providerConnections(provider)",
@@ -87,6 +100,15 @@ export const TABLES = {
       // syncSchemaFromTables() on boot; existing rows read as unrestricted (0).
       accessRestricted: "INTEGER DEFAULT 0",
       accessAllow: "TEXT",
+      // Wave 2 additions: ACLs, rate limits & USD spend caps
+      allowedProviders: "TEXT",
+      allowedCombos: "TEXT",
+      allowedKinds: "TEXT",
+      rate_limits: "TEXT",
+      throttle_delay_ms: "INTEGER DEFAULT 0",
+      usage_limit_enabled: "INTEGER DEFAULT 0",
+      daily_usage_limit_usd: "REAL",
+      weekly_usage_limit_usd: "REAL",
     },
     indexes: ["CREATE INDEX IF NOT EXISTS idx_ak_key ON apiKeys(key)"],
   },
@@ -154,6 +176,130 @@ export const TABLES = {
       "CREATE INDEX IF NOT EXISTS idx_rd_provider ON requestDetails(provider)",
       "CREATE INDEX IF NOT EXISTS idx_rd_model ON requestDetails(model)",
       "CREATE INDEX IF NOT EXISTS idx_rd_conn ON requestDetails(connectionId)",
+    ],
+  },
+  // ─── Wave 2 tables ────────────────────────────────────────────────────────
+  api_key_quota_limits: {
+    columns: {
+      id: "TEXT PRIMARY KEY",
+      api_key: "TEXT NOT NULL",
+      window_type: "TEXT NOT NULL",
+      limit_value: "REAL NOT NULL",
+      action: "TEXT DEFAULT 'reject'",
+      created_at: "TEXT NOT NULL",
+      updated_at: "TEXT NOT NULL",
+    },
+    indexes: ["CREATE INDEX IF NOT EXISTS idx_akql_key ON api_key_quota_limits(api_key)"],
+  },
+  api_key_quota_counters: {
+    columns: {
+      key: "TEXT NOT NULL",
+      window_bucket: "INTEGER NOT NULL",
+      counter_type: "TEXT NOT NULL",
+      value: "REAL DEFAULT 0",
+      updated_at: "INTEGER NOT NULL",
+    },
+    primaryKey: "PRIMARY KEY (key, window_bucket, counter_type)",
+    indexes: ["CREATE INDEX IF NOT EXISTS idx_akqc_updated ON api_key_quota_counters(updated_at)"],
+  },
+  request_cost_ledger: {
+    columns: {
+      id: "TEXT PRIMARY KEY",
+      request_id: "TEXT NOT NULL",
+      api_key_id: "TEXT",
+      provider: "TEXT NOT NULL",
+      model: "TEXT NOT NULL",
+      prompt_tokens: "INTEGER DEFAULT 0",
+      completion_tokens: "INTEGER DEFAULT 0",
+      total_tokens: "INTEGER DEFAULT 0",
+      input_cost_per_million: "REAL DEFAULT 0",
+      output_cost_per_million: "REAL DEFAULT 0",
+      total_cost_usd: "REAL DEFAULT 0",
+      status: "TEXT DEFAULT 'success'",
+      created_at: "TEXT NOT NULL",
+    },
+    indexes: [
+      "CREATE INDEX IF NOT EXISTS idx_rcl_api_key ON request_cost_ledger(api_key_id)",
+      "CREATE INDEX IF NOT EXISTS idx_rcl_provider_model ON request_cost_ledger(provider, model)",
+      "CREATE INDEX IF NOT EXISTS idx_rcl_created_at ON request_cost_ledger(created_at)",
+    ],
+  },
+  domain_circuit_breakers: {
+    columns: {
+      domain: "TEXT PRIMARY KEY",
+      state: "TEXT NOT NULL DEFAULT 'CLOSED'",
+      failure_count: "INTEGER DEFAULT 0",
+      success_count: "INTEGER DEFAULT 0",
+      last_failure_reason: "TEXT",
+      last_failure_at: "TEXT",
+      cooldown_until: "TEXT",
+      degraded_until: "TEXT",
+      updated_at: "TEXT NOT NULL",
+    },
+    indexes: ["CREATE INDEX IF NOT EXISTS idx_dcb_state ON domain_circuit_breakers(state)"],
+  },
+  model_capabilities: {
+    columns: {
+      id: "TEXT PRIMARY KEY",
+      provider: "TEXT NOT NULL",
+      model_id: "TEXT NOT NULL",
+      context_window: "INTEGER DEFAULT 0",
+      max_output_tokens: "INTEGER DEFAULT 0",
+      supports_vision: "INTEGER DEFAULT 0",
+      supports_audio: "INTEGER DEFAULT 0",
+      supports_video: "INTEGER DEFAULT 0",
+      supports_tools: "INTEGER DEFAULT 0",
+      supports_reasoning: "INTEGER DEFAULT 0",
+      supports_streaming: "INTEGER DEFAULT 1",
+      modalities_json: "TEXT",
+      metadata_json: "TEXT",
+      updated_at: "TEXT NOT NULL",
+    },
+    indexes: ["CREATE INDEX IF NOT EXISTS idx_mc_provider_model ON model_capabilities(provider, model_id)"],
+  },
+  model_context_overrides: {
+    columns: {
+      id: "TEXT PRIMARY KEY",
+      model_pattern: "TEXT NOT NULL",
+      context_window: "INTEGER NOT NULL",
+      max_output_tokens: "INTEGER",
+      created_at: "TEXT NOT NULL",
+      updated_at: "TEXT NOT NULL",
+    },
+  },
+  model_capability_overrides: {
+    columns: {
+      id: "TEXT PRIMARY KEY",
+      model_pattern: "TEXT NOT NULL",
+      capabilities_json: "TEXT NOT NULL",
+      created_at: "TEXT NOT NULL",
+      updated_at: "TEXT NOT NULL",
+    },
+  },
+  proxy_pool_fitness: {
+    columns: {
+      proxy_id: "TEXT PRIMARY KEY",
+      latency_ms: "INTEGER DEFAULT 0",
+      success_rate: "REAL DEFAULT 1.0",
+      total_requests: "INTEGER DEFAULT 0",
+      consecutive_errors: "INTEGER DEFAULT 0",
+      is_healthy: "INTEGER DEFAULT 1",
+      last_checked_at: "TEXT NOT NULL",
+      updated_at: "TEXT NOT NULL",
+    },
+  },
+  cached_provider_models: {
+    columns: {
+      id: "TEXT PRIMARY KEY",
+      provider: "TEXT NOT NULL",
+      model_id: "TEXT NOT NULL",
+      raw_json: "TEXT NOT NULL",
+      fetched_at: "TEXT NOT NULL",
+      expires_at: "TEXT NOT NULL",
+    },
+    indexes: [
+      "CREATE INDEX IF NOT EXISTS idx_cpm_provider ON cached_provider_models(provider)",
+      "CREATE INDEX IF NOT EXISTS idx_cpm_expires ON cached_provider_models(expires_at)",
     ],
   },
 };
