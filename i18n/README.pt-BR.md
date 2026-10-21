@@ -534,9 +534,9 @@ Configure `X-9Router-Token-Saver: off` para ignorar todos os economizadores de t
 
 ### 🚀 RTK Token Saver
 
-As saídas da ferramenta (`git diff`, `grep`, `find`, `ls`, `tree`, despejos de log...) geralmente consomem de 30 a 50% do seu orçamento de contexto. O RTK os detecta e aplica compactação inteligente e sem perdas **antes** que a solicitação chegue ao LLM:
+As saídas da ferramenta (`git diff`, `grep`, `find`, `ls`, `tree`, despejos de log...) geralmente consomem de 30 a 50% do seu orçamento de contexto. O RTK os detecta e aplica compactação inteligente com truncamento **antes** que a solicitação chegue ao LLM. É intencionalmente com perdas: cada filtro trunca seções muito longas e de baixo sinal (hunks de diff limitados a 100 linhas, logs repetitivos deduplicados e limitados a 2.000 linhas, apenas as 3 principais depreciações e 5 avisos de build mantidos):
 
-- **Filtros:** `git-diff`, `git-status`, `grep`, `find`, `ls`, `tree`, `dedup-log`, `smart-truncate`, `read-numbered`, `search-list`
+- **Filtros:** `git-diff`, `git-status`, `grep`, `find`, `ls`, `tree`, `dedup-log`, `smart-truncate`, `read-numbered`, `search-list`, `build-output`
 - **Detecção automática:** Não é necessária configuração — o RTK inspeciona o primeiro 1 KB de cada `tool_result` e escolhe o filtro correto.
 - **Seguro por design:** Se um filtro falhar, gerar uma exceção ou aumentar a saída, o RTK mantém silenciosamente o texto original. Erros nunca interrompem sua solicitação.
 - **Universal:** Funciona em todos os formatos (OpenAI, Claude, Gemini, Cursor, Kiro, OpenAI Responses) porque é executado **antes** de qualquer tradução de formato.
@@ -544,7 +544,7 @@ As saídas da ferramenta (`git diff`, `grep`, `find`, `ls`, `tree`, despejos de 
 
 ```
 Sem RTK: 47 mil tokens enviados ao LLM
-Com RTK: 28 mil tokens enviados ao LLM (40% de economia · mesmo contexto · mesma resposta)
+Com RTK: 28 mil tokens enviados ao LLM (40% de economia · mesmo contexto · mesma resposta — valor de exemplo do 9Router upstream)
 ```
 
 ### 🧠 Headroom Token Saver

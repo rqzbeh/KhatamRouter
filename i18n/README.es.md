@@ -453,9 +453,9 @@ URLs por defecto:
 
 ### 🚀 Ahorrador de tokens RTK
 
-Las salidas de las herramientas (`git diff`, `grep`, `find`, `ls`, `tree`, volcados de registros...) suelen consumir entre 30-50% del presupuesto de tu prompt. RTK las detecta y aplica una compresión inteligente y sin pérdidas **antes** de que la solicitud llegue al LLM:
+Las salidas de las herramientas (`git diff`, `grep`, `find`, `ls`, `tree`, volcados de registros...) suelen consumir entre 30-50% del presupuesto de tu prompt. RTK las detecta y aplica una compresión inteligente con truncado **antes** de que la solicitud llegue al LLM. Es intencionadamente con pérdida: cada filtro trunca las secciones muy largas y de baja señal (hunks de diff limitados a 100 líneas, registros repetitivos deduplicados y limitados a 2.000 líneas, solo las 3 principales deprecaciones y 5 avisos de compilación):
 
-- **Filtros:** `git-diff`, `git-status`, `grep`, `find`, `ls`, `tree`, `dedup-log`, `smart-truncate`, `read-numbered`, `search-list`
+- **Filtros:** `git-diff`, `git-status`, `grep`, `find`, `ls`, `tree`, `dedup-log`, `smart-truncate`, `read-numbered`, `search-list`, `build-output`
 - **Detección automática:** No requiere configuración — RTK inspecciona el primer 1KB de cada `tool_result` y elige el filtro correcto.
 - **Seguro por diseño:** Si un filtro falla, lanza un error o hace la salida más grande, RTK conserva silenciosamente el texto original. Los errores nunca interrumpen tu solicitud.
 - **Universal:** Funciona en todos los formatos (OpenAI, Claude, Gemini, Cursor, Kiro, OpenAI Responses) porque se ejecuta **antes** de cualquier traducción de formato.
@@ -463,7 +463,7 @@ Las salidas de las herramientas (`git diff`, `grep`, `find`, `ls`, `tree`, volca
 
 ```
 Sin RTK: se envían 47K tokens al LLM
-Con RTK:    se envían 28K tokens al LLM   (40% ahorrado · mismo contexto · misma respuesta)
+Con RTK:    se envían 28K tokens al LLM   (40% ahorrado · mismo contexto · misma respuesta — cifra de ejemplo del 9Router upstream)
 ```
 
 ### 🧠 Ahorrador de tokens Headroom
