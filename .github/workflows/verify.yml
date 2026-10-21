@@ -333,12 +333,24 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   smoke:
-    name: Smoke (run container)
+    name: Smoke (run container, ${{ matrix.arch }})
     needs: [verify]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
     permissions:
       contents: read
+    env:
+      PLATFORM: ${{ matrix.platform }}
     defaults:
       run:
         shell: bash
@@ -349,22 +361,22 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Build image (smoke)
+      - name: Build image (smoke, ${{ matrix.arch }})
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile.bun
-          platforms: linux/amd64
+          platforms: ${{ matrix.platform }}
           push: false
           load: true
-          tags: khatamrouter:smoke
-          cache-from: type=gha,scope=khatam-image
-          cache-to: type=gha,scope=khatam-image,mode=max
+          tags: khatamrouter:smoke-${{ matrix.arch }}
+          cache-from: type=gha,scope=khatam-image-${{ matrix.arch }}
+          cache-to: type=gha,scope=khatam-image-${{ matrix.arch }},mode=max
 
       - name: Assert no baked database
         run: |
           set -euo pipefail
-          docker run --rm --entrypoint sh khatamrouter:smoke -c "test -z \"\$(find / -name '*.sqlite*' -not -path '/proc/*' -not -path '/sys/*' 2>/dev/null | head -1)\""
+          docker run --rm --entrypoint sh khatamrouter:smoke-${{ matrix.arch }} -c "test -z \"\$(find / -name '*.sqlite*' -not -path '/proc/*' -not -path '/sys/*' 2>/dev/null | head -1)\""
 
       - name: Boot container
         run: |
@@ -373,13 +385,13 @@ jobs:
           chmod 777 "${{ runner.temp }}/khdata"
 
           docker run -d \
-            --name kh-smoke \
+            --name kh-smoke-${{ matrix.arch }} \
             -p 20128:20128 \
             -v "${{ runner.temp }}/khdata:/app/data" \
             -e DATA_DIR=/app/data \
             -e JWT_SECRET=c0ffee1234567890abcdef1234567890c0ffee1234567890abcdef1234567890 \
             -e API_KEY_SECRET=c0ffee1234567890abcdef1234567890c0ffee1234567890abcdef1234567890 \
-            khatamrouter:smoke
+            khatamrouter:smoke-${{ matrix.arch }}
 
           echo "Polling up to 90s for HTTP readiness on 127.0.0.1:20128/dashboard..."
           READY=0
@@ -418,7 +430,7 @@ jobs:
       - name: Assert runtime migrations
         run: |
           set -euo pipefail
-          ROWS=$(docker exec kh-smoke sqlite3 /app/data/db/data.sqlite "SELECT version FROM _khatam_migrations ORDER BY version;")
+          ROWS=$(docker exec kh-smoke-${{ matrix.arch }} sqlite3 /app/data/db/data.sqlite "SELECT version FROM _khatam_migrations ORDER BY version;")
           echo "Migrations applied:"
           echo "$ROWS"
           COUNT=$(echo "$ROWS" | grep -c . || true)
@@ -427,7 +439,7 @@ jobs:
             exit 1
           fi
 
-          JOURNAL=$(docker exec kh-smoke sqlite3 /app/data/db/data.sqlite "PRAGMA journal_mode;")
+          JOURNAL=$(docker exec kh-smoke-${{ matrix.arch }} sqlite3 /app/data/db/data.sqlite "PRAGMA journal_mode;")
           echo "journal_mode: $JOURNAL"
           if [ "$JOURNAL" != "wal" ]; then
             echo "::error::Expected PRAGMA journal_mode to be wal, got $JOURNAL"
@@ -437,7 +449,7 @@ jobs:
       - name: Assert ACL wiring
         run: |
           set -euo pipefail
-          TABLES=$(docker exec kh-smoke sqlite3 /app/data/db/data.sqlite "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('api_key_quota_limits','request_cost_ledger');")
+          TABLES=$(docker exec kh-smoke-${{ matrix.arch }} sqlite3 /app/data/db/data.sqlite "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('api_key_quota_limits','request_cost_ledger');")
           echo "ACL tables present:"
           echo "$TABLES"
           if ! echo "$TABLES" | grep -q "api_key_quota_limits"; then
@@ -453,15 +465,15 @@ jobs:
         if: always()
         run: |
           echo "=== Last 50 container logs ==="
-          docker logs --tail 50 kh-smoke || true
+          docker logs --tail 50 kh-smoke-${{ matrix.arch }} || true
 
       - name: Dump full container logs on failure
         if: failure()
         run: |
           echo "=== Full container logs ==="
-          docker logs kh-smoke || true
+          docker logs kh-smoke-${{ matrix.arch }} || true
 
       - name: Cleanup smoke container
         if: always()
         run: |
-          docker rm -f kh-smoke || true
+          docker rm -f kh-smoke-${{ matrix.arch }} || true
