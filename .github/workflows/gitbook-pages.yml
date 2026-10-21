@@ -1,4 +1,4 @@
-name: Deploy GitBook to 9router.github.io
+name: Deploy KhatamRouter Docs
 
 on:
   push:
@@ -12,18 +12,37 @@ concurrency:
   group: gitbook-pages
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   build-deploy:
+    name: Build and deploy docs
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: gitbook
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v5
+      - name: Check out repository
+        uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
         with:
           node-version: 24
+
+      - name: Configure GitHub Pages
+        id: pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - name: Install deps
         run: npm install --no-audit --no-fund
@@ -32,19 +51,16 @@ jobs:
         run: npm run build
         env:
           NODE_ENV: production
-          NEXT_PUBLIC_BASE_PATH: ""
+          NEXT_PUBLIC_BASE_PATH: ${{ steps.pages.outputs.base_path }}
 
       - name: Add .nojekyll
         run: touch out/.nojekyll
 
-      - name: Deploy to 9router.github.io
-        uses: peaceiris/actions-gh-pages@v4
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          deploy_key: ${{ secrets.GH_PAGES_DEPLOY_KEY }}
-          external_repository: 9router/9router.github.io
-          publish_branch: main
-          publish_dir: gitbook/out
-          force_orphan: true
-          user_name: github-actions[bot]
-          user_email: github-actions[bot]@users.noreply.github.com
-          commit_message: "deploy: ${{ github.sha }}"
+          path: gitbook/out
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,12 +1,11 @@
 {
-  "name": "9router-docs",
+  "name": "khatamrouter-docs",
   "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "next dev -p 3001",
     "build": "next build",
-    "start": "next start -p 3001",
-    "deploy": "npm run build && npx wrangler pages deploy out --project-name=9router-docs --commit-dirty=true"
+    "start": "next start -p 3001"
   },
   "dependencies": {
     "lucide-react": "^0.563.0",
