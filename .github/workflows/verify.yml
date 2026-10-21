@@ -269,10 +269,20 @@ jobs:
           echo "all parallel verify jobs succeeded"
 
   build-image:
-    name: Build container image
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    name: Build container image (${{ matrix.arch }})
     needs: [verify]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     permissions:
       contents: read
     defaults:
@@ -285,30 +295,30 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Build container image (no push)
+      - name: Build image (${{ matrix.arch }})
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile.bun
-          platforms: linux/amd64
+          platforms: ${{ matrix.platform }}
           push: false
           load: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=khatam-image
+          cache-to: type=gha,scope=khatam-image-${{ matrix.arch }},mode=max
 
       - name: Image build summary
         if: always()
         run: |
           set -euo pipefail
           {
-            echo "## Container image build"
+            echo "## Container image build (${{ matrix.arch }})"
             echo ""
-            echo "Dockerfile: \`./Dockerfile.bun\` (context: \`.\`, platform: \`linux/amd64\`, push: disabled, nothing published)"
+            echo "Dockerfile: \`./Dockerfile.bun\` (context: \`.\`, platform: \`${{ matrix.platform }}\`, push: disabled, nothing published)"
             echo ""
             if [ "${{ job.status }}" = "success" ]; then
               echo "**Result:** the image built successfully. The full multi-stage Docker build is verified on this PR."
             else
-              echo "**Result:** the image build FAILED. \`./Dockerfile.bun\` could not be built for \`linux/amd64\` - fix the Dockerfile/dependencies before merging."
+              echo "**Result:** the image build FAILED. \`./Dockerfile.bun\` could not be built for \`${{ matrix.platform }}\` - fix the Dockerfile/dependencies before merging."
             fi
             echo ""
             echo "Job status at summary time: \`${{ job.status }}\`"
