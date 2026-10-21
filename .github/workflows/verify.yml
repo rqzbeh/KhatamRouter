@@ -4,6 +4,8 @@ on:
   pull_request:
     branches: [master]
     types: [opened, synchronize, reopened]
+  push:
+    branches: [master]
   workflow_dispatch:
 
 permissions:
@@ -14,10 +16,48 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
-    name: Verify (tests + baselines)
+  typecheck:
+    name: Verify / Typecheck
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: bun.lock
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+
+      - name: Install dependencies (root)
+        run: |
+          set -euo pipefail
+          bun install
+
+      - name: Typecheck core
+        run: |
+          set -euo pipefail
+          npx tsc --noEmit -p tsconfig.typecheck-core.json
+
+      - name: Typecheck API
+        run: |
+          set -euo pipefail
+          npx tsc --noEmit -p tsconfig.typecheck-api.json
+
+  baselines:
+    name: Verify / Baselines
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         shell: bash
@@ -63,7 +103,41 @@ jobs:
           set -euo pipefail
           node tests/__baseline__/verify-oauth-urls.mjs
 
-      - name: Unit tests (calibrated subset)
+  unit-core:
+    name: Verify / Unit (core)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: bun.lock
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+
+      - name: Install dependencies (root)
+        run: |
+          set -euo pipefail
+          bun install
+
+      - name: Install dependencies (tests)
+        working-directory: tests
+        run: |
+          set -euo pipefail
+          bun install
+
+      - name: Unit tests (core)
         working-directory: tests
         run: |
           set -euo pipefail
@@ -72,32 +146,100 @@ jobs:
             unit/capabilities-service-kind.test.js \
             unit/db-driver-chain.test.js \
             unit/db-migration-chain.test.js \
-            unit/custom-server-peer-headers.test.js \
-            unit/wave1-bun-ts-redis-sqlite.test.js
+            unit/custom-server-peer-headers.test.js
 
-      - name: Verification coverage summary
-        if: always()
+  unit-wave:
+    name: Verify / Unit (waves)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: bun.lock
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+
+      - name: Install dependencies (root)
         run: |
           set -euo pipefail
+          bun install
+
+      - name: Install dependencies (tests)
+        working-directory: tests
+        run: |
+          set -euo pipefail
+          npx vitest run --reporter=verbose \
+            unit/wave1-bun-ts-redis-sqlite.test.js \
+            unit/wave2-migrations.test.js \
+            unit/wave2-quota-store.test.js \
+            unit/wave3-acl.test.js \
+            unit/wave3-limits.test.js
+
+  verify:
+    name: Verify (tests + baselines)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [typecheck, baselines, unit-core, unit-wave]
+    if: always()
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Aggregate verification results
+        run: |
+          set -euo pipefail
+          echo "typecheck=${{ needs.typecheck.result }}"
+          echo "baselines=${{ needs.baselines.result }}"
+          echo "unit-core=${{ needs.unit-core.result }}"
+          echo "unit-wave=${{ needs.unit-wave.result }}"
+
           {
             echo "## Verify gate coverage"
             echo ""
             echo "Job status at summary time: \`${{ job.status }}\`"
             echo ""
-            echo "### Checks that ran (all calibrated exit 0 on master before this gate was added)"
+            echo "### Parallel Verify Jobs Status"
             echo ""
-            echo "1. \`bun install\` (repo root)"
-            echo "2. \`bun install\` (tests/)"
-            echo "3. \`node tests/__baseline__/verify-providers.mjs\` - provider registry byte-for-byte baseline (94 providers)"
-            echo "4. \`node tests/__baseline__/verify-alias.mjs\` - model alias resolution byte-for-byte baseline (132 tokens)"
-            echo "5. \`node tests/__baseline__/verify-oauth-urls.mjs\` - OAuth URL byte-for-byte baseline"
-            echo "6. \`npx vitest run --reporter=verbose\` over the calibrated subset:"
-            echo "   - unit/capabilities.test.js"
-            echo "   - unit/capabilities-service-kind.test.js"
-            echo "   - unit/db-driver-chain.test.js"
-            echo "   - unit/db-migration-chain.test.js"
-            echo "   - unit/custom-server-peer-headers.test.js"
-            echo "   - unit/wave1-bun-ts-redis-sqlite.test.js"
+            echo "| Job | Identifier | Result |"
+            echo "| --- | --- | --- |"
+            echo "| Verify / Typecheck | \`typecheck\` | \`${{ needs.typecheck.result }}\` |"
+            echo "| Verify / Baselines | \`baselines\` | \`${{ needs.baselines.result }}\` |"
+            echo "| Verify / Unit (core) | \`unit-core\` | \`${{ needs.unit-core.result }}\` |"
+            echo "| Verify / Unit (waves) | \`unit-wave\` | \`${{ needs.unit-wave.result }}\` |"
+            echo ""
+            echo "### Checks that ran across parallel jobs"
+            echo ""
+            echo "1. **Typecheck** (\`typecheck\`):"
+            echo "   - \`npx tsc --noEmit -p tsconfig.typecheck-core.json\`"
+            echo "   - \`npx tsc --noEmit -p tsconfig.typecheck-api.json\`"
+            echo "2. **Baselines** (\`baselines\`):"
+            echo "   - \`node tests/__baseline__/verify-providers.mjs\` (94 providers)"
+            echo "   - \`node tests/__baseline__/verify-alias.mjs\` (132 tokens)"
+            echo "   - \`node tests/__baseline__/verify-oauth-urls.mjs\`"
+            echo "3. **Unit (core)** (\`unit-core\`):"
+            echo "   - \`unit/capabilities.test.js\`"
+            echo "   - \`unit/capabilities-service-kind.test.js\`"
+            echo "   - \`unit/db-driver-chain.test.js\`"
+            echo "   - \`unit/db-migration-chain.test.js\`"
+            echo "   - \`unit/custom-server-peer-headers.test.js\`"
+            echo "4. **Unit (waves)** (\`unit-wave\`):"
+            echo "   - \`unit/wave1-bun-ts-redis-sqlite.test.js\`"
+            echo "   - \`unit/wave2-migrations.test.js\`"
+            echo "   - \`unit/wave2-quota-store.test.js\`"
+            echo "   - \`unit/wave3-acl.test.js\`"
+            echo "   - \`unit/wave3-limits.test.js\`"
             echo ""
             echo "### Checks deliberately excluded (this gate does NOT run them)"
             echo ""
@@ -109,14 +251,22 @@ jobs:
             echo "- **Lint (\`npx eslint .\`)**, **build (\`npm run build\`)**, **e2e / live-provider tests**: not calibrated as exit 0 for this gate; out of scope for the initial PR verification gate."
             echo "- **\`tests/__baseline__/verify-no-regression.mjs\`**: not part of the calibrated set for this gate."
             echo ""
-            echo "A green check here means exactly the six baseline scripts/tests above passed - no more."
+            echo "A green check here means all four parallel verify jobs succeeded."
           } >> "$GITHUB_STEP_SUMMARY"
+
+          for r in "${{ needs.typecheck.result }}" "${{ needs.baselines.result }}" "${{ needs.unit-core.result }}" "${{ needs.unit-wave.result }}"; do
+            if [ "$r" != "success" ]; then
+              echo "::error::a parallel verify job did not succeed ($r)"
+              exit 1
+            fi
+          done
+          echo "all parallel verify jobs succeeded"
 
   build-image:
     name: Build container image
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: verify
+    needs: [verify]
     permissions:
       contents: read
     defaults:
