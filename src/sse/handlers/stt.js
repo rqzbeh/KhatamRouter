@@ -8,6 +8,7 @@ import { getKeyAccessContext, enforceKeyAccessResolved, extractClientApiKey } fr
 import { isTrustedInternalRequest } from "../services/internalTrust.js";
 import { enforceUnifiedAcl } from "../services/allowedModels.js";
 import { getApiKeyByKey } from "@/lib/db/repos/apiKeysRepo.js";
+import { checkApiKeyUsageLimits, formatQuotaErrorResponse } from "@/lib/usage/apiKeyUsageLimits.js";
 import { handleSttCore } from "open-sse/handlers/sttCore.js";
 import { errorResponse, unavailableResponse } from "open-sse/utils/error.js";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
@@ -76,6 +77,19 @@ export async function handleStt(request) {
         keyRecord,
       });
       if (aclDenied) return aclDenied;
+
+      // 6. Granular API Key Rate/Quota Limits & Spend Caps
+      const limitResult = await checkApiKeyUsageLimits({ apiKeyRow: keyRecord });
+      if (limitResult && !limitResult.allowed) {
+        const formatted = formatQuotaErrorResponse(limitResult);
+        return new Response(JSON.stringify(formatted.body), {
+          status: formatted.status,
+          headers: {
+            ...formatted.headers,
+            "Access-Control-Allow-Origin": "*",
+          },
+        });
+      }
     }
   }
 

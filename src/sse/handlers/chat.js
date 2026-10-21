@@ -29,6 +29,7 @@ import { getKeyAccessContext, enforceKeyAccess, filterAdapterModels, extractClie
 import { isTrustedInternalRequest } from "../services/internalTrust.js";
 import { enforceUnifiedAcl } from "../services/allowedModels.js";
 import { getApiKeyByKey } from "@/lib/db/repos/apiKeysRepo.js";
+import { checkApiKeyUsageLimits, formatQuotaErrorResponse } from "@/lib/usage/apiKeyUsageLimits.js";
 
 /**
  * Handle chat completion request
@@ -104,6 +105,19 @@ export async function handleChat(request, clientRawRequest = null) {
         keyRecord,
       });
       if (aclDenied) return aclDenied;
+
+      // 6. Granular API Key Rate/Quota Limits & Spend Caps
+      const limitResult = await checkApiKeyUsageLimits({ apiKeyRow: keyRecord });
+      if (limitResult && !limitResult.allowed) {
+        const formatted = formatQuotaErrorResponse(limitResult);
+        return new Response(JSON.stringify(formatted.body), {
+          status: formatted.status,
+          headers: {
+            ...formatted.headers,
+            "Access-Control-Allow-Origin": "*",
+          },
+        });
+      }
     }
   }
 

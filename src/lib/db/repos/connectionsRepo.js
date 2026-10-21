@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 import { getAdapter } from "../driver.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
+import { sanitizeConnectionLimitOverrides } from "open-sse/services/rateLimitManager/overrides.js";
 
 const OPTIONAL_FIELDS = [
   "displayName", "email", "globalPriority", "defaultModel",
@@ -44,13 +45,15 @@ function rowToConn(row) {
     email: row.email,
     priority: row.priority,
     isActive: row.isActive === 1 || row.isActive === true,
+    rate_limit_overrides_json: row.rate_limit_overrides_json ? parseJson(row.rate_limit_overrides_json, null) : null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
 }
 
 function connToRow(c) {
-  const { id, provider, authType, name, email, priority, isActive, createdAt, updatedAt, ...rest } = c;
+  const { id, provider, authType, name, email, priority, isActive, createdAt, updatedAt, rate_limit_overrides_json, ...rest } = c;
+  const sanitizedOverrides = sanitizeConnectionLimitOverrides(rate_limit_overrides_json);
   return {
     id,
     provider,
@@ -59,6 +62,7 @@ function connToRow(c) {
     email: email ?? null,
     priority: priority ?? null,
     isActive: isActive === false ? 0 : 1,
+    rate_limit_overrides_json: sanitizedOverrides ? JSON.stringify(sanitizedOverrides) : null,
     data: stringifyJson(rest),
     createdAt,
     updatedAt,
@@ -68,13 +72,14 @@ function connToRow(c) {
 function upsert(db, c) {
   const r = connToRow(c);
   db.run(
-    `INSERT INTO providerConnections(id, provider, authType, name, email, priority, isActive, data, createdAt, updatedAt)
-     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO providerConnections(id, provider, authType, name, email, priority, isActive, rate_limit_overrides_json, data, createdAt, updatedAt)
+     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        provider=excluded.provider, authType=excluded.authType, name=excluded.name,
        email=excluded.email, priority=excluded.priority, isActive=excluded.isActive,
+       rate_limit_overrides_json=excluded.rate_limit_overrides_json,
        data=excluded.data, updatedAt=excluded.updatedAt`,
-    [r.id, r.provider, r.authType, r.name, r.email, r.priority, r.isActive, r.data, r.createdAt, r.updatedAt]
+    [r.id, r.provider, r.authType, r.name, r.email, r.priority, r.isActive, r.rate_limit_overrides_json, r.data, r.createdAt, r.updatedAt]
   );
 }
 

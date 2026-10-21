@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import crypto from "node:crypto";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
 
-const fx = vi.hoisted(() => ({
+globalThis.__wave3_acl_fx = globalThis.__wave3_acl_fx || {
   combos: [
     { id: "c1", name: "Main", models: ["openai/model-a", "openai/model-b"] },
     { id: "c2", name: "Fast", models: ["openai/model-a"] },
@@ -23,7 +23,8 @@ const fx = vi.hoisted(() => ({
   },
   keys: {},
   settings: { requireApiKey: false },
-}));
+};
+const fx = globalThis.__wave3_acl_fx;
 
 vi.mock("@/lib/localDb", () => ({
   getModelAliases: async () => fx.aliases,
