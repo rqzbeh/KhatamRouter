@@ -3,6 +3,39 @@ const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const { pathToFileURL } = require("url");
+const { assertProductionSecrets } = require("./runtime-secrets.cjs");
+
+assertProductionSecrets();
+
+// ── Dual-port resolution (Constitution Principle II) ────────────────────────
+// Control plane (dashboard/Next.js) listens on DASHBOARD_PORT, defaulting to
+// PORT for legacy deployments, defaulting again to 20128.
+// Data plane (Go gateway) exposes ENDPOINT_PORT, default 20129.
+const DEFAULT_DASHBOARD_PORT = 20128;
+const DEFAULT_ENDPOINT_PORT = 20129;
+
+function normalizePort(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed > 0 && parsed <= 65535 ? parsed : fallback;
+}
+
+// Legacy callers pass `--port` (e.g. `npm start` -> `custom-server.js --port 20127`).
+// When present it names the dashboard listener and outranks the environment,
+// matching Next's own precedence (`argv --port` before `process.env.PORT`).
+const portArgIndex = process.argv.indexOf("--port");
+const cliPort = portArgIndex === -1 ? null : normalizePort(process.argv[portArgIndex + 1], null);
+
+// The dashboard listener resolves --port -> DASHBOARD_PORT -> PORT -> 20128.
+const DASHBOARD_PORT =
+  cliPort ?? normalizePort(process.env.DASHBOARD_PORT || process.env.PORT, DEFAULT_DASHBOARD_PORT);
+const ENDPOINT_PORT = normalizePort(process.env.ENDPOINT_PORT, DEFAULT_ENDPOINT_PORT);
+
+// Expose the resolved contract to the process tree. Next's standalone server.js
+// binds process.env.PORT, so pin it to the dashboard port; the Go gateway reads
+// ENDPOINT_PORT directly.
+process.env.DASHBOARD_PORT = String(DASHBOARD_PORT);
+process.env.ENDPOINT_PORT = String(ENDPOINT_PORT);
+process.env.PORT = String(DASHBOARD_PORT);
 
 const origCreate = http.createServer.bind(http);
 
@@ -11,7 +44,52 @@ const origCreate = http.createServer.bind(http);
 // header even though the env var is inherited by child processes. Named like x-9r-cli-token
 // so the request-detail header sanitizer redacts it too.
 const PEER_TOKEN = crypto.randomBytes(24).toString("hex");
-process.env.NINEROUTER_PEER_TOKEN = PEER_TOKEN;
+process.env.KHATAMROUTER_PEER_TOKEN = PEER_TOKEN;
+process.env.NINEROUTER_PEER_TOKEN = PEER_TOKEN; // legacy 9router alias
+process.env.VANSROUTER_PEER_TOKEN = PEER_TOKEN; // legacy VansRouter alias
+
+// ── h2c chunked body parser (ported from VansRouter) ────────────────────────
+const MAX_H2C_BODY_BYTES = 64 * 1024 * 1024;
+const H2C_CRLF = Buffer.from("\r\n");
+const H2C_CRLF_CRLF = Buffer.from("\r\n\r\n");
+
+function parseChunkedBody(input, { maxBytes = MAX_H2C_BODY_BYTES } = {}) {
+  const buffer = Buffer.isBuffer(input) ? input : Buffer.from(input);
+  const chunks = [];
+  let offset = 0;
+  let bodyBytes = 0;
+
+  while (true) {
+    const lineEnd = buffer.indexOf(H2C_CRLF, offset);
+    if (lineEnd === -1) return null;
+    const sizeToken = buffer.subarray(offset, lineEnd).toString("ascii").split(";", 1)[0].trim();
+    if (!/^[0-9a-f]+$/i.test(sizeToken)) {
+      throw new Error(`Invalid chunk size: ${sizeToken || "<empty>"}`);
+    }
+    const size = Number.parseInt(sizeToken, 16);
+    if (!Number.isSafeInteger(size)) throw new Error(`Chunk size is too large: ${sizeToken}`);
+    offset = lineEnd + H2C_CRLF.length;
+
+    if (size === 0) {
+      if (buffer.length >= offset + 2 && buffer.subarray(offset, offset + 2).equals(H2C_CRLF)) {
+        return { body: Buffer.concat(chunks), end: offset + 2 };
+      }
+      const trailerEnd = buffer.indexOf(H2C_CRLF_CRLF, offset);
+      if (trailerEnd === -1) return null;
+      return { body: Buffer.concat(chunks), end: trailerEnd + H2C_CRLF_CRLF.length };
+    }
+
+    bodyBytes += size;
+    if (bodyBytes > maxBytes) throw new Error(`Chunked body exceeds ${maxBytes} bytes`);
+    if (buffer.length < offset + size + 2) return null;
+    chunks.push(buffer.subarray(offset, offset + size));
+    offset += size;
+    if (!buffer.subarray(offset, offset + 2).equals(H2C_CRLF)) {
+      throw new Error("Chunk data is not terminated by CRLF");
+    }
+    offset += 2;
+  }
+}
 
 let backgroundRefreshStarted = false;
 
@@ -77,46 +155,115 @@ http.createServer = (...args) => {
     startBackgroundTokenRefreshFromCustomServer();
   });
   const origEmit = server.emit;
+
   // JBR 25 sends h2c upgrades that the HTTP/1.1 server would otherwise close.
   server.emit = function (event, ...eventArgs) {
-    const [req, socket, head] = eventArgs;
+    const [req, socket, head = Buffer.alloc(0)] = eventArgs;
     if (event !== "upgrade" || String(req.headers.upgrade || "").toLowerCase() !== "h2c") {
       return origEmit.call(this, event, ...eventArgs);
     }
 
-    const contentLength = Number(req.headers["content-length"] || 0);
-    if (!Number.isSafeInteger(contentLength) || contentLength < 0) {
-      socket.destroy();
+    const contentLengthHeader = req.headers["content-length"];
+    const transferEncodingHeader = req.headers["transfer-encoding"];
+    const rejectRequest = (message) => {
+      if (!socket.destroyed) {
+        const body = Buffer.from(message);
+        socket.end(`HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: ${body.length}\r\n\r\n${body}`);
+      }
+    };
+
+    // Request smuggling defense: a combined Content-Length + Transfer-Encoding
+    // lets intermediaries disagree about where the body ends. Refuse it outright.
+    if (contentLengthHeader !== undefined && transferEncodingHeader !== undefined) {
+      rejectRequest("Content-Length and Transfer-Encoding cannot be combined\n");
       return true;
     }
+
+    const transferEncoding = transferEncodingHeader === undefined
+      ? null
+      : String(transferEncodingHeader).split(",").map((value) => value.trim().toLowerCase()).filter(Boolean);
+    if (transferEncoding && (transferEncoding.length !== 1 || transferEncoding[0] !== "chunked")) {
+      rejectRequest("Unsupported h2c transfer encoding\n");
+      return true;
+    }
+
+    let expectedLength = 0;
+    if (contentLengthHeader !== undefined) {
+      expectedLength = Number(contentLengthHeader);
+      if (!Number.isSafeInteger(expectedLength) || expectedLength < 0) {
+        rejectRequest("Invalid Content-Length\n");
+        return true;
+      }
+    }
+    if (expectedLength > MAX_H2C_BODY_BYTES || head.length > MAX_H2C_BODY_BYTES) {
+      rejectRequest("h2c body is too large\n");
+      return true;
+    }
+
     const chunks = [head];
     let received = head.length;
-    const serve = () => {
+    let settled = false;
+    const serve = (body) => {
+      if (settled) return;
+      settled = true;
+      socket.off("data", readBody);
       // Replay the upgraded request through the existing HTTP/1.1 handler.
       const replay = new http.IncomingMessage(socket);
       Object.assign(replay, { method: req.method, url: req.url, headers: req.headers, complete: true });
-      if (received) replay.push(Buffer.concat(chunks, received).subarray(0, contentLength));
+      if (body && body.length) replay.push(body);
       replay.push(null);
+
       const res = new http.ServerResponse(replay);
       res.shouldKeepAlive = false;
       res.assignSocket(socket);
       res.once("finish", () => socket.end());
-      Promise.resolve().then(() => wrapped(replay, res)).catch((error) => {
-        console.error("Failed to downgrade h2c request", error);
-        socket.destroy();
-      });
+      Promise.resolve()
+        .then(() => wrapped(replay, res))
+        .catch((error) => {
+          console.error("Failed to downgrade h2c request", error);
+          socket.destroy();
+        });
     };
-    if (received >= contentLength) serve();
-    else {
-      socket.on("data", function readBody(chunk) {
-        chunks.push(chunk);
-        received += chunk.length;
-        if (received < contentLength) return;
-        socket.off("data", readBody);
-        serve();
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      socket.off("data", readBody);
+      rejectRequest(`${error.message}\n`);
+    };
+    const tryComplete = () => {
+      try {
+        if (transferEncoding) {
+          const result = parseChunkedBody(Buffer.concat(chunks, received));
+          if (result) serve(result.body);
+          return;
+        }
+        if (received >= expectedLength) {
+          serve(Buffer.concat(chunks, received).subarray(0, expectedLength));
+        }
+      } catch (error) {
+        fail(error);
+      }
+    };
+    const readBody = (chunk) => {
+      if (settled) return;
+      chunks.push(chunk);
+      received += chunk.length;
+      if (received > MAX_H2C_BODY_BYTES) {
+        fail(new Error("h2c body is too large"));
+        return;
+      }
+      tryComplete();
+    };
+
+    if (transferEncoding || received < expectedLength) {
+      socket.on("data", readBody);
+      socket.on("end", () => {
+        if (!settled) fail(new Error("h2c request ended before the body was complete"));
       });
       socket.resume();
     }
+    tryComplete();
+
     delete req.headers.upgrade;
     delete req.headers["http2-settings"];
     req.headers.connection = "close";
@@ -137,3 +284,12 @@ if (require.main === module) {
     require(nextBin);
   }
 }
+
+module.exports = {
+  DASHBOARD_PORT,
+  ENDPOINT_PORT,
+  PEER_TOKEN,
+  MAX_H2C_BODY_BYTES,
+  parseChunkedBody,
+  startBackgroundTokenRefreshFromCustomServer,
+};

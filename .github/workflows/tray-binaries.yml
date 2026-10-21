@@ -109,7 +109,7 @@ jobs:
       # Uploaded before the mismatch gate below, so a publish run that fails on a
       # checksum mismatch still leaves the bytes downloadable — that is exactly
       # the run where a maintainer needs them to verify the new sha256.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: tray_darwin_arm64
           path: |
