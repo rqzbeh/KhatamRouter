@@ -8,6 +8,14 @@ const tracingRoot = process.env.NEXT_TRACING_ROOT_MODE === "workspace"
   ? join(projectRoot, "..")
   : projectRoot;
 const proxyClientMaxBodySize = process.env.NINEROUTER_PROXY_CLIENT_MAX_BODY_SIZE || "128mb";
+// Cap the number of workers `next build` spawns during page-data collection so
+// container builds respect memory caps (Dockerfile.bun passes NEXT_BUILD_CPUS,
+// which previously had no consumer and was silently ignored). Parse defensively:
+// reject NaN/0/negative and fall back to undefined so Next keeps its default.
+const buildCpus = process.env.NEXT_BUILD_CPUS
+  ? Number.parseInt(process.env.NEXT_BUILD_CPUS, 10)
+  : undefined;
+const nextBuildCpus = Number.isNaN(buildCpus) || buildCpus <= 0 ? undefined : buildCpus;
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -43,6 +51,8 @@ const nextConfig = {
   experimental: {
     // #1529/#1572: LLM clients can send long context or base64 image payloads through /v1 rewrites.
     proxyClientMaxBodySize,
+    // Cap worker threads during build so container environments respect memory limits.
+    ...(nextBuildCpus !== undefined ? { cpus: nextBuildCpus } : {}),
     // Cache fetch responses across HMR refreshes for faster dev reloads.
     serverComponentsHmrCache: true,
     // Tree-shake heavy barrel imports to cut compile + bundle size
