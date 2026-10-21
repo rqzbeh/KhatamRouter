@@ -574,9 +574,8 @@ function checkShippedClaims(docPath, repoRoot, codebaseText) {
   ]);
 
   lines.forEach((line, lineIdx) => {
-    if (!line.includes("🟢 Shipped")) return;
-    if (/^#{1,6}\s+/.test(line.trim())) return;
-    if (line.includes("Nothing in this document")) return;
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("|") || !trimmed.includes("🟢 Shipped")) return;
 
     const backticks = [...line.matchAll(/`([^`]+)`/g)].map((m) => m[1].trim());
 
