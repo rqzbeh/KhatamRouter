@@ -111,3 +111,49 @@ jobs:
             echo ""
             echo "A green check here means exactly the six baseline scripts/tests above passed - no more."
           } >> "$GITHUB_STEP_SUMMARY"
+
+  build-image:
+    name: Build container image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: verify
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build container image (no push)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile.bun
+          platforms: linux/amd64
+          push: false
+          load: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Image build summary
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo "## Container image build"
+            echo ""
+            echo "Dockerfile: \`./Dockerfile.bun\` (context: \`.\`, platform: \`linux/amd64\`, push: disabled, nothing published)"
+            echo ""
+            if [ "${{ job.status }}" = "success" ]; then
+              echo "**Result:** the image built successfully. The full multi-stage Docker build is verified on this PR."
+            else
+              echo "**Result:** the image build FAILED. \`./Dockerfile.bun\` could not be built for \`linux/amd64\` - fix the Dockerfile/dependencies before merging."
+            fi
+            echo ""
+            echo "Job status at summary time: \`${{ job.status }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
