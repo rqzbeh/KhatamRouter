@@ -453,9 +453,9 @@ URL par défaut :
 
 ### 🚀 Économiseur de tokens RTK
 
-Les sorties des outils (`git diff`, `grep`, `find`, `ls`, `tree`, vidages de journaux...) consomment souvent 30 à 50 % de votre budget de prompt. RTK les détecte et applique une compression intelligente et sans perte **avant** que la requête n'atteigne le LLM :
+Les sorties des outils (`git diff`, `grep`, `find`, `ls`, `tree`, vidages de journaux...) consomment souvent 30 à 50 % de votre budget de prompt. RTK les détecte et applique une compression intelligente avec troncature **avant** que la requête n'atteigne le LLM. Elle est volontairement avec perte : chaque filtre tronque les sections très longues et à faible signal (hunks de diff limités à 100 lignes, journaux répétitifs dédupliqués et limités à 2 000 lignes, seules les 3 principales dépréciations et 5 avertissements de compilation conservés) :
 
-- **Filtres :** `git-diff`, `git-status`, `grep`, `find`, `ls`, `tree`, `dedup-log`, `smart-truncate`, `read-numbered`, `search-list`
+- **Filtres :** `git-diff`, `git-status`, `grep`, `find`, `ls`, `tree`, `dedup-log`, `smart-truncate`, `read-numbered`, `search-list`, `build-output`
 - **Détection automatique :** Aucune configuration requise — RTK inspecte le premier 1 Ko de chaque `tool_result` et choisit le bon filtre.
 - **Sûr par conception :** Si un filtre échoue, génère une erreur ou rend la sortie plus volumineuse, RTK conserve silencieusement le texte original. Les erreurs ne cassent jamais votre requête.
 - **Universel :** Fonctionne dans tous les formats (OpenAI, Claude, Gemini, Cursor, Kiro, OpenAI Responses) car il s'exécute **avant** toute traduction de format.
@@ -463,7 +463,7 @@ Les sorties des outils (`git diff`, `grep`, `find`, `ls`, `tree`, vidages de jou
 
 ```
 Sans RTK : 47K tokens envoyés au LLM
-Avec RTK :   28K tokens envoyés au LLM   (40 % économisés · même contexte · même réponse)
+Avec RTK :   28K tokens envoyés au LLM   (40 % économisés · même contexte · même réponse — chiffre d'exemple du 9Router upstream)
 ```
 
 ### 🧠 Économiseur de tokens Headroom

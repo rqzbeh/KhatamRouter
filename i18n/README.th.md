@@ -350,9 +350,9 @@ URL ค่าเริ่มต้น:
 
 ### 🚀 RTK Token Saver
 
-ผลลัพธ์จากเครื่องมือ (`git diff`, `grep`, `find`, `ls`, `tree`, log dumps...) มักกินงบประมาณ prompt 30-50% RTK ตรวจสอบและบีบอัดอย่างชาญฉลาดแบบ lossless **ก่อน**คำขอถึง LLM:
+ผลลัพธ์จากเครื่องมือ (`git diff`, `grep`, `find`, `ls`, `tree`, log dumps...) มักกินงบประมาณ prompt 30-50% RTK ตรวจสอบและบีบอัดลดโทเค็นด้วยการตัดทอนเนื้อหาที่ยาวเกินไป (lossy truncation) **ก่อน**คำขอถึง LLM โดยตัดทอนส่วนที่ยาวและมีสัญญาณต่ำอย่างเจาะจง (git diff hunk จำกัดที่ 100 บรรทัด, dedup log จำกัดที่ 2,000 บรรทัด, build output เก็บเฉพาะ deprecations สูงสุด 3 รายการและคำเตือน 5 รายการ):
 
-- **ตัวกรอง:** `git-diff`, `git-status`, `grep`, `find`, `ls`, `tree`, `dedup-log`, `smart-truncate`, `read-numbered`, `search-list`
+- **ตัวกรอง:** `git-diff`, `git-status`, `grep`, `find`, `ls`, `tree`, `dedup-log`, `smart-truncate`, `read-numbered`, `search-list`, `build-output`
 - **ตรวจจับอัตโนมัติ:** ไม่ต้องตั้งค่า — RTK .peek 1KB แรกของแต่ละ `tool_result` และเลือกตัวกรองที่ถูกต้อง
 - **ปลอดภัยโดยการออกแบบ:** ถ้าตัวกรองล้มเหลว, ขว้าง error, หรือทำให้ผลลัพธ์ใหญ่ขึ้น RTK จะเก็บข้อความต้นฉบับไว้โดยเงียบๆ ไม่มี error ทำให้คำขอของคุณล้มเหลว
 - **ใช้ได้ทุกที่:** ใช้ได้กับทุกรูปแบบ (OpenAI, Claude, Gemini, Cursor, Kiro, OpenAI Responses) เพราะทำงาน **ก่อน**การแปลงรูปแบบใดๆ
@@ -360,7 +360,7 @@ URL ค่าเริ่มต้น:
 
 ```
 ไม่ใช้ RTK: ส่ง 47K โทเค็นให้ LLM
-ใช้ RTK:    ส่ง 28K โทเค็นให้ LLM   (ประหยัด 40% · บริบทเดียวกัน · คำตอบเดียวกัน)
+ใช้ RTK:    ส่ง 28K โทเค็นให้ LLM   (ประหยัด 40% · บริบทเดียวกัน · คำตอบเดียวกัน — ตัวเลขตัวอย่างจาก 9Router upstream)
 ```
 
 ### 🧠 Headroom Token Saver

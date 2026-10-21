@@ -37,7 +37,7 @@
 - 🗄️ **SQLite in WAL mode with integrity preflight** — Concurrent multi-process database sharing with a 5000ms `busy_timeout` and startup validation that refuses silent in-memory fallback over existing data.
 - 🚀 **Optional Redis accelerator (`khatam:` namespace)** — Low-latency cluster-wide Pub/Sub event bus and real-time config invalidation, with automatic SQLite fallback when `REDIS_URL` is unset (rate limits & quotas in Waves 2 & 3).
 - 🧱 **Hardened request ingestion** — Bounded 128 MiB JSON request bodies (`proxyClientMaxBodySize`), 64 MiB h2c chunked stream cap with strict CRLF enforcement, and immediate rejection of combined Content-Length/Transfer-Encoding smuggling attempts.
-- ✂️ **Multi-layer token savers** — Lossless 10 MiB RTK tool compression, Caveman terseness prompts, and YAGNI-first Ponytail (Lite/Full/Ultra) modes saving 20-40% input and up to 65% output tokens.
+- ✂️ **Multi-layer token savers** — Token-reducing 10 MiB RTK tool compression (intentionally truncates verbose diffs, logs, and build outputs), Caveman terseness prompts, and YAGNI-first Ponytail (Lite/Full/Ultra) modes saving an upstream-claimed 20-40% input and up to 65% output tokens.
 - 🔄 **Unified API gateway & Next.js dashboard (port 20128)** — Single lightweight endpoint serving both web dashboard and OpenAI-compatible `/v1/*` proxy routing across 40+ providers.
 
 #### 🟡 Upcoming Roadmap Capabilities
@@ -630,9 +630,9 @@ Set `X-9Router-Token-Saver: off` to bypass all token savers for one chat request
 
 ### 🚀 RTK Token Saver
 
-Tool outputs (`git diff`, `grep`, `find`, `ls`, `tree`, log dumps...) often eat 30-50% of your prompt budget. RTK detects them and applies smart, lossless compression **before** the request hits the LLM:
+Tool outputs (`git diff`, `grep`, `find`, `ls`, `tree`, log dumps...) often eat 30-50% of your prompt budget. RTK detects them and applies smart, token-reducing compression **before** the request hits the LLM. This is intentionally lossy: each filter truncates very long, low-signal sections (diff hunks capped at 100 lines, repetitive logs deduplicated and capped at 2,000 lines, only the top 3 build deprecations and top 5 warnings kept):
 
-- **Filters:** `git-diff`, `git-status`, `grep`, `find`, `ls`, `tree`, `dedup-log`, `smart-truncate`, `read-numbered`, `search-list`
+- **Filters:** `git-diff`, `git-status`, `grep`, `find`, `ls`, `tree`, `dedup-log`, `smart-truncate`, `read-numbered`, `search-list`, `build-output`
 - **Auto-detect:** No config needed — RTK peeks the first 1KB of each `tool_result` and picks the right filter.
 - **Safe by design:** If a filter fails, throws, or makes output bigger, RTK silently keeps the original text. Errors never break your request.
 - **Universal:** Works across all formats (OpenAI, Claude, Gemini, Cursor, Kiro, OpenAI Responses) because it runs **before** any format translation.
@@ -640,7 +640,7 @@ Tool outputs (`git diff`, `grep`, `find`, `ls`, `tree`, log dumps...) often eat 
 
 ```
 Without RTK: 47K tokens sent to LLM
-With RTK:    28K tokens sent to LLM   (40% saved · same context · same answer)
+With RTK:    28K tokens sent to LLM   (40% saved · same context · same answer — upstream 9Router example figure)
 ```
 
 ### 🧠 Headroom Token Saver
