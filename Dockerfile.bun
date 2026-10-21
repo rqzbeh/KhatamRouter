@@ -46,6 +46,10 @@ ENV NODE_OPTIONS=${NODE_OPTIONS}
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
+# Build-local throwaway path so build-time operations never touch /root/.9router or leak into the image
+ENV DATA_DIR=/tmp/khatam-build-data
+ENV DATA_DIR_ALLOW_TEMP=1
+
 # Next.js build execution under Bun
 RUN bun run build
 

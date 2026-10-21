@@ -17,9 +17,16 @@ export async function ensureOutboundProxyInitialized() {
   return initialized;
 }
 
+// Skip during Next.js build/prerender — outbound proxy is a server runtime concern
+const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build"
+  || process.env.NEXT_PHASE === "phase-export"
+  || process.env.NEXT_PHASE === "phase-static";
+
 // Defer init so HTTP server accepts connections first
-setImmediate(() => {
-  ensureOutboundProxyInitialized().catch(console.log);
-});
+if (!isBuildPhase) {
+  setImmediate(() => {
+    ensureOutboundProxyInitialized().catch(console.log);
+  });
+}
 
 export default ensureOutboundProxyInitialized;
