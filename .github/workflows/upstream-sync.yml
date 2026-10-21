@@ -1,0 +1,173 @@
+name: Sync upstream decolua/9router
+
+# Pull new commits from decolua/9router into rqzbeh/KhatamRouter.
+#
+# This repository is a content fork: it was created from an orphan commit, so
+# `origin/master` and `upstream/master` share no merge base and every merge
+# needs --allow-unrelated-histories. KhatamRouter also deliberately diverges on
+# branding, CI, and OAuth-literal handling, so conflicts are resolved from
+# .github/upstream-sync-overrides.txt and the whole merged tree is scanned for
+# upstream Google OAuth literals before anything is pushed (GitHub push
+# protection would otherwise reject the branch).
+#
+# Maintainer notes: .github/UPSTREAM_SYNC.md
+
+on:
+  schedule:
+    # 03:17 UTC daily — deliberately off the top of the hour to avoid the
+    # GitHub cron congestion window.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Skip the 'already up to date' / 'sync PR already open' short-circuits"
+        required: false
+        default: false
+        type: boolean
+  repository_dispatch:
+    types: [upstream-sync]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: upstream-sync-${{ github.repository }}
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REMOTE: upstream
+  UPSTREAM_REPO_URL: https://github.com/decolua/9router.git
+  UPSTREAM_BRANCH: master
+  BASE_BRANCH: master
+  OVERRIDE_LIST: .github/upstream-sync-overrides.txt
+  SYNC_LABEL: upstream-sync
+
+jobs:
+  sync:
+    name: Merge upstream and open PR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote and fetch
+        run: |
+          set -euo pipefail
+          bash scripts/upstream-sync-local.sh prepare
+
+      - name: Check whether a sync is needed
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.force || false }}
+        run: |
+          set -euo pipefail
+          bash scripts/upstream-sync-local.sh check
+
+      - name: Create sync branch
+        id: branch
+        if: steps.check.outputs.outcome == 'continue'
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          bash scripts/upstream-sync-local.sh branch
+
+      - name: Merge upstream
+        id: merge
+        if: steps.check.outputs.outcome == 'continue'
+        run: |
+          set -euo pipefail
+          bash scripts/upstream-sync-local.sh merge
+
+      - name: Resolve conflicts from override list
+        id: resolve
+        if: steps.check.outputs.outcome == 'continue' && steps.merge.outputs.merge_result != 'aborted'
+        run: |
+          set -euo pipefail
+          bash scripts/upstream-sync-local.sh resolve
+
+      - name: Sanitize OAuth literals (push-protection guard)
+        if: steps.check.outputs.outcome == 'continue' && steps.merge.outputs.merge_result != 'aborted'
+        run: |
+          set -euo pipefail
+          # `fix` rewrites any GOCSPX-… / *.apps.googleusercontent.com literal that
+          # the merge reintroduced; `check` is the loud pre-push gate: it exits 1
+          # (and fails this job) if any literal survives that cannot be rewritten
+          # safely, so we never hand GitHub a branch push protection would reject.
+          bash scripts/upstream-sync-local.sh sanitize
+
+      - name: Commit sync
+        id: commit
+        if: steps.check.outputs.outcome == 'continue' && steps.merge.outputs.merge_result != 'aborted'
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          bash scripts/upstream-sync-local.sh commit
+
+      - name: Push branch and open PR
+        id: pr
+        if: steps.check.outputs.outcome == 'continue' && steps.merge.outputs.merge_result != 'aborted' && steps.commit.outputs.committed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          AUTO_MERGE: ${{ vars.AUTO_MERGE_UPSTREAM || 'false' }}
+        run: |
+          set -euo pipefail
+          bash scripts/upstream-sync-local.sh pr
+
+      - name: Write job summary
+        if: always()
+        env:
+          OUTCOME: ${{ steps.check.outputs.outcome }}
+          SKIP_REASON: ${{ steps.check.outputs.skip_reason }}
+          MERGE_RESULT: ${{ steps.merge.outputs.merge_result }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+          KEPT_OURS: ${{ steps.resolve.outputs.kept_ours }}
+          NEEDS_REVIEW: ${{ steps.resolve.outputs.needs_review }}
+          PR_URL: ${{ steps.pr.outputs.pr_url }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Upstream sync"
+            echo ""
+            echo "- Trigger: \`${EVENT_NAME}\`"
+            echo "- Upstream: \`${UPSTREAM_REPO_URL}\` @ \`${UPSTREAM_BRANCH}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$OUTCOME" = "skip" ]; then
+            {
+              echo "- Result: **skipped** (\`${SKIP_REASON}\`)"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if [ "$MERGE_RESULT" = "aborted" ]; then
+            {
+              echo "- Result: **aborted** — the merge failed for an unexpected reason."
+              echo ""
+              echo "The \"Merge upstream\" step wrote the raw git error above. No PR was created."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          {
+            echo "- Branch: \`${BRANCH}\`"
+            echo "- Conflicts kept on our version: \`${KEPT_OURS:-0}\`"
+            echo "- Conflicts flagged for review: \`${NEEDS_REVIEW:-0}\`"
+            if [ -n "${PR_URL:-}" ]; then
+              echo "- PR: ${PR_URL}"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
