@@ -1,0 +1,70 @@
+# ==============================================================================
+# KhatamRouter Upstream Sync Override List
+# ==============================================================================
+# Files listed here are intentionally maintained differently in KhatamRouter
+# than in upstream (decolua/9router). When `git merge` produces a conflict
+# on any of these paths during an upstream sync, the sync automation resolves
+# it deterministically by taking OUR version (`git checkout --ours -- <path>`).
+#
+# Rules for this file:
+#   - One path per line, relative to the repository root.
+#   - Exact relative paths or glob patterns (e.g. `.specify/**`).
+#   - Lines starting with `#` and empty lines are ignored.
+#   - Keep entries organized by rationale so maintainers know WHY each file
+#     is kept on `--ours`.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Spec-Kit Constitution & Workflow Templates
+# ------------------------------------------------------------------------------
+# KhatamRouter governance and agent workflow definitions. These do not exist
+# upstream and must never be deleted or overwritten by an upstream sync.
+.specify/**
+
+# ------------------------------------------------------------------------------
+# 2. Sanitized OAuth Credentials (GitHub Push-Protection Guard)
+# ------------------------------------------------------------------------------
+# Upstream commits literal public Google OAuth client credentials. KhatamRouter
+# keeps them split via `[...].join("")` in JS/TS source files and redacted in
+# JSON baselines so GitHub push protection never rejects a push.
+open-sse/providers/shared.js
+open-sse/providers/registry/antigravity.js
+open-sse/providers/registry/gemini.js
+open-sse/providers/registry/gemini-cli.js
+tests/__baseline__/providers-baseline.json
+tests/unit/antigravity-oauth-client.test.js
+
+# ------------------------------------------------------------------------------
+# 3. Branding, Documentation, and Local Docs Configuration
+# ------------------------------------------------------------------------------
+# KhatamRouter-specific branding (name, URLs, logos, Next.js docs export).
+gitbook/README.md
+gitbook/components/LanguageSwitcher.js
+gitbook/constants/docsConfig.js
+gitbook/package.json
+
+# ------------------------------------------------------------------------------
+# 4. CI / Automation / Packaging Workflows & Policy
+# ------------------------------------------------------------------------------
+# KhatamRouter maintains its own GitHub Actions workflows (multi-arch Docker
+# publishing to GHCR, GitHub Pages docs deployment, and custom Dependabot rules).
+.github/dependabot.yml
+.github/workflows/docker-publish.yml
+.github/workflows/gitbook-pages.yml
+
+# ------------------------------------------------------------------------------
+# 5. Git Ignore Customizations
+# ------------------------------------------------------------------------------
+# Ignores KhatamRouter-specific local artifacts (e.g., gitbook/README.md).
+.gitignore
+
+# ------------------------------------------------------------------------------
+# 6. The Upstream-Sync Automation Itself
+# ------------------------------------------------------------------------------
+# These files only exist in KhatamRouter. Listed defensively so a future
+# upstream file of the same name can never replace the sync machinery.
+.github/upstream-sync-overrides.txt
+.github/UPSTREAM_SYNC.md
+.github/workflows/upstream-sync.yml
+scripts/upstream-sync-local.sh
+scripts/upstream-sync-sanitizer.mjs
