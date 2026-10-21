@@ -1,21 +1,17 @@
 <div align="center">
-  <img src="./images/9router.png?1" alt="9Router Dashboard" width="800"/>
+  <img src="./images/9router.png?1" alt="KhatamRouter Dashboard" width="800"/>
   
-  # 9Router - FREE AI Router & Token Saver
+  # KhatamRouter - FREE AI Router & Token Saver
   
   **Never stop coding. Save 20-40% tokens with RTK + auto-fallback to FREE & cheap AI models.**
   
   **Connect All AI Code Tools (Claude Code, Cursor, Antigravity, Copilot, Codex, Gemini, OpenCode, Cline, OpenClaw...) to 40+ AI Providers & 100+ Models.**
   
-  [![npm](https://img.shields.io/npm/v/9router.svg)](https://www.npmjs.com/package/9router)
-  [![Downloads](https://img.shields.io/npm/dm/9router.svg)](https://www.npmjs.com/package/9router)
-  [![Docker Pulls](https://img.shields.io/docker/pulls/decolua/9router.svg?logo=docker&label=Docker%20pulls)](https://hub.docker.com/r/decolua/9router)
-  [![GHCR](https://img.shields.io/badge/GHCR-decolua%2F9router-blue?logo=github)](https://github.com/decolua/9router/pkgs/container/9router)
-  [![License](https://img.shields.io/npm/l/9router.svg)](https://github.com/decolua/9router/blob/main/LICENSE)
+  [![GHCR](https://img.shields.io/badge/GHCR-ghcr.io%2Frqzbeh%2Fkhatamrouter-blue?logo=github)](https://github.com/users/rqzbeh/packages)
+  [![Publish Docker Image](https://github.com/rqzbeh/KhatamRouter/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/rqzbeh/KhatamRouter/actions/workflows/docker-publish.yml)
+  [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/rqzbeh/KhatamRouter/blob/master/LICENSE)
 
-<a href="https://trendshift.io/repositories/22628" target="_blank"><img src="https://trendshift.io/api/badge/repositories/22628" alt="decolua%2F9router | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-
-[🚀 Quick Start](#-quick-start) • [💡 Features](#-key-features) • [📖 Setup](#-setup-guide) • [🌐 Website](https://9router.com)
+[🚀 Quick Start](#-quick-start) • [✨ Why KhatamRouter?](#-why-khatamrouter) • [💡 Features](#-key-features) • [📖 Setup](#-setup-guide) • [🌐 Docs](https://rqzbeh.github.io/KhatamRouter/)
 
 [🇧🇷 Português (Brasil)](./i18n/README.pt-BR.md) • [🇻🇳 Tiếng Việt](./i18n/README.vi.md) • [🇨🇳 中文](./i18n/README.zh-CN.md) • [🇯🇵 日本語](./i18n/README.ja-JP.md) • [🇷🇺 Русский](./i18n/README.ru.md) • [🇹🇭 ไทย](./i18n/README.th.md) • [🇮🇷 فارسی](./i18n/README.fa_IR.md) • [🇮🇩 Indonesia](./i18n/README.id-ID.md) • [🇪🇸 Español](./i18n/README.es.md) • [🇫🇷 Français](./i18n/README.fr.md)
 
@@ -23,7 +19,7 @@
 
 ---
 
-## 🤔 Why 9Router?
+## ✨ Why KhatamRouter?
 
 **Stop wasting money, tokens and hitting limits:**
 
@@ -33,13 +29,56 @@
 - ❌ Expensive APIs ($20-50/month per provider)
 - ❌ Manual switching between providers
 
-**9Router solves this:**
+**KhatamRouter solves this with a hardened dual-runtime stack:**
 
-- ✅ **RTK Token Saver** - Auto-compress tool_result content, save 20-40% tokens per request
-- ✅ **Maximize subscriptions** - Track quota, use every bit before reset
-- ✅ **Auto fallback** - Subscription → Cheap → Free, zero downtime
-- ✅ **Multi-account** - Round-robin between accounts per provider
-- ✅ **Universal** - Works with Claude Code, Codex, Cursor, Cline, any CLI tool
+#### 🟢 Shipped Core Capabilities
+
+- ⚡ **Bun v1.4.3 + TypeScript runtime** — Sub-second cold starts, lower resident memory, and type-safe control-plane orchestration powered by native `bun:sqlite`.
+- 🗄️ **SQLite in WAL mode with integrity preflight** — Concurrent multi-process database sharing with a 5000ms `busy_timeout` and startup validation that refuses silent in-memory fallback over existing data.
+- 🚀 **Optional Redis accelerator (`khatam:` namespace)** — Low-latency cluster-wide Pub/Sub event bus and real-time config invalidation, with automatic SQLite fallback when `REDIS_URL` is unset (rate limits & quotas in Waves 2 & 3).
+- 🧱 **Hardened request ingestion** — Bounded 8 MiB JSON request bodies, 64 MiB h2c chunked stream cap with strict CRLF enforcement, and immediate rejection of combined Content-Length/Transfer-Encoding smuggling attempts.
+- ✂️ **Multi-layer token savers** — Lossless 512 KiB RTK tool compression, Caveman terseness prompts, and YAGNI-first Ponytail (Lite/Full/Ultra) modes saving 20-40% input and up to 65% output tokens.
+- 🔄 **Unified API gateway & Next.js dashboard (port 20128)** — Single lightweight endpoint serving both web dashboard and OpenAI-compatible `/v1/*` proxy routing across 40+ providers.
+
+#### 🟡 Upcoming Roadmap Capabilities
+
+- 🔀 **Split-plane architecture (Phase 2)** — High-throughput Go gateway data plane on port 20129 (`ENDPOINT_PORT`) dedicated to heavy inference streams while port 20128 (`DASHBOARD_PORT`) serves the control plane.
+- 🗄️ **Versioned migrations & hybrid quota (Wave 2)** — Dedicated `_khatam_migrations` runner with hybrid SQLite/Redis token and spend counters.
+- 🎚️ **Per-connection and per-key granular limits (Wave 3)** — Precision controls for RPM, RPD, TPM, TPD, max concurrency, min-time call spacing, and daily/weekly/monthly USD expenditure caps.
+- 🛡️ **4-state resilient circuit breaker (Wave 3)** — `CLOSED → DEGRADED → OPEN → HALF_OPEN` transitions with failure-kind cooldowns; client 4xx errors and upstream policy refusals never trip account health.
+- 🕵️ **Stealth and anti-ban layer (Wave 4)** — Canonical CLI header ordering, proxy-header scrubbing, provider client fingerprints, tool-name cloaking, zero-width obfuscation, and session stickiness protect your credentials.
+- 🔍 **Live model discovery & capability-aware custom models (Wave 4)** — Auto-detects vision, video, audio, tools, reasoning, and context limits with fail-closed combo routing that never routes unsupported payloads.
+
+### 📋 Feature Implementation Status
+
+We value engineering honesty over hype. Here is the exact status of each architectural capability across our development roadmap:
+
+| Feature Capability | Status | Target Wave / Delivery |
+| :--- | :---: | :--- |
+| **Bun v1.4.3 + TypeScript Runtime** | 🟢 Shipped | Wave 1: Native Bun execution, `@/*` mapping, `Dockerfile.bun` |
+| **SQLite WAL Engine + Integrity Preflight** | 🟢 Shipped | Wave 1: `bun:sqlite` WAL, `busy_timeout=5000`, startup integrity check |
+| **Redis Accelerator & Real-Time Pub/Sub** | 🟢 Shipped | Wave 1: `khatam:` namespace, cluster invalidation, transparent SQLite fallback |
+| **Hardened Request Ingestion & Smuggling Defense** | 🟢 Shipped | HTTP/1.1 & h2c smuggling defenses, 8 MiB JSON cap, 64 MiB chunked cap |
+| **Token Savers (RTK, Caveman, Ponytail)** | 🟢 Shipped | Pre-translation tool compression with 512 KiB cap, prompt injection modes |
+| **Split-Plane Dual-Port Architecture** | 🟡 Roadmap | Phase 2: Dedicated Go gateway (`cmd/khatam-gateway`) on port 20129 (currently unified on port 20128) |
+| **Versioned DB Migrations & Hybrid Quota** | 🟡 Roadmap | Wave 2: Versioned `_khatam_migrations` runner & hybrid quota tracking |
+| **Granular Per-Connection / Key Limits** | 🟡 Roadmap | Wave 3: Atomic sliding-window rate limiters, token counters, and USD spend tracking |
+| **4-State Resilient Circuit Breakers** | 🟡 Roadmap | Wave 3: Failure-kind cooldowns exempting client 4xx and policy refusals |
+| **Stealth & Anti-Ban Fingerprinting** | 🟡 Roadmap | Wave 4: CLI client header mimicry, fingerprint spoofing, ZWJ cloaking, stickiness |
+| **Dynamic Capability Discovery & Custom Models** | 🟡 Roadmap | Wave 4: Automatic capability querying and fail-closed routing across model combos |
+
+---
+
+### 🔤 What does "Khatam" mean?
+
+In Persian and Arabic, *Khatam* (خاتم / ختم) translates to "the seal", "completion", or "the end".
+
+Depending on how your day is going, **KhatamRouter** carries two equally valid interpretations:
+
+1. **The Flattering Reading**: A router so capable, resilient, and comprehensive that it is the *end-all* of AI routers—the final, definitive gateway that obsoletes every other proxy on your machine.
+2. **The Honest Reading**: The absolute *end* of your routing journey—because after wrestling with forty providers, fallback tiers, and distributed quotas, your setup is so delightfully compromised that no further routing is humanly possible.
+
+We actively build for the former, but we keep the latter in mind as a healthy reminder to keep our fallbacks tested and our error logs clear.
 
 ---
 
@@ -50,16 +89,28 @@
 │  Your CLI   │  (Claude Code, Codex, OpenClaw, Cursor, Cline...)
 │   Tool      │
 └──────┬──────┘
-       │ http://localhost:20128/v1
+       │ http://localhost:20128/v1  (API Gateway)
        ↓
-┌─────────────────────────────────────────────┐
-│           9Router (Smart Router)            │
-│  • RTK Token Saver (cut tool_result tokens) │
-│  • Format translation (OpenAI ↔ Claude)     │
-│  • Quota tracking                           │
-│  • Auto token refresh                       │
-└──────┬──────────────────────────────────────┘
-       │
+┌─────────────────────────────────────────────────────────────┐
+│                KhatamRouter Architecture                    │
+│                                                             │
+│  [Port 20128: Unified Control & Data Plane]                 │
+│   • Bun v1.4.3 + TypeScript + Next.js App Router            │
+│   • Provider connection manager & OAuth auto-refresh        │
+│   • Real-time quota tracking & spend analytics              │
+│   • OpenAI-compatible API Gateway (/v1/*)                   │
+│   • RTK Token Saver (cut tool_result tokens up to 40%)      │
+│   • Format translation (OpenAI ↔ Claude ↔ Gemini ↔ Kiro)    │
+│   • 8 MiB JSON cap + 64 MiB h2c CRLF smuggling defense      │
+│                                                             │
+│  [Shared State & Acceleration Layer]                        │
+│   • SQLite WAL ($DATA_DIR/db/data.sqlite, busy_timeout=5s)  │
+│   • Optional Redis Accelerator (khatam:* namespace)         │
+│                                                             │
+│  [Phase 2 Roadmap: Split-Plane Data Plane]                  │
+│   • Dedicated Go 1.27.2 Gateway on port 20129               │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
        ├─→ [Tier 1: SUBSCRIPTION] Claude Code, Codex, GitHub Copilot
        │   ↓ quota exhausted
        ├─→ [Tier 2: CHEAP] GLM ($0.6/1M), MiniMax ($0.2/1M)
@@ -73,23 +124,69 @@ Result: Never stop coding, minimal cost + 20-40% token savings via RTK
 
 ## ⚡ Quick Start
 
-**1. Install globally:**
+### 1. Start KhatamRouter
+
+#### 🐳 Option A: Docker (Recommended)
+
+Run our official multi-arch container image (`linux/amd64` + `linux/arm64`):
 
 ```bash
-npm install -g 9router
-9router
+docker run -d \
+  --name khatamrouter \
+  -p 20128:20128 \
+  -v "$HOME/.9router:/app/data" \
+  -e DATA_DIR=/app/data \
+  ghcr.io/rqzbeh/khatamrouter:latest
 ```
 
-🎉 Dashboard opens at `http://localhost:20128`
+🎉 **Dashboard**: `http://localhost:20128`  
+🚀 **API Gateway**: `http://localhost:20128/v1`
 
-**2. Connect a FREE provider (no signup needed):**
+#### ⚡ Option B: Run From Source (Bun Native)
+
+KhatamRouter runs natively on **Bun v1.4.3+** for ultra-fast startup and native `bun:sqlite` WAL operation (Node.js 20+ is also supported):
+
+```bash
+git clone https://github.com/rqzbeh/KhatamRouter.git
+cd KhatamRouter
+cp .env.example .env
+
+# Native Bun execution (recommended):
+bun install
+PORT=20128 NEXT_PUBLIC_BASE_URL=http://localhost:20128 bun run dev:bun
+
+# Or standard Node.js:
+npm install
+PORT=20128 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run dev
+```
+
+Production build with Bun:
+
+```bash
+bun run build:bun
+PORT=20128 HOSTNAME=0.0.0.0 bun run start:bun
+```
+
+Or with Node.js:
+
+```bash
+npm run build
+PORT=20128 HOSTNAME=0.0.0.0 npm run start
+```
+
+Default URLs:
+
+- Dashboard (control plane): `http://localhost:20128/dashboard`
+- OpenAI-compatible API: `http://localhost:20128/v1`
+
+### 2. Connect a FREE provider (no signup needed):
 
 Dashboard → Providers → Connect **Kiro AI** (~50 credits/month free: Claude 4.5 + GLM-5 + MiniMax) or **OpenCode Free** (no auth) → Done!
 
-**3. Use in your CLI tool:**
+### 3. Use in your CLI tool:
 
 ```
-Claude Code/Codex/OpenClaw/Cursor/Cline Settings:
+Claude Code / Codex / OpenClaw / Cursor / Cline Settings:
   Endpoint: http://localhost:20128/v1
   API Key: [copy from dashboard]
   Model: kr/claude-sonnet-4.5
@@ -97,46 +194,20 @@ Claude Code/Codex/OpenClaw/Cursor/Cline Settings:
 
 **That's it!** Start coding with FREE AI models.
 
-**Alternative: run from source (this repository):**
+### 🔄 Migrating from 9Router
 
-This repository package is private (`9router-app`), so source/Docker execution is the expected local development path.
+Upgrading from an existing 9Router setup is completely seamless:
 
-```bash
-cp .env.example .env
-npm install
-PORT=20128 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run dev
-```
-
-Production mode:
-
-```bash
-# Create Temporary Memory For Build
-sudo fallocate -l 2G /swapfile_temp
-sudo chmod 600 /swapfile_temp
-sudo mkswap /swapfile_temp
-sudo swapon /swapfile_temp
-
-export MAKEFLAGS="-j1"
-export DLIB_NO_GUI_SUPPORT=1
-export CFLAGS="-mno-avx"
-
-npm run build
-
-# Clear temporary swap
-sudo swapoff /swapfile_temp
-sudo rm /swapfile_temp
-
-PORT=20128 HOSTNAME=0.0.0.0 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run start
-```
-
-Default URLs:
-
-- Dashboard: `http://localhost:20128/dashboard`
-- OpenAI-compatible API: `http://localhost:20128/v1`
+- **100% Data Directory Compatibility**: KhatamRouter preserves full compatibility with your existing `$HOME/.9router` configuration directory and SQLite database (`data.sqlite`). All existing providers, OAuth credentials, combos, and usage history load automatically.
+- **Port Compatibility**: Any deployment setting `PORT=20128` continues to function normally; `PORT` acts as a backward-compatible alias for `DASHBOARD_PORT`.
+- **API Key Compatibility**: Existing keys (including keys with `sk_9router...` prefixes) continue to validate and authenticate requests.
+- **Automated Upstream Sync**: KhatamRouter runs an automated synchronization workflow against upstream `decolua/9router` to pull the latest provider registry updates and translation improvements.
 
 ---
 
 ## Video Guides
+
+> 💡 **Community Guides:** These third-party walkthroughs were published for the upstream 9Router project by independent creators — their titles are reproduced verbatim above. The setup workflows they demonstrate remain 100% compatible with KhatamRouter.
 
 <div align="center">
 
@@ -245,13 +316,13 @@ Default URLs:
 
 </div>
 
-> 🎬 **Made a video about 9Router?** Submit a [Pull Request](https://github.com/decolua/9router/pulls) adding your video to this section — we'll merge it!
+> 💡 **Community Guides:** These video walkthroughs demonstrate setup workflows that remain fully compatible with KhatamRouter.
 
 ---
 
 ## 🛠️ Supported CLI Tools
 
-9Router works seamlessly with all major AI coding tools:
+KhatamRouter works seamlessly with all major AI coding tools:
 
 <div align="center">
   <table>
@@ -550,7 +621,7 @@ a third party under a provider named "Self-hosted".
 | 📊 **Usage Analytics**                                                            | Track tokens, cost, trends over time                                                     | Optimize spending                                 |
 | 🌐 **Deploy Anywhere**                                                            | Localhost, VPS, Docker, Cloudflare Workers                                               | Flexible deployment options                       |
 
-Set `X-9Router-Token-Saver: off` to bypass all token savers for one chat request.
+Set `X-9Router-Token-Saver: off` to bypass all token savers for one chat request. (The header name is kept from upstream for client compatibility.)
 
 <details>
 <summary><b>📖 Feature Details</b></summary>
@@ -572,10 +643,10 @@ With RTK:    28K tokens sent to LLM   (40% saved · same context · same answer)
 
 ### 🧠 Headroom Token Saver
 
-Headroom is optional and runs separately. 9Router calls Headroom's local `/v1/compress` endpoint, then keeps normal routing, fallback, auth, and usage tracking:
+Headroom is optional and runs separately. KhatamRouter calls Headroom's local `/v1/compress` endpoint, then keeps normal routing, fallback, auth, and usage tracking:
 
 ```
-Client → 9Router → Headroom /v1/compress → 9Router → provider
+Client → KhatamRouter → Headroom /v1/compress → KhatamRouter → provider
 ```
 
 Local setup:
@@ -597,7 +668,7 @@ http://headroom:8787
 http://host.docker.internal:8787
 ```
 
-If Headroom is down or returns an error, 9Router fails open and sends the original request.
+If Headroom is down or returns an error, KhatamRouter fails open and sends the original request.
 
 ### 🐴 Ponytail (Lazy Senior Dev)
 
@@ -622,7 +693,7 @@ Create combos with automatic fallback:
 Combo: "my-coding-stack"
   1. cc/claude-opus-4-6        (your subscription)
   2. glm/glm-4.7               (cheap backup, $0.6/1M)
-  3. if/kimi-k2-thinking       (free fallback)
+  3. kr/claude-sonnet-4.5      (free fallback)
 
 → Auto switches when quota runs out or errors occur
 ```
@@ -639,7 +710,7 @@ Combo: "my-coding-stack"
 Seamless translation between formats:
 
 - **OpenAI** ↔ **Claude** ↔ **Gemini** ↔ **Cursor** ↔ **Kiro** ↔ **Vertex** ↔ **Antigravity** ↔ **Ollama** ↔ **OpenAI Responses**
-- Your CLI tool sends OpenAI format → 9Router translates → Provider receives native format
+- Your CLI tool sends OpenAI format → KhatamRouter translates → Provider receives native format
 - Works with any tool that supports custom OpenAI endpoints
 
 ### 👥 Multi-Account Support
@@ -693,13 +764,13 @@ Seamless translation between formats:
 > **💡 IMPORTANT - Understanding Dashboard Costs:**
 >
 > The "cost" displayed in Usage Analytics is **for tracking and comparison purposes only**.
-> 9Router itself **never charges** you anything. You only pay providers directly (if using paid services).
+> KhatamRouter itself **never charges** you anything. You only pay providers directly (if using paid services).
 >
 > **Example:** If your dashboard shows "$290 total cost" while using Kiro free models, this represents
 > what you would have paid using paid APIs directly. Your actual cost = **$0** (Kiro free tier: ~50 credits/mo).
 >
 > Think of it as a "savings tracker" showing how much you're saving by using free models or
-> routing through 9Router!
+> routing through KhatamRouter!
 
 ### 🌐 Deploy Anywhere
 
@@ -732,15 +803,15 @@ Seamless translation between formats:
 
 ---
 
-### 📊 Understanding 9Router Costs & Billing
+### 📊 Understanding KhatamRouter Costs & Billing
 
-**9Router Billing Reality:**
+**KhatamRouter Billing Reality:**
 
-✅ **9Router software = FREE forever** (open source, never charges)  
+✅ **KhatamRouter software = FREE forever** (open source, never charges)  
 ✅ **Dashboard "costs" = Display/tracking only** (not actual bills)  
 ✅ **You pay providers directly** (subscriptions or API fees)  
 ✅ **FREE providers stay FREE** (Kiro ~50 credits/mo, OpenCode Free, Vertex $300 credits = $0 within free-tier limits) — note iFlow/Qwen/Gemini CLI free tiers were discontinued in 2026
-❌ **9Router never sends invoices** or charges your card
+❌ **KhatamRouter never sends invoices** or charges your card
 
 **How Cost Display Works:**
 
@@ -763,9 +834,9 @@ Reality Check:
 **Payment Rules:**
 
 - **Subscription providers** (Claude Code, Codex): Pay them directly via their websites
-- **Cheap providers** (GLM, MiniMax): Pay them directly, 9Router just routes
-- **FREE providers** (iFlow, Kiro, Qwen): Genuinely free forever, no hidden charges
-- **9Router**: Never charges anything, ever
+- **Cheap providers** (GLM, MiniMax): Pay them directly, KhatamRouter just routes
+- **FREE providers** (Kiro, OpenCode Free, Vertex credits): Free within tier limits, no hidden charges
+- **KhatamRouter**: Never charges anything, ever
 
 ---
 
@@ -844,7 +915,7 @@ Access via: WhatsApp, Telegram, Slack, Discord, iMessage, Signal...
 <details>
 <summary><b>📊 Why does my dashboard show high costs?</b></summary>
 
-The dashboard tracks your token usage and displays **estimated costs** as if you were using paid APIs directly. This is **not actual billing** - it's a reference to show how much you're saving by using free models or existing subscriptions through 9Router.
+The dashboard tracks your token usage and displays **estimated costs** as if you were using paid APIs directly. This is **not actual billing** - it's a reference to show how much you're saving by using free models or existing subscriptions through KhatamRouter.
 
 **Example:**
 
@@ -858,17 +929,17 @@ The cost display is a "savings tracker" to help you understand your usage patter
 </details>
 
 <details>
-<summary><b>💳 Will I be charged by 9Router?</b></summary>
+<summary><b>💳 Will I be charged by KhatamRouter?</b></summary>
 
-**No.** 9Router is free, open-source software that runs on your own computer. It never charges you anything.
+**No.** KhatamRouter is free, open-source software that runs on your own computer. It never charges you anything.
 
 **You only pay:**
 
 - ✅ **Subscription providers** (Claude Code $20/mo, Codex $20-200/mo) → Pay them directly on their websites
-- ✅ **Cheap providers** (GLM, MiniMax) → Pay them directly, 9Router just routes your requests
-- ❌ **9Router itself** → **Never charges anything, ever**
+- ✅ **Cheap providers** (GLM, MiniMax) → Pay them directly, KhatamRouter just routes your requests
+- ❌ **KhatamRouter itself** → **Never charges anything, ever**
 
-9Router is a local proxy/router. It doesn't have your credit card, can't send invoices, and has no billing system. It's completely free software.
+KhatamRouter is a local proxy/router. It doesn't have your credit card, can't send invoices, and has no billing system. It's completely free software.
 
 </details>
 
@@ -883,7 +954,7 @@ These are free services offered by those respective companies:
 - **OpenCode Free**: No-auth passthrough proxy, models auto-fetched from `opencode.ai/zen/v1/models`. The free model list fluctuates over time (some models free only for limited promos) — subject to change without notice.
 - **Vertex AI**: $300 free credits for new Google Cloud accounts (90 days). Since Mar 2026 the Gemini API endpoint no longer consumes these credits — use the **Vertex AI Studio** endpoint instead.
 
-9Router just routes your requests to them - there's no "catch" or future billing from 9Router itself. They're truly free services, and 9Router makes them easy to use with fallback support.
+KhatamRouter just routes your requests to them - there's no "catch" or future billing from KhatamRouter itself. They're truly free services, and KhatamRouter makes them easy to use with fallback support.
 
 **Discontinued free tiers (no longer recommended):**
 
@@ -918,7 +989,7 @@ These are free services offered by those respective companies:
 
 3. **Use subscription providers last:**
    - Only if you already have them
-   - 9Router helps maximize their value through quota tracking
+   - KhatamRouter helps maximize their value through quota tracking
 
 **Result:** Most users can operate at $0/month using only free tiers!
 
@@ -927,22 +998,22 @@ These are free services offered by those respective companies:
 <details>
 <summary><b>📈 What if my usage suddenly spikes?</b></summary>
 
-9Router's smart fallback prevents surprise charges:
+KhatamRouter's smart fallback prevents surprise charges:
 
 **Scenario:** You're on a coding sprint and blow through your quotas
 
-**Without 9Router:**
+**Without KhatamRouter:**
 
 - ❌ Hit rate limit → Work stops → Frustration
 - ❌ Or: Accidentally rack up huge API bills
 
-**With 9Router:**
+**With KhatamRouter:**
 
 - ✅ Subscription hits limit → Auto-fallback to cheap tier
 - ✅ Cheap tier gets expensive → Auto-fallback to free tier
 - ✅ Never stop coding → Predictable costs
 
-**You're in control:** Set spending limits per provider in dashboard, and 9Router respects them.
+**You're in control:** Set spending limits per provider in dashboard, and KhatamRouter respects them.
 
 </details>
 
@@ -967,7 +1038,7 @@ Models:
   cc/claude-haiku-4-5-20251001
 ```
 
-**Pro Tip:** Use Opus for complex tasks, Sonnet for speed. 9Router tracks quota per model!
+**Pro Tip:** Use Opus for complex tasks, Sonnet for speed. KhatamRouter tracks quota per model!
 
 ### OpenAI Codex (Plus/Pro)
 
@@ -1166,7 +1237,7 @@ Cost: $0 forever (+ 20-40% token savings via RTK)!
 ```
 Settings → Models → Advanced:
   OpenAI API Base URL: http://localhost:20128/v1
-  OpenAI API Key: [from 9router dashboard]
+  OpenAI API Key: [from KhatamRouter dashboard]
   Model: cc/claude-opus-4-7
 ```
 
@@ -1179,15 +1250,15 @@ Edit `~/.claude/config.json`:
 ```json
 {
   "anthropic_api_base": "http://localhost:20128/v1",
-  "anthropic_api_key": "your-9router-api-key"
+  "anthropic_api_key": "your-khatamrouter-api-key"
 }
 ```
 
 ### Codex CLI
 
 ```bash
-export OPENAI_BASE_URL="http://localhost:20128"
-export OPENAI_API_KEY="your-9router-api-key"
+export OPENAI_BASE_URL="http://localhost:20128/v1"
+export OPENAI_API_KEY="your-khatamrouter-api-key"
 
 codex "your prompt"
 ```
@@ -1207,13 +1278,13 @@ Dashboard → CLI Tools → OpenClaw → Select Model → Apply
   "agents": {
     "defaults": {
       "model": {
-        "primary": "9router/kr/claude-sonnet-4.5"
+        "primary": "khatamrouter/kr/claude-sonnet-4.5"
       }
     }
   },
   "models": {
     "providers": {
-      "9router": {
+      "khatamrouter": {
         "baseUrl": "http://127.0.0.1:20128/v1",
         "apiKey": "sk_9router",
         "api": "openai-completions",
@@ -1229,14 +1300,14 @@ Dashboard → CLI Tools → OpenClaw → Select Model → Apply
 }
 ```
 
-> **Note:** OpenClaw only works with local 9Router. Use `127.0.0.1` instead of `localhost` to avoid IPv6 resolution issues.
+> **Note:** Upstream `9router` provider blocks and `sk_9router` key formats remain fully supported. OpenClaw connects locally, so use `127.0.0.1` instead of `localhost` to avoid IPv6 loopback resolution issues.
 
 ### Cline / Continue / RooCode
 
 ```
 Provider: OpenAI Compatible
 Base URL: http://localhost:20128/v1
-API Key: [from dashboard]
+API Key: [from KhatamRouter dashboard]
 Model: cc/claude-opus-4-7
 ```
 
@@ -1249,20 +1320,22 @@ Model: cc/claude-opus-4-7
 
 ```bash
 # Clone and install
-git clone https://github.com/decolua/9router.git
-cd 9router
+git clone https://github.com/rqzbeh/KhatamRouter.git
+cd KhatamRouter
 npm install
 npm run build
 
 # Configure
 export JWT_SECRET="your-secure-secret-change-this"
 export INITIAL_PASSWORD="your-password"
-export DATA_DIR="/var/lib/9router"
+export DATA_DIR="/var/lib/khatamrouter"
+export DASHBOARD_PORT="20128"
+export ENDPOINT_PORT="20129"
 export PORT="20128"
 export HOSTNAME="0.0.0.0"
 export NODE_ENV="production"
 export NEXT_PUBLIC_BASE_URL="http://localhost:20128"
-export NEXT_PUBLIC_CLOUD_URL="https://9router.com"
+export NEXT_PUBLIC_ENDPOINT_URL="http://localhost:20128"
 export API_KEY_SECRET="endpoint-proxy-api-key-secret"
 export MACHINE_ID_SALT="endpoint-proxy-salt"
 
@@ -1271,53 +1344,55 @@ npm run start
 
 # Or use PM2
 npm install -g pm2
-pm2 start npm --name 9router -- start
+pm2 start npm --name khatamrouter -- start
 pm2 save
 pm2 startup
 ```
 
 ### Docker
 
-Published images (multi-platform `linux/amd64` + `linux/arm64`):
+Published image (multi-platform `linux/amd64` + `linux/arm64`), built from `Dockerfile` (with `Dockerfile.bun` available for native Bun container builds):
 
-- Docker Hub: [`decolua/9router`](https://hub.docker.com/r/decolua/9router)
-- GHCR: [`ghcr.io/decolua/9router`](https://github.com/decolua/9router/pkgs/container/9router)
+- GHCR: [`ghcr.io/rqzbeh/khatamrouter`](https://github.com/users/rqzbeh/packages)
 
 **Quick start (use published image):**
 
 ```bash
 docker run -d \
-  --name 9router \
+  --name khatamrouter \
   -p 20128:20128 \
   -v "$HOME/.9router:/app/data" \
   -e DATA_DIR=/app/data \
-  decolua/9router:latest
+  ghcr.io/rqzbeh/khatamrouter:latest
 ```
 
-→ Open http://localhost:20128
+→ Dashboard: http://localhost:20128 · API gateway: http://localhost:20128/v1
 
 **Build from source (dev):**
 
 ```bash
-git clone https://github.com/decolua/9router.git
-cd 9router/app
-docker build -t 9router .
-docker run -d --name 9router -p 20128:20128 \
-  -v "$HOME/.9router:/app/data" -e DATA_DIR=/app/data 9router
+git clone https://github.com/rqzbeh/KhatamRouter.git
+cd KhatamRouter
+docker build -f Dockerfile -t khatamrouter .
+docker run -d --name khatamrouter -p 20128:20128 \
+  -v "$HOME/.9router:/app/data" -e DATA_DIR=/app/data khatamrouter
 ```
+
+*(To build with native Bun runtime instead, use `docker build -f Dockerfile.bun -t khatamrouter .`)*
 
 **Container defaults:**
 
-- `PORT=20128`
+- `DASHBOARD_PORT=20128` (control plane / dashboard and `/v1` gateway)
+- `ENDPOINT_PORT=20129` (reserved for Phase 2 Go gateway data plane)
 - `HOSTNAME=0.0.0.0`
 
 **Useful commands:**
 
 ```bash
-docker logs -f 9router
-docker restart 9router
-docker stop 9router && docker rm 9router
-docker pull decolua/9router:latest   # update to latest
+docker logs -f khatamrouter
+docker restart khatamrouter
+docker stop khatamrouter && docker rm khatamrouter
+docker pull ghcr.io/rqzbeh/khatamrouter:latest   # update to latest
 ```
 
 **Data persistence:** `$HOME/.9router/db/data.sqlite` on host ↔ `/app/data/db/data.sqlite` in container.
@@ -1329,13 +1404,18 @@ docker pull decolua/9router:latest   # update to latest
 | `JWT_SECRET`                                         | Auto-generated (`~/.9router/jwt-secret`) | JWT signing secret for dashboard auth cookie (override to share across instances)   |
 | `INITIAL_PASSWORD`                                   | `123456`                                 | First login password when no saved hash exists                                      |
 | `DATA_DIR`                                           | `~/.9router`                             | Main app data location (SQLite at `$DATA_DIR/db/data.sqlite`)                       |
-| `PORT`                                               | framework default                        | Service port (`20128` in examples)                                                  |
+| `DASHBOARD_PORT`                                     | `20128`                                  | Control-plane dashboard and API gateway port (Bun + Next.js)                        |
+| `ENDPOINT_PORT`                                      | `20129`                                  | Reserved port for Phase 2 dedicated Go gateway data plane                          |
+| `PORT`                                               | framework default                        | Backward-compatible alias for `DASHBOARD_PORT` (`20128` in examples)                |
 | `HOSTNAME`                                           | framework default                        | Bind host (Docker defaults to `0.0.0.0`)                                            |
 | `NODE_ENV`                                           | runtime default                          | Set `production` for deploy                                                         |
+| `REDIS_URL`                                          | empty                                    | Optional Redis URL; unset means SQLite-only fallback (no Redis required)            |
+| `REDIS_KEY_PREFIX`                                   | `khatam:`                                | Key/channel namespace for Redis rate limits, quotas, breakers and pub/sub           |
 | `BASE_URL`                                           | `http://localhost:20128`                 | Server-side internal base URL used by cloud sync jobs                               |
-| `CLOUD_URL`                                          | `https://9router.com`                    | Server-side cloud sync endpoint base URL                                            |
-| `NEXT_PUBLIC_BASE_URL`                               | `http://localhost:3000`                  | Backward-compatible/public base URL (prefer `BASE_URL` for server runtime)          |
-| `NEXT_PUBLIC_CLOUD_URL`                              | `https://9router.com`                    | Backward-compatible/public cloud URL (prefer `CLOUD_URL` for server runtime)        |
+| `CLOUD_URL`                                          | optional                                 | Server-side cloud sync endpoint base URL (set if using cloud sync server)           |
+| `NEXT_PUBLIC_BASE_URL`                               | `http://localhost:20128`                 | Backward-compatible/public base URL (prefer `BASE_URL` for server runtime)          |
+| `NEXT_PUBLIC_ENDPOINT_URL`                           | `http://localhost:20128`                 | Public URL of the API gateway shown to clients                                      |
+| `NEXT_PUBLIC_CLOUD_URL`                              | optional                                 | Backward-compatible/public cloud URL (prefer `CLOUD_URL` for server runtime)        |
 | `API_KEY_SECRET`                                     | `endpoint-proxy-api-key-secret`          | HMAC secret for generated API keys                                                  |
 | `MACHINE_ID_SALT`                                    | `endpoint-proxy-salt`                    | Salt for stable machine ID hashing                                                  |
 | `ENABLE_REQUEST_LOGS`                                | `false`                                  | Enables request/response logs under `logs/`                                         |
@@ -1453,7 +1533,7 @@ Notes:
 
 **OAuth token expired**
 
-- Auto-refreshed by 9Router
+- Auto-refreshed by KhatamRouter
 - If issues persist: Dashboard → Provider → Reconnect
 
 **High costs**
@@ -1480,10 +1560,12 @@ Notes:
 
 ## 🛠️ Tech Stack
 
-- **Runtime**: Node.js 20+
+- **Runtime**: Bun v1.4.3+ (native `bun:sqlite`) with Node.js 20+ fallback
+- **Language**: JavaScript / TypeScript (`tsconfig.json`, `@/*` → `src/*`)
 - **Framework**: Next.js 16
 - **UI**: React 19 + Tailwind CSS 4
-- **Database**: SQLite (better-sqlite3 / node:sqlite / sql.js fallback)
+- **Database**: SQLite in WAL mode (`bun:sqlite` / `better-sqlite3` / `node:sqlite` / `sql.js` fallback)
+- **Acceleration**: Optional Redis (`ioredis`) under the `khatam:` namespace
 - **Streaming**: Server-Sent Events (SSE)
 - **Auth**: OAuth 2.0 (PKCE) + JWT + API Keys
 
@@ -1507,6 +1589,8 @@ Content-Type: application/json
 }
 ```
 
+> In the current Bun/Next.js runtime, `/v1` endpoints are served on port 20128 (with port 20129 reserved for the upcoming Phase 2 Go gateway).
+
 ### List Models
 
 ```bash
@@ -1518,27 +1602,39 @@ Authorization: Bearer your-api-key
 
 ## 📧 Support
 
-- **Website**: [9router.com](https://9router.com)
-- **GitHub**: [github.com/decolua/9router](https://github.com/decolua/9router)
-- **Issues**: [github.com/decolua/9router/issues](https://github.com/decolua/9router/issues)
+- **Docs**: [rqzbeh.github.io/KhatamRouter](https://rqzbeh.github.io/KhatamRouter/)
+- **GitHub**: [github.com/rqzbeh/KhatamRouter](https://github.com/rqzbeh/KhatamRouter)
+- **Issues**: [github.com/rqzbeh/KhatamRouter/issues](https://github.com/rqzbeh/KhatamRouter/issues)
 
 ---
 
 ## 👥 Contributors
 
-Thanks to all contributors who helped make 9Router better!
+Thanks to all contributors who helped make KhatamRouter better — and to everyone upstream who built the foundation.
 
-[![Contributors](https://contrib.rocks/image?repo=decolua/9router&max=150&columns=15&anon=1&v=20260309)](https://github.com/decolua/9router/graphs/contributors)
+[![Contributors](https://contrib.rocks/image?repo=rqzbeh/KhatamRouter&max=150&columns=15&anon=1)](https://github.com/rqzbeh/KhatamRouter/graphs/contributors)
 
 ---
 
 ## 📊 Star Chart
 
-[![Star Chart](https://starchart.cc/decolua/9router.svg?variant=adaptive)](https://starchart.cc/decolua/9router)
+[![Star History Chart](https://api.star-history.com/svg?repos=rqzbeh/KhatamRouter&type=Date)](https://star-history.com/#rqzbeh/KhatamRouter&Date)
 
 ## 🔀 Forks
 
-**[OmniRoute](https://github.com/diegosouzapw/OmniRoute)** — A full-featured TypeScript fork of 9Router. Adds 36+ providers, 4-tier auto-fallback, multi-modal APIs (images, embeddings, audio, TTS), circuit breaker, semantic cache, LLM evaluations, and a polished dashboard. 368+ unit tests. Available via npm and Docker.
+**[OmniRoute](https://github.com/diegosouzapw/OmniRoute)** — A companion TypeScript fork in the ecosystem. Adds 36+ providers, 4-tier auto-fallback, multi-modal APIs (images, embeddings, audio, TTS), circuit breaker, semantic cache, LLM evaluations, and a polished dashboard. 368+ unit tests. Available via npm and Docker.
+
+---
+
+## 🌱 Built on 9Router by decolua
+
+KhatamRouter is a fork of **[decolua/9router](https://github.com/decolua/9router)** (initialized from `v0.5.104`, commit `87a74e1b`). Everything that made 9Router great — the provider registry, format translators, OAuth token refresh, combo fallback and token savers — is still here, and it is where the credit belongs.
+
+- **Upstream project**: [github.com/decolua/9router](https://github.com/decolua/9router)
+- **License**: MIT. KhatamRouter keeps the upstream [`LICENSE`](./LICENSE) and remains MIT-licensed.
+- **Staying current**: an automated [upstream sync workflow](./.github/workflows/upstream-sync.yml) runs daily, merges new upstream commits into a review branch, and opens a Pull Request so upstream providers and translator fixes land here quickly. See [`UPSTREAM_SYNC.md`](./.github/UPSTREAM_SYNC.md) for the exact conflict-resolution rules.
+
+If KhatamRouter is useful to you, please ⭐ the upstream repository too — they did the hard part first.
 
 ---
 
@@ -1546,12 +1642,13 @@ Thanks to all contributors who helped make 9Router better!
 
 Built on the shoulders of giants:
 
+- **[decolua/9router](https://github.com/decolua/9router)** — the upstream project KhatamRouter is forked from and syncs with.
 - **[CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)** — original Go implementation that inspired this JavaScript port.
-- **[RTK](https://github.com/rtk-ai/rtk)** ![Stars](https://img.shields.io/github/stars/rtk-ai/rtk?style=flat&color=yellow) — Rust token-saver. 9Router ports its compression pipeline to JS → **−20-40% input tokens** on every request.
-- **[Caveman](https://github.com/JuliusBrussee/caveman)** ![Stars](https://img.shields.io/github/stars/JuliusBrussee/caveman?style=flat&color=yellow) by **[@JuliusBrussee](https://github.com/JuliusBrussee)** — viral _"why use many token when few token do trick"_. 9Router adapts its prompt → **−65% output tokens**.
-- **[Ponytail](https://github.com/DietrichGebert/ponytail)** ![Stars](https://img.shields.io/github/stars/DietrichGebert/ponytail?style=flat&color=yellow) by **[@DietrichGebert](https://github.com/DietrichGebert)** — _"lazy senior dev"_ skill. 9Router injects its YAGNI-first ladder → **fewer tokens, less code, shorter diffs**.
+- **[RTK](https://github.com/rtk-ai/rtk)** ![Stars](https://img.shields.io/github/stars/rtk-ai/rtk?style=flat&color=yellow) — Rust token-saver. KhatamRouter ports its compression pipeline to JS → **−20-40% input tokens** on every request.
+- **[Caveman](https://github.com/JuliusBrussee/caveman)** ![Stars](https://img.shields.io/github/stars/JuliusBrussee/caveman?style=flat&color=yellow) by **[@JuliusBrussee](https://github.com/JuliusBrussee)** — viral _"why use many token when few token do trick"_. KhatamRouter adapts its prompt → **−65% output tokens**.
+- **[Ponytail](https://github.com/DietrichGebert/ponytail)** ![Stars](https://img.shields.io/github/stars/DietrichGebert/ponytail?style=flat&color=yellow) by **[@DietrichGebert](https://github.com/DietrichGebert)** — _"lazy senior dev"_ skill. KhatamRouter injects its YAGNI-first ladder → **fewer tokens, less code, shorter diffs**.
 
-Huge thanks to these authors — without their work, 9Router's token-saving features wouldn't exist. ⭐ them on GitHub!
+Huge thanks to these authors — without their work, KhatamRouter's token-saving features wouldn't exist. ⭐ them on GitHub!
 
 ---
 
