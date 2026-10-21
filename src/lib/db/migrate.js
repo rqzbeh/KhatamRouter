@@ -17,7 +17,9 @@ const MIGRATIONS_TABLE_COLUMNS = {
 };
 
 // Marker file: prevents re-importing legacy JSON when user wipes data.sqlite.
-const MIGRATED_MARKER = path.join(DB_DIR, ".migrated-from-json");
+function getMigratedMarker() {
+  return path.join(DB_DIR, ".migrated-from-json");
+}
 
 // Track per-adapter so reusing same adapter skips re-run, but new adapter (after reset) re-runs.
 const _migratedAdapters = new WeakSet();
@@ -283,7 +285,7 @@ export async function runMigrationOnce(adapter) {
   setMetaSync(adapter, "backupSchemaVersion", SCHEMA_VERSION);
 
   // 3. One-time legacy JSON import (only if DB was fresh on entry)
-  const alreadyImported = fs.existsSync(MIGRATED_MARKER);
+  const alreadyImported = fs.existsSync(getMigratedMarker());
   const legacyMain = readJsonSafe(LEGACY_FILES.main);
   const legacyUsage = readJsonSafe(LEGACY_FILES.usage);
   const legacyDisabled = readJsonSafe(LEGACY_FILES.disabled);

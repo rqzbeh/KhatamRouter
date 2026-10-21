@@ -143,8 +143,9 @@ export function backupDatabaseFile(db: MigrationDbAdapter, dbFile: string, versi
     db && db.driver === "sql.js" && db.raw && typeof db.raw.export === "function" ? db.raw.export() : null;
   if (exportBytes) {
     const bakFile = `${dbFile}.bak-${version}`;
+    if (fs.existsSync(bakFile)) return bakFile;
     try {
-      fs.writeFileSync(bakFile, Buffer.from(exportBytes));
+      fs.writeFileSync(bakFile, Buffer.from(exportBytes), { flag: "wx" });
       return bakFile;
     } catch (e) {
       const err = e as Error;
@@ -155,8 +156,9 @@ export function backupDatabaseFile(db: MigrationDbAdapter, dbFile: string, versi
 
   if (!fs.existsSync(dbFile)) return null;
   const bakFile = `${dbFile}.bak-${version}`;
+  if (fs.existsSync(bakFile)) return bakFile;
   try {
-    fs.copyFileSync(dbFile, bakFile);
+    fs.copyFileSync(dbFile, bakFile, fs.constants.COPYFILE_EXCL);
     return bakFile;
   } catch (e) {
     const err = e as Error;

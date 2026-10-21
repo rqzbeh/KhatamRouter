@@ -261,6 +261,21 @@ describe("Wave 2 Migrations & Runner", () => {
     } catch {}
   });
 
+  it("backup-before-migrate cannot overwrite an existing backup file", async () => {
+    const { backupDatabaseFile } = await import("@/lib/db/migrationRunner.js");
+    const { getAdapter } = await import("@/lib/db/driver.js");
+    const db = await getAdapter();
+
+    const dbFile = path.join(tempDir, "db", "data.sqlite");
+    const bakFile = `${dbFile}.bak-999`;
+    fs.writeFileSync(bakFile, "pre-existing-critical-backup");
+
+    const result = backupDatabaseFile(db, dbFile, "999");
+    expect(result).toBe(bakFile);
+    expect(fs.readFileSync(bakFile, "utf-8")).toBe("pre-existing-critical-backup");
+    fs.rmSync(bakFile, { force: true });
+  });
+
   it("skips .bak-<version> snapshot on a freshly created database", async () => {
     const { runMigrations, isFreshDatabase } = await import("@/lib/db/migrationRunner.js");
     const freshDb = await openEmptyAdapter(path.join(tempDir, "fresh-no-backup.sqlite"));

@@ -24,9 +24,9 @@ description: "Dependency-ordered checklist of tasks for Wave 2 Database Migratio
 
 **Purpose**: Establish the deterministic `_khatam_migrations` runner with automated WAL checkpointing and pre-migration backup snapshots.
 
-- [ ] T001 [US1] Update `src/lib/db/migrate.js` to create and maintain `_khatam_migrations(version TEXT PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)` and read already-applied versions from this table.
-- [ ] T002 [US1] Implement pre-migration safety preflight in `src/lib/db/migrate.js`: on non-fresh databases with pending migrations, execute `PRAGMA wal_checkpoint(TRUNCATE)` and write `${DATA_FILE}.bak-${firstPendingVersion}` prior to applying migrations (skip on fresh DBs).
-- [ ] T003 [US1] Implement transactional isolation in `src/lib/db/migrate.js`: execute each pending migration inside its own `adapter.transaction()`, record version upon success, and on error roll back and throw naming the failed migration version.
+- [x] T001 [US1] Update `src/lib/db/migrate.js` to create and maintain `_khatam_migrations(version TEXT PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)` and read already-applied versions from this table.
+- [x] T002 [US1] Implement pre-migration safety preflight in `src/lib/db/migrate.js`: on non-fresh databases with pending migrations, execute `PRAGMA wal_checkpoint(TRUNCATE)` and write `${DATA_FILE}.bak-${firstPendingVersion}` prior to applying migrations (skip on fresh DBs).
+- [x] T003 [US1] Implement transactional isolation in `src/lib/db/migrate.js`: execute each pending migration inside its own `adapter.transaction()`, record version upon success, and on error roll back and throw naming the failed migration version.
 
 ---
 
@@ -34,9 +34,9 @@ description: "Dependency-ordered checklist of tasks for Wave 2 Database Migratio
 
 **Purpose**: Define the Wave 2 database additions while strictly preserving 9router's existing access control columns.
 
-- [ ] T004 [US2] Create migration `src/lib/db/migrations/002-wave2-storage-quota.js` adding connection overrides (`rate_limit_overrides_json`, `max_concurrent`, `rate_limit_protection`, `rate_limited_until`, `backoff_level`, `quota_window_thresholds_json`), API key limit columns (`allowedProviders`, `allowedCombos`, `allowedKinds`, `rate_limits`, `throttle_delay_ms`, `usage_limit_enabled`, `daily_usage_limit_usd`, `weekly_usage_limit_usd`), and 9 new tables (`api_key_quota_limits`, `api_key_quota_counters`, `request_cost_ledger`, `domain_circuit_breakers`, `model_capabilities`, `model_context_overrides`, `model_capability_overrides`, `proxy_pool_fitness`, `cached_provider_models`).
-- [ ] T005 [US2] Update `src/lib/db/migrations/index.js` to register `002-wave2-storage-quota.js` in monotonic version order.
-- [ ] T006 [US2] Update `src/lib/db/schema.js` to bump `SCHEMA_VERSION = 3`, declare the new columns on `TABLES.providerConnections` and `TABLES.apiKeys` (preserving `accessRestricted` and `accessAllow`), add declarative schemas for all 9 new tables, and define views for `provider_connections` and `api_keys`.
+- [x] T004 [US2] Create migration `src/lib/db/migrations/002-wave2-storage-quota.js` adding connection overrides (`rate_limit_overrides_json`, `max_concurrent`, `rate_limit_protection`, `rate_limited_until`, `backoff_level`, `quota_window_thresholds_json`), API key limit columns (`allowedProviders`, `allowedCombos`, `allowedKinds`, `rate_limits`, `throttle_delay_ms`, `usage_limit_enabled`, `daily_usage_limit_usd`, `weekly_usage_limit_usd`), and 9 new tables (`api_key_quota_limits`, `api_key_quota_counters`, `request_cost_ledger`, `domain_circuit_breakers`, `model_capabilities`, `model_context_overrides`, `model_capability_overrides`, `proxy_pool_fitness`, `cached_provider_models`).
+- [x] T005 [US2] Update `src/lib/db/migrations/index.js` to register `002-wave2-storage-quota.js` in monotonic version order.
+- [x] T006 [US2] Update `src/lib/db/schema.js` to bump `SCHEMA_VERSION = 3`, declare the new columns on `TABLES.providerConnections` and `TABLES.apiKeys` (preserving `accessRestricted` and `accessAllow`), add declarative schemas for all 9 new tables, and define views for `provider_connections` and `api_keys`.
 
 ---
 
@@ -63,6 +63,6 @@ description: "Dependency-ordered checklist of tasks for Wave 2 Database Migratio
 
 **Purpose**: Validate all Wave 2 deliverables against acceptance scenarios, vitest suites, and Unlazy gates.
 
-- [ ] T012 [P] [US1..US2] Author unit test suite `tests/unit/wave2-db-migrations.test.js` covering migration runner idempotency, version tracking in `_khatam_migrations`, transaction rollback on failure, WAL checkpointing, and `.bak-<version>` snapshots.
+- [x] T012 [P] [US1..US2] Author unit test suite `tests/unit/wave2-db-migrations.test.js` covering migration runner idempotency, version tracking in `_khatam_migrations`, transaction rollback on failure, WAL checkpointing, and `.bak-<version>` snapshots.
 - [x] T013 [P] [US3..US4] Author unit test suite `tests/unit/wave2-quota-store.test.js` covering sliding window arithmetic, `INCRBYFLOAT` operations, fail-open behavior under simulated Redis failures, and `settingsRepo` 5s TTL caching and invalidation.
-- [ ] T014 [US1..US4] Validate all Unlazy gates in `.unlazy/wave-002/GATES.md` (G1, G2, G3, G4) and verify that `node tests/__baseline__/verify-providers.mjs` passes with zero regressions.
+- [x] T014 [US1..US4] Validate all Unlazy gates in `.unlazy/wave-002/GATES.md` (G1, G2, G3, G4) and verify that `node tests/__baseline__/verify-providers.mjs` passes with zero regressions.

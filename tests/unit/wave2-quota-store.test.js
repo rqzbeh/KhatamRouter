@@ -339,7 +339,7 @@ describe("SqliteQuotaStore — fallback over api_key_quota_counters", () => {
     originalDataDir = process.env.DATA_DIR;
     process.env.DATA_DIR = tempDir;
     delete global._dbAdapter;
-    vi.resetModules();
+    vi.resetModules?.();
     const { getAdapter } = await import("@/lib/db/driver.js");
     db = await getAdapter();
     // Leaf A owns this table in migration 002. Until it exists in this worktree the
@@ -453,14 +453,16 @@ describe("SqliteQuotaStore — fallback over api_key_quota_counters", () => {
 });
 
 describe("storeFactory — Redis vs SQLite selection", () => {
-  afterEach(() => {
+  afterEach(async () => {
     delete process.env.REDIS_URL;
-    vi.resetModules();
+    const { resetDefaultQuotaStore } = await import("@/lib/quota/storeFactory.js");
+    resetDefaultQuotaStore();
+    vi.resetModules?.();
   });
 
   it("returns a SQLite store when REDIS_URL is unset", async () => {
     delete process.env.REDIS_URL;
-    vi.resetModules();
+    vi.resetModules?.();
     const { storeFactory } = await import("@/lib/quota/storeFactory.js");
     const store = storeFactory();
     expect(store.driver).toBe("sqlite");
@@ -468,7 +470,7 @@ describe("storeFactory — Redis vs SQLite selection", () => {
 
   it("returns a Redis store when REDIS_URL is configured", async () => {
     process.env.REDIS_URL = "redis://127.0.0.1:6379";
-    vi.resetModules();
+    vi.resetModules?.();
     const { storeFactory } = await import("@/lib/quota/storeFactory.js");
     const store = storeFactory();
     expect(store.driver).toBe("redis");
@@ -476,7 +478,7 @@ describe("storeFactory — Redis vs SQLite selection", () => {
 
   it("honours forceStore for deterministic call sites", async () => {
     process.env.REDIS_URL = "redis://127.0.0.1:6379";
-    vi.resetModules();
+    vi.resetModules?.();
     const { storeFactory } = await import("@/lib/quota/storeFactory.js");
     expect(storeFactory({ forceStore: "sqlite" }).driver).toBe("sqlite");
     expect(storeFactory({ forceStore: "redis" }).driver).toBe("redis");
@@ -484,7 +486,7 @@ describe("storeFactory — Redis vs SQLite selection", () => {
 
   it("memoises the default store and can be reset", async () => {
     delete process.env.REDIS_URL;
-    vi.resetModules();
+    vi.resetModules?.();
     const { getQuotaStore, resetDefaultQuotaStore } = await import("@/lib/quota/storeFactory.js");
     const a = getQuotaStore();
     expect(getQuotaStore()).toBe(a);
@@ -503,11 +505,12 @@ describe("settingsRepo — 5s TTL in-memory cache keyed by settings_revision", (
   let repo;
 
   async function loadRepo() {
-    vi.resetModules();
+    vi.resetModules?.();
     delete global._dbAdapter;
     const { getAdapter } = await import("@/lib/db/driver.js");
     db = await getAdapter();
     repo = await import("@/lib/db/repos/settingsRepo.js");
+    repo.invalidateSettingsCache();
     return repo;
   }
 
@@ -530,6 +533,7 @@ describe("settingsRepo — 5s TTL in-memory cache keyed by settings_revision", (
     if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true });
     if (originalDataDir === undefined) delete process.env.DATA_DIR;
     else process.env.DATA_DIR = originalDataDir;
+    repo?.invalidateSettingsCache();
     vi.restoreAllMocks();
   });
 
