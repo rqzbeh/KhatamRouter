@@ -4,7 +4,11 @@ import {
 } from "../services/auth.js";
 import { getSettings, getCustomModels } from "@/lib/localDb";
 import { getModelInfo } from "../services/model.js";
-import { getKeyAccessContext, enforceKeyAccessResolved } from "../services/keyAccess.js";
+import { getKeyAccessContext, enforceKeyAccessResolved, extractClientApiKey } from "../services/keyAccess.js";
+import { isTrustedInternalRequest } from "../services/internalTrust.js";
+import { enforceUnifiedAcl } from "../services/allowedModels.js";
+import { getApiKeyByKey } from "@/lib/db/repos/apiKeysRepo.js";
+import { checkApiKeyUsageLimits, formatQuotaErrorResponse } from "@/lib/usage/apiKeyUsageLimits.js";
 import { handleSttCore } from "open-sse/handlers/sttCore.js";
 import { errorResponse, unavailableResponse } from "open-sse/utils/error.js";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
@@ -46,16 +50,48 @@ export async function handleStt(request) {
   const modelStr = formData.get("model");
   log.request("POST", `/v1/audio/transcriptions | ${modelStr}`);
 
-  const settings = await getSettings();
-  if (settings.requireApiKey) {
-    const apiKey = extractApiKey(request);
-    if (!apiKey) return errorResponse(HTTP_STATUS.UNAUTHORIZED, "Missing API key");
-    const valid = await isValidApiKey(apiKey);
-    if (!valid) return errorResponse(HTTP_STATUS.UNAUTHORIZED, "Invalid API key");
+  // 1. Internal Trust Guard: valid x-9r-cli-token bypasses all auth and ACL gates
+  const isTrustedInternal = await isTrustedInternalRequest(request);
+  const apiKey = extractClientApiKey(request) || extractApiKey(request);
+
+  if (!isTrustedInternal) {
+    const settings = await getSettings();
+    if (settings.requireApiKey) {
+      if (!apiKey) return errorResponse(HTTP_STATUS.UNAUTHORIZED, "Missing API key");
+      const valid = await isValidApiKey(apiKey);
+      if (!valid) return errorResponse(HTTP_STATUS.UNAUTHORIZED, "Invalid API key");
+    }
   }
 
   if (!modelStr) return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing model");
   if (!formData.get("file")) return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing required field: file");
+
+  // 3-5. Unified Tri-State ACL check: kind ("stt") -> provider -> model
+  if (!isTrustedInternal) {
+    const keyRecord = apiKey ? await getApiKeyByKey(apiKey) : null;
+    if (keyRecord) {
+      const aclDenied = await enforceUnifiedAcl({
+        request,
+        kind: "stt",
+        modelStr,
+        keyRecord,
+      });
+      if (aclDenied) return aclDenied;
+
+      // 6. Granular API Key Rate/Quota Limits & Spend Caps
+      const limitResult = await checkApiKeyUsageLimits({ apiKeyRow: keyRecord });
+      if (limitResult && !limitResult.allowed) {
+        const formatted = formatQuotaErrorResponse(limitResult);
+        return new Response(JSON.stringify(formatted.body), {
+          status: formatted.status,
+          headers: {
+            ...formatted.headers,
+            "Access-Control-Allow-Origin": "*",
+          },
+        });
+      }
+    }
+  }
 
   const modelInfo = await getModelInfo(modelStr);
   if (!modelInfo.provider) return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid model format");

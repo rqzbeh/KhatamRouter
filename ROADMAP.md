@@ -29,6 +29,7 @@ The table below mirrors the shipped rows of the authoritative status table in [R
 | **SQLite WAL Engine + Integrity Preflight** | 🟢 Shipped | Wave 1: `bun:sqlite` WAL, `busy_timeout=5000`, startup integrity check |
 | **Redis Accelerator & Real-Time Pub/Sub** | 🟢 Shipped | Wave 1: `khatam:` namespace, cluster invalidation, transparent SQLite fallback |
 | **Versioned DB Migrations & Hybrid Quota** | 🟢 Shipped | Wave 2: Idempotent `_khatam_migrations` runner with backup-before-migrate, additive schema v3, hybrid Redis/SQLite sliding-window quota store with fail-open, 5s settings cache |
+| **Granular Per-Connection / Key Limits & ACL** | 🟢 Shipped | Wave 3: Unified tri-state ACL, constant-time internal trust, sliding-window key limits, connection concurrency/rate overrides, USD spend caps with fail-open degradation |
 | **Hardened Request Ingestion & Smuggling Defense** | 🟢 Shipped | HTTP/1.1 & h2c smuggling defenses, 128 MiB JSON body cap, 64 MiB chunked cap |
 | **Token Savers (RTK, Caveman, Ponytail)** | 🟢 Shipped | Pre-translation tool compression with 10 MiB cap, prompt injection modes |
 
@@ -40,6 +41,8 @@ Only the following capabilities are shipped and operational today:
 - **SQLite WAL engine + integrity preflight**: Native `bun:sqlite` adapter running Write-Ahead Logging (`PRAGMA journal_mode = WAL`), a 5000ms lock timeout (`PRAGMA busy_timeout = 5000`), in-memory temporary storage (`PRAGMA temp_store = MEMORY`), and mandatory startup integrity validation (`PRAGMA integrity_check`) refusing silent fallback over existing data.
 - **Redis client, pub/sub, and hybrid quota store (no distributed circuit state yet)**: Connection management and Pub/Sub event bus under `src/lib/redis/` enforcing the `khatam:` namespace prefix for cluster-wide cache invalidation (`khatam:events:config_reload`), plus atomic sliding-window quota tracking via `RedisQuotaStore` (`khatam:quota:*`), with automatic fail-safe fallback to in-memory/SQLite when `REDIS_URL` is omitted. Redis does not yet handle circuit breaker state storage (scheduled for Wave 4).
 - **Versioned DB migrations & hybrid quota store**: Idempotent `_khatam_migrations` runner executing ordered JS/TS migrations with backup-before-migrate safety, additive schema v3 (`rate_limit_overrides_json`, `api_key_quota_limits`, `request_cost_ledger`, `domain_circuit_breakers`, `model_capabilities`), hybrid Redis/SQLite sliding-window quota store (`RedisQuotaStore` and `SqliteQuotaStore` via `createQuotaStore`) with fail-open semantics, and a 5-second in-memory TTL settings cache (`invalidateSettingsCache` / `bumpSettingsRevision`).
+- **Unified Tri-State ACL & Timing-Safe Internal Trust**: Granular authorization filters on API keys supporting `allowedKinds`, `allowedProviders`, `allowedCombos`, and `allowedModels` with explicit allow, deny, and wildcard rules, model enumeration prevention (returns 404 `model_not_found` for forbidden models), catalog filtering on `/v1/models`, and constant-time `internalTrust` token validation (`crypto.timingSafeEqual`) on `x-9r-cli-token`.
+- **Granular Per-Connection / Key Rate Limits & USD Spend Caps**: Multi-tier rate limiting with `rate_limit_overrides_json` enforcing connection-level RPM/RPD/TPM/TPD, inter-call `minTime` spacing, in-process concurrency semaphores (`maxConcurrent`, `modelConcurrency`), per-key multi-window sliding limits (RPM/RPH/RPD via `QuotaStore`), and daily/weekly USD expenditure caps via `request_cost_ledger` with fail-open degradation when Redis/DB encounters transient infrastructure faults.
 - **Hardened request ingestion (128 MiB JSON, 64 MiB h2c, CL+TE smuggling rejection)**: Defense-in-depth HTTP request parsing enforcing a 128 MiB ceiling on JSON request bodies via Next.js `experimental.proxyClientMaxBodySize` (default `128mb`, overridable with `NINEROUTER_PROXY_CLIENT_MAX_BODY_SIZE`), a 64 MiB ceiling on chunked h2c streams (`MAX_H2C_BODY_BYTES` in `custom-server.js`), strict CRLF framing validation, and immediate rejection of HTTP smuggling attempts combining `Content-Length` and `Transfer-Encoding`.
 - **Token savers (RTK/Caveman/Ponytail)**: Pre-translation tool compression via RTK (token-reducing compression of `tool_result` content with a 10 MiB ceiling per `RAW_CAP` in `open-sse/rtk/constants.js` that intentionally applies lossy per-filter truncation: e.g., git diff hunks capped at 100 lines via `GIT_DIFF_HUNK_MAX_LINES`, repetitive logs deduplicated and capped at 2,000 lines via `DEDUP_LINE_MAX`, and build outputs sliced to top deprecations and 5 warnings), Caveman terseness prompts, and Ponytail prompt modes (saving an upstream 9Router-claimed 20-40% input tokens and up to 65% output tokens, rather than a measured KhatamRouter benchmark).
 - **Inherited 9router feature set (providers, translators, executors, quotas UI, combos)**: Upstream provider registry supporting 40+ providers, protocol translation pivoting across OpenAI, Claude, Gemini, and Kiro formats, specialized executors, Next.js control-plane dashboard, model combos with multi-tier fallback, and automated OAuth token refresh flows.
@@ -72,15 +75,22 @@ Wave 2 established the persistence and quota foundation required for distributed
 
 ## Wave 3 — Unified ACL and Granular Limits
 
-**Status**: 🔵 Planned
+**Status**: 🟢 Shipped
 
 Wave 3 introduces fine-grained authorization policies and multi-tier rate limiting:
 
+- **Concrete Artifacts**:
+  - Unified ACL Service: `src/sse/services/allowedModels.js` implementing pure tri-state logic (`isKindAllowed`, `isComboAllowed`, `isProviderAllowed`, `isModelAllowed`, `enforceUnifiedAcl`) with 403 `forbidden` (kinds, providers, combos) and 404 `model_not_found` model enumeration prevention.
+  - Internal Trust Guard: `src/sse/services/internalTrust.js` implementing timing-safe constant-time (`crypto.timingSafeEqual`) verification on `x-9r-cli-token` and loopback bypass, integrated with `src/dashboardGuard.js`.
+  - Catalogue Filtering: `filterModelsListForKey()` in `src/sse/services/keyAccess.js` ensuring restricted keys cannot enumerate unauthorized models via `/v1/models`.
+  - Connection Rate Limiter: `open-sse/services/rateLimitManager/connectionLimiter.js`, `overrides.js`, and `semaphore.js` providing in-process concurrency semaphores (`maxConcurrent`, `modelConcurrency`), `minTime` call spacing, and connection-level RPM/RPD/TPM/TPD enforcement from `providerConnections.rate_limit_overrides_json`.
+  - Per-Key Quota & Spend Caps: `src/lib/usage/apiKeyUsageLimits.js`, `src/domain/keyQuota.js`, and `src/lib/db/keyQuota.js` implementing sliding-window rate limits (RPM/RPH/RPD via `QuotaStore`) and daily/weekly USD expenditure caps via `request_cost_ledger`.
+  - Fail-Open Degradation: All rate limiters and quota stores gracefully degrade to `{ allowed: true, degraded: true }` when Redis or SQLite encounter transient faults, preserving proxy throughput.
 - **Tri-state access control lists**: Granular authorization filters on API keys supporting `allowedKinds`, `allowedProviders`, `allowedCombos`, and `allowedModels` with explicit allow, deny, and wildcard rules.
-- **`internalTrust` timing-safe token**: Timing-attack resistant HMAC token validation for securing inter-process communication and trusted reverse-proxy routing.
+- **`internalTrust` timing-safe token**: Timing-attack resistant token validation for securing inter-process communication and trusted reverse-proxy routing.
 - **Per-connection rate and concurrency limits**: Strict enforcement of requests per minute (RPM), requests per day (RPD), tokens per minute (TPM), tokens per day (TPD), minimum inter-call spacing (`minTime`), and concurrency caps (`maxConcurrent` / `modelConcurrency`).
 - **Per-key sliding windows**: Sub-second sliding-window algorithms tracking requests per hour (RPH), requests per minute (RPM), and requests per day (RPD).
-- **USD expenditure caps**: Configurable daily, weekly, and monthly budget limits backed by `request_cost_ledger`, with fail-closed rejection once limits are reached.
+- **USD expenditure caps**: Configurable daily, weekly, and monthly budget limits backed by `request_cost_ledger`, with fail-open resilience on infrastructure errors and 429 Retry-After on limit exhaustion.
 
 ---
 

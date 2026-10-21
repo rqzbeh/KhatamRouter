@@ -25,7 +25,11 @@ import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { getProjectIdForConnection } from "open-sse/services/projectId.js";
 import { stripModelContextMarker } from "open-sse/utils/modelMarkers.js";
-import { getKeyAccessContext, enforceKeyAccess, filterAdapterModels } from "../services/keyAccess.js";
+import { getKeyAccessContext, enforceKeyAccess, filterAdapterModels, extractClientApiKey } from "../services/keyAccess.js";
+import { isTrustedInternalRequest } from "../services/internalTrust.js";
+import { enforceUnifiedAcl } from "../services/allowedModels.js";
+import { getApiKeyByKey } from "@/lib/db/repos/apiKeysRepo.js";
+import { checkApiKeyUsageLimits, formatQuotaErrorResponse } from "@/lib/usage/apiKeyUsageLimits.js";
 
 /**
  * Handle chat completion request
@@ -58,9 +62,12 @@ export async function handleChat(request, clientRawRequest = null) {
 
   // Request summary is emitted as the unified "▶" line in chatCore (has fmt/thinking/account)
 
+  // 1. Internal Trust Guard: valid x-9r-cli-token bypasses all auth and ACL gates
+  const isTrustedInternal = await isTrustedInternalRequest(request);
+
   // Log API key (masked)
   const authHeader = request.headers.get("Authorization");
-  const apiKey = extractApiKey(request);
+  const apiKey = extractClientApiKey(request) || extractApiKey(request);
   if (authHeader && apiKey) {
     const masked = log.maskKey(apiKey);
     log.debug("AUTH", `API Key: ${masked}`);
@@ -68,9 +75,9 @@ export async function handleChat(request, clientRawRequest = null) {
     log.debug("AUTH", "No API key provided (local mode)");
   }
 
-  // Enforce API key if enabled in settings
+  // Enforce API key if enabled in settings (bypassed if trusted internal)
   const settings = await getSettings();
-  if (settings.requireApiKey) {
+  if (!isTrustedInternal && settings.requireApiKey) {
     if (!apiKey) {
       log.warn("AUTH", "Missing API key (requireApiKey=true)");
       return errorResponse(HTTP_STATUS.UNAUTHORIZED, "Missing API key");
@@ -85,6 +92,33 @@ export async function handleChat(request, clientRawRequest = null) {
   if (!modelStr) {
     log.warn("CHAT", "Missing model");
     return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing model");
+  }
+
+  // 3-5. Unified Tri-State ACL check: kind ("llm") -> combo/provider -> model
+  if (!isTrustedInternal) {
+    const keyRecord = apiKey ? await getApiKeyByKey(apiKey) : null;
+    if (keyRecord) {
+      const aclDenied = await enforceUnifiedAcl({
+        request,
+        kind: "llm",
+        modelStr,
+        keyRecord,
+      });
+      if (aclDenied) return aclDenied;
+
+      // 6. Granular API Key Rate/Quota Limits & Spend Caps
+      const limitResult = await checkApiKeyUsageLimits({ apiKeyRow: keyRecord });
+      if (limitResult && !limitResult.allowed) {
+        const formatted = formatQuotaErrorResponse(limitResult);
+        return new Response(JSON.stringify(formatted.body), {
+          status: formatted.status,
+          headers: {
+            ...formatted.headers,
+            "Access-Control-Allow-Origin": "*",
+          },
+        });
+      }
+    }
   }
 
   // Per-key access control: a restricted key may call only its listed combos and
