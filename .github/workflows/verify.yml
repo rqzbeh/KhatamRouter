@@ -103,6 +103,11 @@ jobs:
           set -euo pipefail
           node tests/__baseline__/verify-oauth-urls.mjs
 
+      - name: Docs claims
+        run: |
+          set -euo pipefail
+          node scripts/verify-docs-claims.mjs
+
   unit-core:
     name: Verify / Unit (core)
     runs-on: ubuntu-latest
@@ -191,7 +196,8 @@ jobs:
             unit/wave2-migrations.test.js \
             unit/wave2-quota-store.test.js \
             unit/wave3-acl.test.js \
-            unit/wave3-limits.test.js
+            unit/wave3-limits.test.js \
+            unit/wave4-docs-claims.test.js
 
   verify:
     name: Verify (tests + baselines)
@@ -234,6 +240,7 @@ jobs:
             echo "   - \`node tests/__baseline__/verify-providers.mjs\` (94 providers)"
             echo "   - \`node tests/__baseline__/verify-alias.mjs\` (132 tokens)"
             echo "   - \`node tests/__baseline__/verify-oauth-urls.mjs\`"
+            echo "   - \`node scripts/verify-docs-claims.mjs\`"
             echo "3. **Unit (core)** (\`unit-core\`):"
             echo "   - \`unit/capabilities.test.js\`"
             echo "   - \`unit/capabilities-service-kind.test.js\`"
@@ -246,6 +253,7 @@ jobs:
             echo "   - \`unit/wave2-quota-store.test.js\`"
             echo "   - \`unit/wave3-acl.test.js\`"
             echo "   - \`unit/wave3-limits.test.js\`"
+            echo "   - \`unit/wave4-docs-claims.test.js\`"
             echo ""
             echo "### Checks deliberately excluded (this gate does NOT run them)"
             echo ""
@@ -323,3 +331,137 @@ jobs:
             echo ""
             echo "Job status at summary time: \`${{ job.status }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  smoke:
+    name: Smoke (run container)
+    needs: [verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build image (smoke)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile.bun
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: khatamrouter:smoke
+          cache-from: type=gha,scope=khatam-image
+          cache-to: type=gha,scope=khatam-image,mode=max
+
+      - name: Assert no baked database
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint sh khatamrouter:smoke -c "test -z \"\$(find / -name '*.sqlite*' -not -path '/proc/*' -not -path '/sys/*' 2>/dev/null | head -1)\""
+
+      - name: Boot container
+        run: |
+          set -euo pipefail
+          mkdir -p "${{ runner.temp }}/khdata"
+          chmod 777 "${{ runner.temp }}/khdata"
+
+          docker run -d \
+            --name kh-smoke \
+            -p 20128:20128 \
+            -v "${{ runner.temp }}/khdata:/app/data" \
+            -e DATA_DIR=/app/data \
+            -e JWT_SECRET=c0ffee1234567890abcdef1234567890c0ffee1234567890abcdef1234567890 \
+            -e API_KEY_SECRET=c0ffee1234567890abcdef1234567890c0ffee1234567890abcdef1234567890 \
+            khatamrouter:smoke
+
+          echo "Polling up to 90s for HTTP readiness on 127.0.0.1:20128/dashboard..."
+          READY=0
+          for i in $(seq 1 90); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:20128/dashboard || true)
+            if [ "$STATUS" = "200" ] || [ "$STATUS" = "302" ] || [ "$STATUS" = "307" ]; then
+              READY=1
+              echo "Container ready after ${i}s (HTTP status: $STATUS)"
+              break
+            fi
+            sleep 1
+          done
+          if [ "$READY" -ne 1 ]; then
+            echo "::error::Container failed to become ready within 90s"
+            exit 1
+          fi
+
+      - name: Assert HTTP endpoints
+        run: |
+          set -euo pipefail
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:20128/dashboard)
+          echo "curl /dashboard returned HTTP code: $CODE"
+          if [ "$CODE" != "200" ] && [ "$CODE" != "302" ] && [ "$CODE" != "307" ]; then
+            echo "::error::Unexpected HTTP code from /dashboard: $CODE"
+            exit 1
+          fi
+
+          HEALTH_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:20128/api/health || true)
+          echo "curl /api/health returned HTTP code: $HEALTH_CODE"
+          if [ "$HEALTH_CODE" = "200" ]; then
+            echo "Health endpoint returned 200 OK"
+          elif [ "$HEALTH_CODE" = "404" ]; then
+            echo "Health endpoint returned 404 (noted)"
+          fi
+
+      - name: Assert runtime migrations
+        run: |
+          set -euo pipefail
+          ROWS=$(docker exec kh-smoke sqlite3 /app/data/db/data.sqlite "SELECT version FROM _khatam_migrations ORDER BY version;")
+          echo "Migrations applied:"
+          echo "$ROWS"
+          COUNT=$(echo "$ROWS" | grep -c . || true)
+          if [ "$COUNT" -lt 2 ]; then
+            echo "::error::Expected at least 2 migrations in _khatam_migrations, found $COUNT"
+            exit 1
+          fi
+
+          JOURNAL=$(docker exec kh-smoke sqlite3 /app/data/db/data.sqlite "PRAGMA journal_mode;")
+          echo "journal_mode: $JOURNAL"
+          if [ "$JOURNAL" != "wal" ]; then
+            echo "::error::Expected PRAGMA journal_mode to be wal, got $JOURNAL"
+            exit 1
+          fi
+
+      - name: Assert ACL wiring
+        run: |
+          set -euo pipefail
+          TABLES=$(docker exec kh-smoke sqlite3 /app/data/db/data.sqlite "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('api_key_quota_limits','request_cost_ledger');")
+          echo "ACL tables present:"
+          echo "$TABLES"
+          if ! echo "$TABLES" | grep -q "api_key_quota_limits"; then
+            echo "::error::Missing api_key_quota_limits table"
+            exit 1
+          fi
+          if ! echo "$TABLES" | grep -q "request_cost_ledger"; then
+            echo "::error::Missing request_cost_ledger table"
+            exit 1
+          fi
+
+      - name: Dump container logs (tail)
+        if: always()
+        run: |
+          echo "=== Last 50 container logs ==="
+          docker logs --tail 50 kh-smoke || true
+
+      - name: Dump full container logs on failure
+        if: failure()
+        run: |
+          echo "=== Full container logs ==="
+          docker logs kh-smoke || true
+
+      - name: Cleanup smoke container
+        if: always()
+        run: |
+          docker rm -f kh-smoke || true
