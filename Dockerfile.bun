@@ -34,6 +34,15 @@ RUN bun -e "import { Database } from 'bun:sqlite'; const db = new Database(':mem
 
 COPY . .
 
+# Build-time resource caps. ARGs must be declared to be consumed at all —
+# otherwise `--build-arg NEXT_BUILD_CPUS/NODE_OPTIONS` is silently dropped by
+# BuildKit. Exporting them via ENV (not just ARG) puts them in the environment
+# of the build command below, so `next build` actually sees them.
+ARG NEXT_BUILD_CPUS=2
+ARG NODE_OPTIONS
+ENV NEXT_BUILD_CPUS=${NEXT_BUILD_CPUS}
+ENV NODE_OPTIONS=${NODE_OPTIONS}
+
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
