@@ -37,6 +37,15 @@ export function copyStandaloneAssets({ projectRoot = process.cwd(), distDir = pr
     cpSync(serverWrapperSource, serverWrapperDestination, { force: true });
     console.log(`[standalone-assets] Copied custom-server.js to ${serverWrapperDestination}`);
   }
+
+  // custom-server.js requires("./runtime-secrets.cjs") at module load; without it
+  // the standalone process throws on startup in production.
+  const secretsSource = resolve(projectRoot, "runtime-secrets.cjs");
+  const secretsDestination = resolve(standaloneDir, "runtime-secrets.cjs");
+  if (existsSync(secretsSource)) {
+    cpSync(secretsSource, secretsDestination, { force: true });
+    console.log(`[standalone-assets] Copied runtime-secrets.cjs to ${secretsDestination}`);
+  }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(dirname(fileURLToPath(import.meta.url)), "copy-standalone-assets.mjs")) {

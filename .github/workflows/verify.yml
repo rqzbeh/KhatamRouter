@@ -1,0 +1,113 @@
+name: Verify
+
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify (tests + baselines)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: bun.lock
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+
+      - name: Install dependencies (root)
+        run: |
+          set -euo pipefail
+          bun install
+
+      - name: Install dependencies (tests)
+        working-directory: tests
+        run: |
+          set -euo pipefail
+          bun install
+
+      - name: Baseline - provider registry
+        run: |
+          set -euo pipefail
+          node tests/__baseline__/verify-providers.mjs
+
+      - name: Baseline - model aliases
+        run: |
+          set -euo pipefail
+          node tests/__baseline__/verify-alias.mjs
+
+      - name: Baseline - OAuth URLs
+        run: |
+          set -euo pipefail
+          node tests/__baseline__/verify-oauth-urls.mjs
+
+      - name: Unit tests (calibrated subset)
+        working-directory: tests
+        run: |
+          set -euo pipefail
+          npx vitest run --reporter=verbose \
+            unit/capabilities.test.js \
+            unit/capabilities-service-kind.test.js \
+            unit/db-driver-chain.test.js \
+            unit/db-migration-chain.test.js \
+            unit/custom-server-peer-headers.test.js \
+            unit/wave1-bun-ts-redis-sqlite.test.js
+
+      - name: Verification coverage summary
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo "## Verify gate coverage"
+            echo ""
+            echo "Job status at summary time: \`${{ job.status }}\`"
+            echo ""
+            echo "### Checks that ran (all calibrated exit 0 on master before this gate was added)"
+            echo ""
+            echo "1. \`bun install\` (repo root)"
+            echo "2. \`bun install\` (tests/)"
+            echo "3. \`node tests/__baseline__/verify-providers.mjs\` - provider registry byte-for-byte baseline (94 providers)"
+            echo "4. \`node tests/__baseline__/verify-alias.mjs\` - model alias resolution byte-for-byte baseline (132 tokens)"
+            echo "5. \`node tests/__baseline__/verify-oauth-urls.mjs\` - OAuth URL byte-for-byte baseline"
+            echo "6. \`npx vitest run --reporter=verbose\` over the calibrated subset:"
+            echo "   - unit/capabilities.test.js"
+            echo "   - unit/capabilities-service-kind.test.js"
+            echo "   - unit/db-driver-chain.test.js"
+            echo "   - unit/db-migration-chain.test.js"
+            echo "   - unit/custom-server-peer-headers.test.js"
+            echo "   - unit/wave1-bun-ts-redis-sqlite.test.js"
+            echo ""
+            echo "### Checks deliberately excluded (this gate does NOT run them)"
+            echo ""
+            echo "- **Full vitest suite** (\`npx vitest run\` in tests/): NOT green on a plain checkout -"
+            echo "  ~91 expected failures documented in CLAUDE.md, catalogued in"
+            echo "  \`tests/__baseline__/known-fails.txt\`, plus \`unit/embeddings.cloud.test.js\`"
+            echo "  (imports \`cloud/\` worker dir which is not in this repo) and \`tests/real/*.real.test.js\`"
+            echo "  live provider calls that need credentials. Running it would leave the gate red forever."
+            echo "- **Lint (\`npx eslint .\`)**, **build (\`npm run build\`)**, **e2e / live-provider tests**: not calibrated as exit 0 for this gate; out of scope for the initial PR verification gate."
+            echo "- **\`tests/__baseline__/verify-no-regression.mjs\`**: not part of the calibrated set for this gate."
+            echo ""
+            echo "A green check here means exactly the six baseline scripts/tests above passed - no more."
+          } >> "$GITHUB_STEP_SUMMARY"
