@@ -2,6 +2,7 @@
 // Kept for backward compatibility with existing imports.
 export {
   getSettings, updateSettings, isCloudEnabled, getCloudUrl,
+  bumpSettingsRevision, invalidateSettingsCache,
   getProviderConnections, getProviderConnectionById,
   createProviderConnection, updateProviderConnection,
   deleteProviderConnection, deleteProviderConnectionsByProvider,

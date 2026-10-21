@@ -7,6 +7,7 @@ import { KEY_ACCESS_UNRESTRICTED } from "@/shared/constants/keyAccess.js";
 // Settings
 export {
   getSettings, updateSettings, isCloudEnabled, getCloudUrl, exportSettings,
+  bumpSettingsRevision, invalidateSettingsCache,
 } from "./repos/settingsRepo.js";
 
 // Provider connections
@@ -115,6 +116,17 @@ export async function importDb(payload) {
     if (payload.settings) {
       db.run(`INSERT INTO settings(id, data) VALUES(1, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data`, [stringifyJson(payload.settings)]);
     }
+
+    // Full import rewrites settings, so bump the revision like updateSettings does —
+    // other processes converge within the settings cache TTL instead of serving stale data.
+    try {
+      const metaRow = db.get(`SELECT value FROM _meta WHERE key = 'settings_revision'`);
+      const cur = metaRow && metaRow.value ? parseInt(metaRow.value, 10) : 0;
+      db.run(
+        `INSERT INTO _meta(key, value) VALUES('settings_revision', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+        [String((isNaN(cur) ? 0 : cur) + 1)]
+      );
+    } catch { /* _meta may not exist on very old DBs */ }
 
     for (const c of payload.providerConnections || []) {
       const { id, provider, authType, name, email, priority, isActive, createdAt, updatedAt, ...rest } = c;

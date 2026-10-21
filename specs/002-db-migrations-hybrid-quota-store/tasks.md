@@ -44,9 +44,9 @@ description: "Dependency-ordered checklist of tasks for Wave 2 Database Migratio
 
 **Purpose**: Build the high-throughput sliding window quota engine with atomic float increments and resilient fail-open guarantees.
 
-- [ ] T007 [P] [US3] Implement `src/lib/quota/redisQuotaStore.js` with two-bucket sliding window calculation, `khatam:quota:` namespace prefixing, atomic `INCRBYFLOAT`, TTL maintenance, and fail-open contract `{ allowed: true, degraded: true }` on errors.
-- [ ] T008 [P] [US3] Implement `src/lib/quota/sqliteQuotaStore.js` with identical sliding window semantics backed by atomic transactions over `api_key_quota_counters`.
-- [ ] T009 [US3] Implement `src/lib/quota/index.js` exporting `quotaStoreFactory()` that selects `RedisQuotaStore` when Redis is configured and available, or `SqliteQuotaStore` otherwise.
+- [x] T007 [P] [US3] Implement `src/lib/quota/redisQuotaStore.js` with two-bucket sliding window calculation, `khatam:quota:` namespace prefixing, atomic `INCRBYFLOAT`, TTL maintenance, and fail-open contract `{ allowed: true, degraded: true }` on errors.
+- [x] T008 [P] [US3] Implement `src/lib/quota/sqliteQuotaStore.js` with identical sliding window semantics backed by atomic transactions over `api_key_quota_counters`.
+- [x] T009 [US3] Implement `src/lib/quota/index.js` exporting `quotaStoreFactory()` that selects `RedisQuotaStore` when Redis is configured and available, or `SqliteQuotaStore` otherwise.
 
 ---
 
@@ -54,8 +54,8 @@ description: "Dependency-ordered checklist of tasks for Wave 2 Database Migratio
 
 **Purpose**: Reduce SQLite read-lock contention on high-throughput proxy inference paths through a 5000ms in-memory cache.
 
-- [ ] T010 [US4] Update `src/lib/db/repos/settingsRepo.js` with an in-memory cache having a 5000ms TTL keyed by a `settings_revision` row in `_meta`.
-- [ ] T011 [US4] Implement `bumpSettingsRevision()` and `invalidateSettingsCache()` in `src/lib/db/repos/settingsRepo.js`, and wire `updateSettings()` to bump revision, clear cache, and publish `KHATAM_EVENTS.CONFIG_RELOAD`.
+- [x] T010 [US4] Update `src/lib/db/repos/settingsRepo.js` with an in-memory cache having a 5000ms TTL keyed by a `settings_revision` row in `_meta`.
+- [x] T011 [US4] Implement `bumpSettingsRevision()` and `invalidateSettingsCache()` in `src/lib/db/repos/settingsRepo.js`, and wire `updateSettings()` to bump revision, clear cache, and publish `KHATAM_EVENTS.CONFIG_RELOAD`.
 
 ---
 
@@ -64,5 +64,5 @@ description: "Dependency-ordered checklist of tasks for Wave 2 Database Migratio
 **Purpose**: Validate all Wave 2 deliverables against acceptance scenarios, vitest suites, and Unlazy gates.
 
 - [ ] T012 [P] [US1..US2] Author unit test suite `tests/unit/wave2-db-migrations.test.js` covering migration runner idempotency, version tracking in `_khatam_migrations`, transaction rollback on failure, WAL checkpointing, and `.bak-<version>` snapshots.
-- [ ] T013 [P] [US3..US4] Author unit test suite `tests/unit/wave2-quota-store.test.js` covering sliding window arithmetic, `INCRBYFLOAT` operations, fail-open behavior under simulated Redis failures, and `settingsRepo` 5s TTL caching and invalidation.
+- [x] T013 [P] [US3..US4] Author unit test suite `tests/unit/wave2-quota-store.test.js` covering sliding window arithmetic, `INCRBYFLOAT` operations, fail-open behavior under simulated Redis failures, and `settingsRepo` 5s TTL caching and invalidation.
 - [ ] T014 [US1..US4] Validate all Unlazy gates in `.unlazy/wave-002/GATES.md` (G1, G2, G3, G4) and verify that `node tests/__baseline__/verify-providers.mjs` passes with zero regressions.
