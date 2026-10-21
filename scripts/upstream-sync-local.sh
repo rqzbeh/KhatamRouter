@@ -126,9 +126,10 @@ cmd_check() {
 
 # -----------------------------------------------------------------------------
 # Sub-command: branch
-# Branch from master, and snapshot the upstream commit list for the PR body
-# (captured *before* the merge commit, so HEAD..upstream is meaningful even
-# though the histories are unrelated on the very first sync).
+# Branch from BASE_BRANCH, and snapshot the upstream commit list for the PR
+# body. The range is computed against BASE_BRANCH (not HEAD) so a local run
+# started from any branch still lists the correct upstream commits; the
+# histories are unrelated on the very first sync, which is harmless here.
 # -----------------------------------------------------------------------------
 cmd_branch() {
   require_git_repo
@@ -139,11 +140,11 @@ cmd_branch() {
   short="$(git rev-parse --short "refs/remotes/${UPSTREAM_REMOTE}/${UPSTREAM_BRANCH}")"
   sync_branch="chore/upstream-sync-${short}"
 
-  git log --oneline "HEAD..refs/remotes/${UPSTREAM_REMOTE}/${UPSTREAM_BRANCH}" >"$(commits_file)" || true
-
   git checkout -B "$sync_branch" "$BASE_BRANCH"
   printf '%s\n' "$sync_branch" >"$(branch_file)"
   emit "branch=$sync_branch"
+
+  git log --oneline "${BASE_BRANCH}..refs/remotes/${UPSTREAM_REMOTE}/${UPSTREAM_BRANCH}" >"$(commits_file)" || true
   log "Branch: $sync_branch (from $BASE_BRANCH, upstream $short)"
 }
 
@@ -425,23 +426,38 @@ cmd_pr() {
     return 0
   fi
 
-  git push -u origin "$branch"
+  # --force-with-lease: a re-run (or force=true dispatch) may need to replace a
+  # diverged sync branch; never force-push a ref we haven't seen.
+  git push --force-with-lease -u origin "$branch"
   GH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
   export GH_TOKEN
   gh label create upstream-sync \
     --description "Automated syncs from decolua/9router" \
     --color 0e8a16 >/dev/null 2>&1 || true
 
-  local pr_url
-  pr_url="$(
-    gh pr create \
-      --base "$BASE_BRANCH" \
-      --head "$branch" \
-      --label upstream-sync \
-      --title "chore: sync decolua/9router @ ${up_short}" \
-      --body-file "$body_file"
+  local pr_url existing_pr
+  existing_pr="$(
+    gh pr view "$branch" \
+      --json url --jq -r '.url' 2>/dev/null || true
   )"
-  log "Opened PR: $pr_url"
+
+  if [ -n "$existing_pr" ] && [ "$existing_pr" != "null" ]; then
+    pr_url="$existing_pr"
+    gh pr edit "$pr_url" \
+      --title "chore: sync decolua/9router @ ${up_short}" \
+      --body-file "$body_file" >/dev/null
+    log "Updated existing PR: $pr_url"
+  else
+    pr_url="$(
+      gh pr create \
+        --base "$BASE_BRANCH" \
+        --head "$branch" \
+        --label upstream-sync \
+        --title "chore: sync decolua/9router @ ${up_short}" \
+        --body-file "$body_file"
+    )"
+    log "Opened PR: $pr_url"
+  fi
   emit "pr_url=$pr_url"
 
   if [ "$AUTO_MERGE" = "true" ]; then
