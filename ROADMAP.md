@@ -28,6 +28,7 @@ The table below mirrors the shipped rows of the authoritative status table in [R
 | **Bun v1.4.3 + TypeScript Runtime** | 🟢 Shipped | Wave 1: Native Bun execution, `@/*` mapping, `Dockerfile.bun` |
 | **SQLite WAL Engine + Integrity Preflight** | 🟢 Shipped | Wave 1: `bun:sqlite` WAL, `busy_timeout=5000`, startup integrity check |
 | **Redis Accelerator & Real-Time Pub/Sub** | 🟢 Shipped | Wave 1: `khatam:` namespace, cluster invalidation, transparent SQLite fallback |
+| **Versioned DB Migrations & Hybrid Quota** | 🟢 Shipped | Wave 2: Idempotent `_khatam_migrations` runner with backup-before-migrate, additive schema v3, hybrid Redis/SQLite sliding-window quota store with fail-open, 5s settings cache |
 | **Hardened Request Ingestion & Smuggling Defense** | 🟢 Shipped | HTTP/1.1 & h2c smuggling defenses, 128 MiB JSON body cap, 64 MiB chunked cap |
 | **Token Savers (RTK, Caveman, Ponytail)** | 🟢 Shipped | Pre-translation tool compression with 10 MiB cap, prompt injection modes |
 
@@ -37,7 +38,8 @@ Only the following capabilities are shipped and operational today:
 
 - **Bun v1.4.3 + TypeScript runtime**: Native Bun execution via `bun run dev:bun` and `bun run start:bun`, `@/*` path mapping to `./src/*`, and multi-stage container builds via `Dockerfile.bun`.
 - **SQLite WAL engine + integrity preflight**: Native `bun:sqlite` adapter running Write-Ahead Logging (`PRAGMA journal_mode = WAL`), a 5000ms lock timeout (`PRAGMA busy_timeout = 5000`), in-memory temporary storage (`PRAGMA temp_store = MEMORY`), and mandatory startup integrity validation (`PRAGMA integrity_check`) refusing silent fallback over existing data.
-- **Redis client and pub/sub (connection and event bus only, NOT quota or circuit logic)**: Connection management and Pub/Sub event bus under `src/lib/redis/` enforcing the `khatam:` namespace prefix for cluster-wide cache invalidation (`khatam:events:config_reload`), with automatic fail-safe fallback to in-memory/SQLite when `REDIS_URL` is omitted. Redis does not yet handle rate limiting, token counters, spend quotas, or circuit breaker logic.
+- **Redis client, pub/sub, and hybrid quota store (no distributed circuit state yet)**: Connection management and Pub/Sub event bus under `src/lib/redis/` enforcing the `khatam:` namespace prefix for cluster-wide cache invalidation (`khatam:events:config_reload`), plus atomic sliding-window quota tracking via `RedisQuotaStore` (`khatam:quota:*`), with automatic fail-safe fallback to in-memory/SQLite when `REDIS_URL` is omitted. Redis does not yet handle circuit breaker state storage (scheduled for Wave 4).
+- **Versioned DB migrations & hybrid quota store**: Idempotent `_khatam_migrations` runner executing ordered JS/TS migrations with backup-before-migrate safety, additive schema v3 (`rate_limit_overrides_json`, `api_key_quota_limits`, `request_cost_ledger`, `domain_circuit_breakers`, `model_capabilities`), hybrid Redis/SQLite sliding-window quota store (`RedisQuotaStore` and `SqliteQuotaStore` via `createQuotaStore`) with fail-open semantics, and a 5-second in-memory TTL settings cache (`invalidateSettingsCache` / `bumpSettingsRevision`).
 - **Hardened request ingestion (128 MiB JSON, 64 MiB h2c, CL+TE smuggling rejection)**: Defense-in-depth HTTP request parsing enforcing a 128 MiB ceiling on JSON request bodies via Next.js `experimental.proxyClientMaxBodySize` (default `128mb`, overridable with `NINEROUTER_PROXY_CLIENT_MAX_BODY_SIZE`), a 64 MiB ceiling on chunked h2c streams (`MAX_H2C_BODY_BYTES` in `custom-server.js`), strict CRLF framing validation, and immediate rejection of HTTP smuggling attempts combining `Content-Length` and `Transfer-Encoding`.
 - **Token savers (RTK/Caveman/Ponytail)**: Pre-translation tool compression via RTK (token-reducing compression of `tool_result` content with a 10 MiB ceiling per `RAW_CAP` in `open-sse/rtk/constants.js` that intentionally applies lossy per-filter truncation: e.g., git diff hunks capped at 100 lines via `GIT_DIFF_HUNK_MAX_LINES`, repetitive logs deduplicated and capped at 2,000 lines via `DEDUP_LINE_MAX`, and build outputs sliced to top deprecations and 5 warnings), Caveman terseness prompts, and Ponytail prompt modes (saving an upstream 9Router-claimed 20-40% input tokens and up to 65% output tokens, rather than a measured KhatamRouter benchmark).
 - **Inherited 9router feature set (providers, translators, executors, quotas UI, combos)**: Upstream provider registry supporting 40+ providers, protocol translation pivoting across OpenAI, Claude, Gemini, and Kiro formats, specialized executors, Next.js control-plane dashboard, model combos with multi-tier fallback, and automated OAuth token refresh flows.
@@ -46,18 +48,24 @@ Only the following capabilities are shipped and operational today:
 
 ## Wave 2 — Storage and Quota Foundation
 
-**Status**: 🟡 In progress
+**Status**: 🟢 Shipped (PR #38 merged, commit `5d4d5590`)
 
-Wave 2 establishes the persistence and quota foundation required for distributed rate and spend enforcement:
+Wave 2 established the persistence and quota foundation required for distributed rate and spend enforcement:
 
+- **Concrete Artifacts**:
+  - Migration runner: `src/lib/db/migrationRunner.js` (and `migrationRunner.ts`) with idempotent execution tracking in `_khatam_migrations` and automated pre-migration DB backups.
+  - Migration 002: `src/lib/db/migrations/002-wave2-storage-quota.js` adding tables and columns for limits, quotas, cost ledger, circuit breakers, and capabilities.
+  - Central schema version: `SCHEMA_VERSION = 3` in `src/lib/db/schema.js`.
+  - Quota store files: `src/lib/quota/storeFactory.js`, `src/lib/quota/redisQuotaStore.js`, `src/lib/quota/sqliteQuotaStore.js`, and `src/lib/quota/index.js` (with TypeScript source variants).
+  - Settings cache: 5-second in-memory TTL cache with `bumpSettingsRevision` and `invalidateSettingsCache` in `src/lib/db/repos/settingsRepo.js`.
 - **Versioned `_khatam_migrations` runner**: A dedicated startup migration engine executing ordered, versioned migration scripts to ensure schema consistency across both Bun and Go runtimes.
-- **Schema additions**:
+- **Schema additions (SCHEMA_VERSION = 3)**:
   - `rate_limit_overrides_json`: Connection-level limits storing overrides for `rpm`, `rpd`, `tpm`, `tpd`, `minTime`, `maxConcurrent`, and `modelConcurrency`.
   - `api_key_quota_limits`: Granular per-key rate, token, and concurrency limits.
   - `request_cost_ledger`: Ledger recording per-request token usage, provider unit cost, and total USD expenditure.
   - `domain_circuit_breakers`: State persistence tracking failure counters, error classifications, and cooldown expirations per provider/domain.
   - `model_capabilities`: Registry table storing discovered context boundaries, modalities, and feature flags.
-- **`RedisQuotaStore` with SQLite fallback**: Atomic sliding-window quota counters implemented via Redis Lua scripts with transparent fallback to SQLite transaction-backed counters when `REDIS_URL` is unset.
+- **`RedisQuotaStore` with SQLite fallback**: Atomic sliding-window quota counters implemented via Redis Lua scripts (`RedisQuotaStore`) with transparent fallback to SQLite transaction-backed counters (`SqliteQuotaStore`) via `createQuotaStore()` when `REDIS_URL` is unset, with fail-open semantics on Redis errors.
 - **5-second settings TTL cache**: An in-memory read-through cache on `settingsRepo` reducing SQLite read lock contention on high-throughput proxy paths.
 
 ---
@@ -171,7 +179,7 @@ Phase 2 establishes a high-performance split-plane architecture:
 To ensure clear operational expectations, the following limitations exist in the current implementation:
 
 - **No Go gateway yet**: All inference traffic is handled entirely by the Bun/Next.js control plane on port 20128. The Phase 2 Go gateway (`cmd/khatam-gateway`) is not yet implemented.
-- **Redis is connection plus pubsub only (no distributed quotas)**: While Redis connection management and Pub/Sub invalidation are operational, distributed sliding-window rate limiting, atomic spend tracking, and circuit breaker state storage in Redis are not yet built (scheduled for Waves 2 & 3).
+- **Redis handles connection, pubsub, and quota, but no distributed circuit state**: While Redis connection management, Pub/Sub cache invalidation, and sliding-window quota tracking (`RedisQuotaStore`) are operational, distributed circuit breaker state storage in Redis is not yet built (scheduled for Wave 4).
 - **No circuit breaker yet**: Requests currently rely on basic try/catch fallback loops without stateful 4-state circuit trip transitions (`CLOSED → DEGRADED → OPEN → HALF_OPEN`) or failure-kind cooldowns.
 - **20129 refuses connections**: While `ENDPOINT_PORT=20129` is documented and recognized in runtime configuration, no service is listening on port 20129 today.
 - **The full test suite is not green on a bare checkout**: `tests/__baseline__/known-fails.txt` catalogs exactly 24 known-failing test cases, and `CLAUDE.md` documents roughly 64 failing tests on a plain checkout. The CI verify gate (`.github/workflows/verify.yml`) cites a more conservative ~91 expected failures, counting the 24 catalogued cases plus `unit/embeddings.cloud.test.js` (targets the `cloud/` worker directory, which is not in this repo), `unit/xai-oauth-service.test.js` (times out without reachable discovery), and 13 `tests/**/*.real.test.js` live-provider files requiring credentials. Judge regressions with `tests/__baseline__/verify-no-regression.mjs`, not a raw run.

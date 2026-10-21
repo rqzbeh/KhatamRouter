@@ -35,7 +35,8 @@
 
 - ⚡ **Bun v1.4.3 + TypeScript runtime** — Sub-second cold starts, lower resident memory, and type-safe control-plane orchestration powered by native `bun:sqlite`.
 - 🗄️ **SQLite in WAL mode with integrity preflight** — Concurrent multi-process database sharing with a 5000ms `busy_timeout` and startup validation that refuses silent in-memory fallback over existing data.
-- 🚀 **Optional Redis accelerator (`khatam:` namespace)** — Low-latency cluster-wide Pub/Sub event bus and real-time config invalidation, with automatic SQLite fallback when `REDIS_URL` is unset (rate limits & quotas in Waves 2 & 3).
+- 🚀 **Optional Redis accelerator (`khatam:` namespace)** — Low-latency cluster-wide Pub/Sub event bus, real-time config invalidation, and sliding-window quota tracking, with automatic SQLite fallback when `REDIS_URL` is unset (rate limits in Wave 3).
+- 🗄️ **Versioned migrations & hybrid quota store** — Idempotent `_khatam_migrations` runner with backup-before-migrate safety, additive schema v3, hybrid Redis/SQLite sliding-window quota store with fail-open semantics, and 5s settings cache.
 - 🧱 **Hardened request ingestion** — Bounded 128 MiB JSON request bodies (`proxyClientMaxBodySize`), 64 MiB h2c chunked stream cap with strict CRLF enforcement, and immediate rejection of combined Content-Length/Transfer-Encoding smuggling attempts.
 - ✂️ **Multi-layer token savers** — Token-reducing 10 MiB RTK tool compression (intentionally truncates verbose diffs, logs, and build outputs), Caveman terseness prompts, and YAGNI-first Ponytail (Lite/Full/Ultra) modes saving an upstream-claimed 20-40% input and up to 65% output tokens.
 - 🔄 **Unified API gateway & Next.js dashboard (port 20128)** — Single lightweight endpoint serving both web dashboard and OpenAI-compatible `/v1/*` proxy routing across 40+ providers.
@@ -43,7 +44,6 @@
 #### 🟡 Upcoming Roadmap Capabilities
 
 - 🔀 **Split-plane architecture (Phase 2)** — High-throughput Go gateway data plane on port 20129 (`ENDPOINT_PORT`) dedicated to heavy inference streams while port 20128 (`DASHBOARD_PORT`) serves the control plane.
-- 🗄️ **Versioned migrations & hybrid quota (Wave 2)** — Dedicated `_khatam_migrations` runner with hybrid SQLite/Redis token and spend counters.
 - 🎚️ **Per-connection and per-key granular limits (Wave 3)** — Precision controls for RPM, RPD, TPM, TPD, max concurrency, min-time call spacing, and daily/weekly/monthly USD expenditure caps.
 - 🛡️ **4-state resilient circuit breaker (Wave 3)** — `CLOSED → DEGRADED → OPEN → HALF_OPEN` transitions with failure-kind cooldowns; client 4xx errors and upstream policy refusals never trip account health.
 - 🕵️ **Stealth and anti-ban layer (Wave 4)** — Canonical CLI header ordering, proxy-header scrubbing, provider client fingerprints, tool-name cloaking, zero-width obfuscation, and session stickiness protect your credentials.
@@ -58,10 +58,10 @@ We value engineering honesty over hype. Here is the exact status of each archite
 | **Bun v1.4.3 + TypeScript Runtime** | 🟢 Shipped | Wave 1: Native Bun execution, `@/*` mapping, `Dockerfile.bun` |
 | **SQLite WAL Engine + Integrity Preflight** | 🟢 Shipped | Wave 1: `bun:sqlite` WAL, `busy_timeout=5000`, startup integrity check |
 | **Redis Accelerator & Real-Time Pub/Sub** | 🟢 Shipped | Wave 1: `khatam:` namespace, cluster invalidation, transparent SQLite fallback |
+| **Versioned DB Migrations & Hybrid Quota** | 🟢 Shipped | Wave 2: Idempotent `_khatam_migrations` runner with backup-before-migrate, additive schema v3, hybrid Redis/SQLite sliding-window quota store with fail-open, 5s settings cache |
 | **Hardened Request Ingestion & Smuggling Defense** | 🟢 Shipped | HTTP/1.1 & h2c smuggling defenses, 128 MiB JSON cap, 64 MiB chunked cap |
 | **Token Savers (RTK, Caveman, Ponytail)** | 🟢 Shipped | Pre-translation tool compression with 10 MiB cap, prompt injection modes |
 | **Split-Plane Dual-Port Architecture** | 🟡 Roadmap | Phase 2: Dedicated Go gateway (`cmd/khatam-gateway`) on port 20129 (currently unified on port 20128) |
-| **Versioned DB Migrations & Hybrid Quota** | 🟡 Roadmap | Wave 2: Versioned `_khatam_migrations` runner & hybrid quota tracking |
 | **Granular Per-Connection / Key Limits** | 🟡 Roadmap | Wave 3: Atomic sliding-window rate limiters, token counters, and USD spend tracking |
 | **4-State Resilient Circuit Breakers** | 🟡 Roadmap | Wave 3: Failure-kind cooldowns exempting client 4xx and policy refusals |
 | **Stealth & Anti-Ban Fingerprinting** | 🟡 Roadmap | Wave 4: CLI client header mimicry, fingerprint spoofing, ZWJ cloaking, stickiness |
