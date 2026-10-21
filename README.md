@@ -11,7 +11,7 @@
   [![Publish Docker Image](https://github.com/rqzbeh/KhatamRouter/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/rqzbeh/KhatamRouter/actions/workflows/docker-publish.yml)
   [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/rqzbeh/KhatamRouter/blob/master/LICENSE)
 
-[🚀 Quick Start](#-quick-start) • [✨ Why KhatamRouter?](#-why-khatamrouter) • [💡 Features](#-key-features) • [📖 Setup](#-setup-guide) • [🌐 Docs](https://rqzbeh.github.io/KhatamRouter/)
+[🚀 Quick Start](#-quick-start) • [✨ Why KhatamRouter?](#-why-khatamrouter) • [💡 Features](#-key-features) • [📖 Setup](#-setup-guide) • [🗺️ Roadmap](./ROADMAP.md) • [🌐 Docs](https://rqzbeh.github.io/KhatamRouter/)
 
 [🇧🇷 Português (Brasil)](./i18n/README.pt-BR.md) • [🇻🇳 Tiếng Việt](./i18n/README.vi.md) • [🇨🇳 中文](./i18n/README.zh-CN.md) • [🇯🇵 日本語](./i18n/README.ja-JP.md) • [🇷🇺 Русский](./i18n/README.ru.md) • [🇹🇭 ไทย](./i18n/README.th.md) • [🇮🇷 فارسی](./i18n/README.fa_IR.md) • [🇮🇩 Indonesia](./i18n/README.id-ID.md) • [🇪🇸 Español](./i18n/README.es.md) • [🇫🇷 Français](./i18n/README.fr.md)
 
@@ -66,6 +66,8 @@ We value engineering honesty over hype. Here is the exact status of each archite
 | **4-State Resilient Circuit Breakers** | 🟡 Roadmap | Wave 3: Failure-kind cooldowns exempting client 4xx and policy refusals |
 | **Stealth & Anti-Ban Fingerprinting** | 🟡 Roadmap | Wave 4: CLI client header mimicry, fingerprint spoofing, ZWJ cloaking, stickiness |
 | **Dynamic Capability Discovery & Custom Models** | 🟡 Roadmap | Wave 4: Automatic capability querying and fail-closed routing across model combos |
+
+The detailed per-wave plan, known limitations and non-goals are tracked in [ROADMAP.md](./ROADMAP.md); the table above remains the authoritative shipped-versus-planned summary.
 
 ---
 
