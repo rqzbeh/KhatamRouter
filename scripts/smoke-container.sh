@@ -5,8 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
-CONTAINER_NAME="kh-smoke-$$"
-IMAGE_NAME="khatamrouter:smoke-$$"
+PLATFORM="${PLATFORM:-linux/amd64}"
+CONTAINER_NAME="${CONTAINER_NAME:-kh-smoke}"
+IMAGE_NAME="khatamrouter:smoke-${CONTAINER_NAME}-$$"
 DATA_TMP=""
 
 cleanup() {
@@ -30,8 +31,8 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
-echo "=== 1. Building container image ($IMAGE_NAME) ==="
-docker build --platform linux/amd64 -f Dockerfile.bun -t "$IMAGE_NAME" .
+echo "=== 1. Building container image ($IMAGE_NAME) for platform $PLATFORM ==="
+docker buildx build --platform "$PLATFORM" --load -f Dockerfile.bun -t "$IMAGE_NAME" .
 
 echo "=== 2. Asserting no baked database inside image ==="
 docker run --rm --entrypoint sh "$IMAGE_NAME" -c 'test -z "$(find / -name "*.sqlite*" -not -path "/proc/*" -not -path "/sys/*" 2>/dev/null | head -1)"'
@@ -119,4 +120,7 @@ if ! echo "$ACL_TABLES" | grep -q "request_cost_ledger"; then
   exit 1
 fi
 
+IMAGE_DIGEST=$(docker inspect --format='{{.Id}}' "$IMAGE_NAME" 2>/dev/null || docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_NAME" 2>/dev/null || echo "unknown")
+
 echo "=== Smoke check passed successfully! ==="
+echo "Summary: platform=$PLATFORM image=$IMAGE_NAME digest=$IMAGE_DIGEST"
