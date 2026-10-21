@@ -25,41 +25,28 @@ env:
   IMAGE_NAME: ${{ github.repository_owner }}/khatamrouter
 
 jobs:
-  publish:
-    name: Build and push image
+  prepare:
+    name: Prepare metadata
     if: >
       github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      tags: ${{ steps.meta.outputs.tags }}
+      labels: ${{ steps.meta.outputs.labels }}
+      json: ${{ steps.meta.outputs.json }}
+      version: ${{ steps.meta.outputs.version }}
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-
-      - name: Resolve lowercase image name
-        id: image
-        run: echo "name=${REGISTRY}/$(echo "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Extract image metadata
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@v5
         with:
-          images: ${{ steps.image.outputs.name }}
+          images: ghcr.io/${{ github.repository_owner }}/khatamrouter
           tags: |
             type=raw,value=edge,enable=${{ github.event_name == 'workflow_run' || (github.event_name == 'push' && github.ref == 'refs/heads/master') }}
             type=semver,pattern={{version}}
@@ -72,30 +59,204 @@ jobs:
             org.opencontainers.image.description=Smart AI model router
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
 
-      - name: Build and push multi-arch image
+  build:
+    name: Build image (${{ matrix.arch }})
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image by digest
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile.bun
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            APP_VERSION=${{ steps.meta.outputs.version }}
-          cache-from: |
-            type=gha,scope=khatam-image-amd64
-            type=gha,scope=khatam-image-arm64
-            type=gha,scope=khatam-image
-          cache-to: type=gha,scope=khatam-image,mode=max
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/khatamrouter,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=khatam-image-${{ matrix.arch }}
+          cache-to: type=gha,scope=khatam-image-${{ matrix.arch }},mode=max
+          labels: ${{ needs.prepare.outputs.labels }}
           provenance: false
           sbom: false
 
-      - name: Verify published manifest
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+
+  merge:
+    name: Merge and publish manifest
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*
+          path: /tmp/digests
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create manifest and push
         env:
-          IMAGE: ${{ steps.image.outputs.name }}
+          DOCKER_METADATA_OUTPUT_JSON: ${{ needs.prepare.outputs.json }}
+          TAGS_RAW: ${{ needs.prepare.outputs.tags }}
         run: |
           set -euo pipefail
-          docker buildx imagetools inspect "${IMAGE}:${{ steps.meta.outputs.version }}" | tee "$RUNNER_TEMP/manifest.txt"
-          echo "### Published image" >> "$GITHUB_STEP_SUMMARY"
-          echo "- \`${IMAGE}:${{ steps.meta.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          cd /tmp/digests
+          if [ -n "${DOCKER_METADATA_OUTPUT_JSON:-}" ] && command -v jq >/dev/null 2>&1; then
+            TAG_ARGS=$(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+            FIRST_TAG=$(jq -r '.tags[0]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          else
+            TAG_ARGS=$(echo "$TAGS_RAW" | sed '/^$/d' | sed 's/^/-t /' | tr '\n' ' ')
+            FIRST_TAG=$(echo "$TAGS_RAW" | head -n1)
+          fi
+          docker buildx imagetools create $TAG_ARGS \
+            $(printf 'ghcr.io/%s/khatamrouter@sha256:%s ' "${{ github.repository_owner }}" *)
+          docker buildx imagetools inspect "$FIRST_TAG"
+
+      - name: Post-publish boot check
+        env:
+          DOCKER_METADATA_OUTPUT_JSON: ${{ needs.prepare.outputs.json }}
+          TAGS_RAW: ${{ needs.prepare.outputs.tags }}
+        run: |
+          set -euo pipefail
+          if [ -n "${DOCKER_METADATA_OUTPUT_JSON:-}" ] && command -v jq >/dev/null 2>&1; then
+            FIRST_TAG=$(jq -r '.tags[0]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          else
+            FIRST_TAG=$(echo "$TAGS_RAW" | head -n1)
+          fi
+          CONTAINER="khatam-smoke-${GITHUB_RUN_ID}"
+
+          echo "Pulling merged image for amd64: $FIRST_TAG"
+          docker pull --platform linux/amd64 "$FIRST_TAG"
+
+          mkdir -p "$RUNNER_TEMP/khdata"
+          chmod 777 "$RUNNER_TEMP/khdata"
+
+          JWT_TEST="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+          API_TEST="fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+
+          docker run --detach \
+            --name "$CONTAINER" \
+            --platform linux/amd64 \
+            -p 20128:20128 \
+            -v "$RUNNER_TEMP/khdata:/app/data" \
+            -e DATA_DIR=/app/data \
+            -e JWT_SECRET="$JWT_TEST" \
+            -e API_KEY_SECRET="$API_TEST" \
+            "$FIRST_TAG"
+
+          echo "Polling container health on http://127.0.0.1:20128/dashboard (up to 90s)..."
+          BOOTED=0
+          for attempt in $(seq 1 45); do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:20128/dashboard || true)
+            if [[ "$HTTP_CODE" =~ ^(200|302|307)$ ]]; then
+              echo "Boot check passed: HTTP $HTTP_CODE after ${attempt} attempts ($(( attempt * 2 ))s)"
+              BOOTED=1
+              break
+            fi
+            sleep 2
+          done
+
+          if [ "$BOOTED" -ne 1 ]; then
+            echo "::error::Boot check failed - container did not respond with 200/302/307 within 90s"
+            docker logs "$CONTAINER" || true
+            exit 1
+          fi
+
+          echo "Asserting migrations in SQLite database..."
+          MIGRATION_COUNT=$(docker exec "$CONTAINER" sqlite3 /app/data/db/data.sqlite "SELECT count(*) FROM _khatam_migrations;" 2>/dev/null || echo "0")
+          echo "Migration count: $MIGRATION_COUNT"
+          if [ "$MIGRATION_COUNT" -lt 2 ]; then
+            echo "::error::Migration count in _khatam_migrations is $MIGRATION_COUNT (expected >= 2)"
+            docker logs "$CONTAINER" || true
+            exit 1
+          fi
+          echo "Database migration assertion succeeded (migrations: $MIGRATION_COUNT >= 2)"
+
+      - name: Cleanup smoke container
+        if: always()
+        run: |
+          docker rm -f "khatam-smoke-${GITHUB_RUN_ID}" 2>/dev/null || true
+
+      - name: Publish summary
+        if: always()
+        env:
+          DOCKER_METADATA_OUTPUT_JSON: ${{ needs.prepare.outputs.json }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Multi-Platform Docker Image Publish"
+            echo ""
+            echo "### Merged Platforms"
+            echo "- \`linux/amd64\`"
+            echo "- \`linux/arm64\`"
+            echo ""
+            echo "### Published Tags"
+            if [ -n "${DOCKER_METADATA_OUTPUT_JSON:-}" ] && command -v jq >/dev/null 2>&1; then
+              jq -r '.tags[] | "- `" + . + "`"' <<< "$DOCKER_METADATA_OUTPUT_JSON"
+              FIRST_TAG=$(jq -r '.tags[0]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+              echo ""
+              echo "### Manifest Details"
+              echo "\`\`\`"
+              docker buildx imagetools inspect "$FIRST_TAG" 2>/dev/null || true
+              echo "\`\`\`"
+            else
+              echo "- (tags metadata unavailable)"
+            fi
+            echo ""
+            echo "### Boot Verification"
+            echo "- amd64 smoke container booted within 90s"
+            echo "- \`/dashboard\` returned valid HTTP status (200/302/307)"
+            echo "- Database migrations applied successfully (\`_khatam_migrations\` count >= 2)"
+          } >> "$GITHUB_STEP_SUMMARY"
