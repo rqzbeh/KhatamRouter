@@ -411,9 +411,9 @@ PORT=20128 HOSTNAME=0.0.0.0 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run 
 
 ### 🚀 RTK Token 节省器
 
-工具输出（`git diff`、`grep`、`find`、`ls`、`tree`、日志转储...）通常占用 30-50% 的提示词预算。RTK 在请求到达 LLM 之前检测并应用智能、无损压缩：
+工具输出（`git diff`、`grep`、`find`、`ls`、`tree`、日志转储...）通常占用 30-50% 的提示词预算。RTK 在请求到达 LLM 之前检测并应用智能截断压缩。这是有意的有损压缩：每个过滤器会截断过长、低信号的内容（单个 git diff hunk 上限 100 行、重复日志去重并限制在 2,000 行以内、构建输出仅保留前 3 项弃用提示和前 5 项警告）：
 
-- **过滤器：** `git-diff`、`git-status`、`grep`、`find`、`ls`、`tree`、`dedup-log`、`smart-truncate`、`read-numbered`、`search-list`
+- **过滤器：** `git-diff`、`git-status`、`grep`、`find`、`ls`、`tree`、`dedup-log`、`smart-truncate`、`read-numbered`、`search-list`、`build-output`
 - **自动检测：** 无需配置 — RTK 检查每个 `tool_result` 的前 1KB，选择合适的过滤器。
 - **安全设计：** 如果过滤器失败、抛出异常或使输出变大，RTK 会静默保留原始文本。错误永远不会中断你的请求。
 - **通用兼容：** 适用于所有格式（OpenAI、Claude、Gemini、Cursor、Kiro、OpenAI Responses），因为它在任何格式转换**之前**运行。
@@ -421,7 +421,7 @@ PORT=20128 HOSTNAME=0.0.0.0 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run 
 
 ```
 不使用 RTK：47K tokens 发送给 LLM
-使用 RTK：    28K tokens 发送给 LLM   (节省 40% · 相同上下文 · 相同答案)
+使用 RTK：    28K tokens 发送给 LLM   (节省 40% · 相同上下文 · 相同答案 — 上游 9Router 示例数据)
 ```
 
 ### 🎯 智能三层切换
