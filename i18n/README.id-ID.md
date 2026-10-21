@@ -876,7 +876,7 @@ docker run -d \
   -v 9router-data:/app/data \
   -e PORT=20128 \
   -e BASE_URL=http://localhost:20128 \
-  ghcr.io/decolua/9router:latest
+  ghcr.io/rqzbeh/khatamrouter:latest
 ```
 
 Dashboard: `http://localhost:20128/dashboard`
