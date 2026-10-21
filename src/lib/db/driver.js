@@ -1,38 +1,101 @@
+// NOTE: driver.js → migrate.js → metaStore.js → driver.js forms a static import cycle,
+// but all cross-module references use dynamic `await import()` which breaks the cycle at runtime.
+import fs from "node:fs";
 import { ensureDirs, DATA_FILE } from "./paths.js";
 
 // Use global to survive Next.js dev hot-reload (module state resets on reload)
 if (!global._dbAdapter) global._dbAdapter = { instance: null, initPromise: null, logged: false };
 const state = global._dbAdapter;
 
-async function tryBunSqlite() {
+/**
+ * Open an existing database read-only, without treating driver failures as
+ * corruption. Ported from VansRouter: the integrity preflight must run on a
+ * connection that cannot write, so a corrupt file is never "repaired" into
+ * existence by the check itself.
+ */
+async function openIntegrityDatabase(file) {
+  if (process.versions.bun) {
+    const { Database } = await import("bun:sqlite");
+    return new Database(file, { readonly: true });
+  }
+
+  const errors = [];
+  try {
+    const Database = (await import("better-sqlite3")).default;
+    return new Database(file, { readonly: true, fileMustExist: true });
+  } catch (error) {
+    // Native bindings can fail to load at construction rather than import time.
+    errors.push(error);
+  }
+  try {
+    const { DatabaseSync } = await import("node:sqlite");
+    return new DatabaseSync(file, { readOnly: true });
+  } catch (error) {
+    errors.push(error);
+  }
+  throw new AggregateError(
+    errors,
+    `[DB] Cannot open ${file} for a read-only integrity check. Database files were left in place.`
+  );
+}
+
+/**
+ * Fail closed on any preflight error; backup restoration must be an explicit
+ * action. Returns true when an existing database file was found and passed
+ * `PRAGMA quick_check`, false when the file does not exist yet.
+ */
+export async function verifyDatabaseIntegrity(file) {
+  try {
+    fs.statSync(file);
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  }
+
+  const db = await openIntegrityDatabase(file);
+  try {
+    const rows = db.prepare("PRAGMA quick_check;").all();
+    // Drivers disagree on the result shape (`quick_check` vs `integrity_check`).
+    const results = (rows || []).map((row) => Object.values(row)[0]);
+    if (!results.length || results.some((value) => value !== "ok")) {
+      throw new Error(
+        `[DB] Integrity check failed for ${file}: ${results.join("; ") || "no result"}. ` +
+          `Database files were left in place.`
+      );
+    }
+  } finally {
+    try { db.close(); } catch {}
+  }
+  return true;
+}
+
+async function tryBunSqlite(errors) {
   // Bun runtime only — built-in, no install needed
   if (!process.versions.bun) return null;
   try {
     const { createBunSqliteAdapter } = await import("./adapters/bunSqliteAdapter.js");
     return await createBunSqliteAdapter(DATA_FILE);
   } catch (e) {
+    errors?.push(e);
     console.warn(`[DB] bun:sqlite unavailable: ${e.message}`);
     return null;
   }
 }
 
-async function tryBetterSqlite() {
+async function tryBetterSqlite(errors) {
   // Skip on Bun — better-sqlite3 native bindings unsupported
   if (process.versions.bun) return null;
-  // Skip on Node >= 24: the native addon SIGSEGVs on load there, which is a
-  // process-level crash the try/catch below cannot recover from. node:sqlite covers it.
-  const [nodeMajor] = process.versions.node.split(".").map(Number);
-  if (nodeMajor >= 24) return null;
   try {
     const { createBetterSqliteAdapter } = await import("./adapters/betterSqliteAdapter.js");
     return createBetterSqliteAdapter(DATA_FILE);
   } catch (e) {
+    errors?.push(e);
     console.warn(`[DB] better-sqlite3 unavailable: ${e.message}`);
     return null;
   }
 }
 
-async function tryNodeSqlite() {
+async function tryNodeSqlite(errors) {
   // Built-in since Node 22.5.0 — no install needed. Skip under Bun (no node:sqlite).
   if (process.versions.bun) return null;
   const [maj, min] = process.versions.node.split(".").map(Number);
@@ -41,6 +104,7 @@ async function tryNodeSqlite() {
     const { createNodeSqliteAdapter } = await import("./adapters/nodeSqliteAdapter.js");
     return await createNodeSqliteAdapter(DATA_FILE);
   } catch (e) {
+    errors?.push(e);
     console.warn(`[DB] node:sqlite unavailable: ${e.message}`);
     return null;
   }
@@ -58,12 +122,24 @@ async function trySqlJs() {
 
 async function initAdapter() {
   ensureDirs();
+  // Preflight before any driver opens the file for writing: a corrupt database
+  // must stop the boot, not be silently replaced by an empty one.
+  const existingDatabase = await verifyDatabaseIntegrity(DATA_FILE);
+  // Native drivers understand WAL; sql.js may only initialize a new database.
+  const errors = [];
   // Order per runtime:
   //   Bun:  bun:sqlite → sql.js
   //   Node: better-sqlite3 → node:sqlite (≥22.5) → sql.js
-  let adapter = await tryBunSqlite();
-  if (!adapter) adapter = await tryBetterSqlite();
-  if (!adapter) adapter = await tryNodeSqlite();
+  let adapter = await tryBunSqlite(errors);
+  if (!adapter) adapter = await tryBetterSqlite(errors);
+  if (!adapter) adapter = await tryNodeSqlite(errors);
+  if (!adapter && existingDatabase) {
+    throw new AggregateError(
+      errors,
+      `[DB] No native SQLite driver could initialize ${DATA_FILE}. Refusing sql.js fallback ` +
+        `for an existing database because it cannot read SQLite WAL files.`
+    );
+  }
   if (!adapter) adapter = await trySqlJs();
   if (!adapter) throw new Error("[DB] No SQLite driver available (bun/better/node/sql.js all failed)");
 
@@ -73,13 +149,26 @@ async function initAdapter() {
   }
 
   const { runMigrationOnce } = await import("./migrate.js");
-  await runMigrationOnce(adapter);
-  return adapter;
+  try {
+    await runMigrationOnce(adapter);
+    return adapter;
+  } catch (error) {
+    try { adapter.close?.(); } catch {}
+    throw error;
+  }
 }
 
 export async function getAdapter() {
   if (state.instance) return state.instance;
-  if (!state.initPromise) state.initPromise = initAdapter().then((a) => { state.instance = a; return a; });
+  if (!state.initPromise) {
+    state.initPromise = initAdapter()
+      .then((a) => { state.instance = a; return a; })
+      .catch((error) => {
+        // Keep a failed init retryable instead of caching the rejection forever.
+        state.initPromise = null;
+        throw error;
+      });
+  }
   return state.initPromise;
 }
 
