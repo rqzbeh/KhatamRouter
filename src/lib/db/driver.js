@@ -151,6 +151,11 @@ async function initAdapter() {
     state.logged = true;
   }
 
+  // During Next.js production build, skip running migrations against a real file to keep static prerendering safe without disk mutation or worker races
+  if (process.env.NEXT_PHASE === "phase-production-build") {
+    return adapter;
+  }
+
   const { runMigrationOnce } = await import("./migrate.js");
   try {
     await runMigrationOnce(adapter);
