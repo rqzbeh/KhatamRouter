@@ -100,3 +100,12 @@ graphify-out/*
 .start-dev.ps1
 start-dev-silent.cjs
 debug.log
+
+# Unlazy completion ledger and hooks
+.unlazy/
+.unlazy-hook-state.json
+
+
+# TypeScript incremental build info
+.tsbuildinfo*
+*.tsbuildinfo
