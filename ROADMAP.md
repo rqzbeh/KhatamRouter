@@ -29,7 +29,8 @@ The table below mirrors the shipped rows of the authoritative status table in [R
 | **SQLite WAL Engine + Integrity Preflight** | 🟢 Shipped | Wave 1: `bun:sqlite` WAL, `busy_timeout=5000`, startup integrity check |
 | **Redis Accelerator & Real-Time Pub/Sub** | 🟢 Shipped | Wave 1: `khatam:` namespace, cluster invalidation, transparent SQLite fallback |
 | **Versioned DB Migrations & Hybrid Quota** | 🟢 Shipped | Wave 2: Idempotent `_khatam_migrations` runner with backup-before-migrate, additive schema v3, hybrid Redis/SQLite sliding-window quota store with fail-open, 5s settings cache |
-| **Granular Per-Connection / Key Limits & ACL** | 🟢 Shipped | Wave 3: Unified tri-state ACL, constant-time internal trust, sliding-window key limits, connection concurrency/rate overrides, USD spend caps with fail-open degradation |
+| **Unified Tri-State ACL & Internal Trust** | 🟢 Shipped | Wave 3: Pure tri-state access control (kinds, providers, combos, models), 404 enumeration defense, constant-time internal trust token |
+| **Granular Per-Connection / Key Limits** | 🟢 Shipped | Wave 3: Connection concurrency/rate overrides (`rate_limit_overrides_json`), multi-window key limits (RPM/RPH/RPD), and USD spend caps with fail-open degradation |
 | **Hardened Request Ingestion & Smuggling Defense** | 🟢 Shipped | HTTP/1.1 & h2c smuggling defenses, 128 MiB JSON body cap, 64 MiB chunked cap |
 | **Token Savers (RTK, Caveman, Ponytail)** | 🟢 Shipped | Pre-translation tool compression with 10 MiB cap, prompt injection modes |
 
@@ -75,9 +76,9 @@ Wave 2 established the persistence and quota foundation required for distributed
 
 ## Wave 3 — Unified ACL and Granular Limits
 
-**Status**: 🟢 Shipped
+**Status**: 🟢 Shipped (PR #41 merged, commit `cfab219f`)
 
-Wave 3 introduces fine-grained authorization policies and multi-tier rate limiting:
+Wave 3 established fine-grained authorization policies and multi-tier rate limiting:
 
 - **Concrete Artifacts**:
   - Unified ACL Service: `src/sse/services/allowedModels.js` implementing pure tri-state logic (`isKindAllowed`, `isComboAllowed`, `isProviderAllowed`, `isModelAllowed`, `enforceUnifiedAcl`) with 403 `forbidden` (kinds, providers, combos) and 404 `model_not_found` model enumeration prevention.
@@ -86,6 +87,7 @@ Wave 3 introduces fine-grained authorization policies and multi-tier rate limiti
   - Connection Rate Limiter: `open-sse/services/rateLimitManager/connectionLimiter.js`, `overrides.js`, and `semaphore.js` providing in-process concurrency semaphores (`maxConcurrent`, `modelConcurrency`), `minTime` call spacing, and connection-level RPM/RPD/TPM/TPD enforcement from `providerConnections.rate_limit_overrides_json`.
   - Per-Key Quota & Spend Caps: `src/lib/usage/apiKeyUsageLimits.js`, `src/domain/keyQuota.js`, and `src/lib/db/keyQuota.js` implementing sliding-window rate limits (RPM/RPH/RPD via `QuotaStore`) and daily/weekly USD expenditure caps via `request_cost_ledger`.
   - Fail-Open Degradation: All rate limiters and quota stores gracefully degrade to `{ allowed: true, degraded: true }` when Redis or SQLite encounter transient faults, preserving proxy throughput.
+  - Test Suites: Comprehensive unit verification in `tests/unit/wave3-acl.test.js` (tri-state evaluation, wildcard rules, enumeration defense, timing-safe tokens) and `tests/unit/wave3-limits.test.js` (in-process semaphores, connection overrides, quota sliding windows, spend caps, fail-open degradation).
 - **Tri-state access control lists**: Granular authorization filters on API keys supporting `allowedKinds`, `allowedProviders`, `allowedCombos`, and `allowedModels` with explicit allow, deny, and wildcard rules.
 - **`internalTrust` timing-safe token**: Timing-attack resistant token validation for securing inter-process communication and trusted reverse-proxy routing.
 - **Per-connection rate and concurrency limits**: Strict enforcement of requests per minute (RPM), requests per day (RPD), tokens per minute (TPM), tokens per day (TPD), minimum inter-call spacing (`minTime`), and concurrency caps (`maxConcurrent` / `modelConcurrency`).
@@ -189,7 +191,7 @@ Phase 2 establishes a high-performance split-plane architecture:
 To ensure clear operational expectations, the following limitations exist in the current implementation:
 
 - **No Go gateway yet**: All inference traffic is handled entirely by the Bun/Next.js control plane on port 20128. The Phase 2 Go gateway (`cmd/khatam-gateway`) is not yet implemented.
-- **Redis handles connection, pubsub, and quota, but no distributed circuit state**: While Redis connection management, Pub/Sub cache invalidation, and sliding-window quota tracking (`RedisQuotaStore`) are operational, distributed circuit breaker state storage in Redis is not yet built (scheduled for Wave 4).
+- **Redis is optional and distributed circuit state is not yet built**: Redis is completely optional—KhatamRouter operates fully without Redis using `bun:sqlite` transactions and in-process concurrency semaphores. When `REDIS_URL` is configured, Redis handles Pub/Sub cache invalidation and atomic sliding-window quota tracking (`RedisQuotaStore`), but distributed circuit breaker state storage in Redis across cluster nodes is not yet implemented (scheduled for Wave 4).
 - **No circuit breaker yet**: Requests currently rely on basic try/catch fallback loops without stateful 4-state circuit trip transitions (`CLOSED → DEGRADED → OPEN → HALF_OPEN`) or failure-kind cooldowns.
 - **20129 refuses connections**: While `ENDPOINT_PORT=20129` is documented and recognized in runtime configuration, no service is listening on port 20129 today.
 - **The full test suite is not green on a bare checkout**: `tests/__baseline__/known-fails.txt` catalogs exactly 24 known-failing test cases, and `CLAUDE.md` documents roughly 64 failing tests on a plain checkout. The CI verify gate (`.github/workflows/verify.yml`) cites a more conservative ~91 expected failures, counting the 24 catalogued cases plus `unit/embeddings.cloud.test.js` (targets the `cloud/` worker directory, which is not in this repo), `unit/xai-oauth-service.test.js` (times out without reachable discovery), and 13 `tests/**/*.real.test.js` live-provider files requiring credentials. Judge regressions with `tests/__baseline__/verify-no-regression.mjs`, not a raw run.
