@@ -1,10 +1,17 @@
 import { getAdapter } from "../driver.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
+import {
+  publishKhatamEvent,
+  subscribeKhatamEvent,
+  KHATAM_EVENTS,
+} from "../../redis/events.js";
 
 const DEFAULT_MITM_ROUTER_BASE = "http://localhost:20128";
 const DEFAULT_HEADROOM_URL = process.env.HEADROOM_URL || "http://localhost:8787";
 
-const DEFAULT_SETTINGS = {
+export const SETTINGS_CACHE_TTL_MS = 5000;
+
+export const DEFAULT_SETTINGS = {
   cloudEnabled: false,
   tunnelEnabled: false,
   tunnelUrl: "",
@@ -66,6 +73,33 @@ const DEFAULT_SETTINGS = {
   providerOverrides: {},
 };
 
+let settingsCache = {
+  data: null,
+  expiresAt: 0,
+  revision: null,
+};
+
+export function invalidateSettingsCache() {
+  settingsCache.data = null;
+  settingsCache.expiresAt = 0;
+  settingsCache.revision = null;
+}
+
+export function getCachedSettingsSnapshot() {
+  return { ...settingsCache };
+}
+
+// Subscribe to cluster reload events to invalidate in-memory cache when other nodes update settings
+try {
+  subscribeKhatamEvent(KHATAM_EVENTS.CONFIG_RELOAD, (payload) => {
+    if (!payload || payload.scope === "settings" || payload.scope === "all") {
+      invalidateSettingsCache();
+    }
+  });
+} catch {
+  // Safe fail-open if events bus cannot hook
+}
+
 async function readRaw() {
   const db = await getAdapter();
   const row = db.get(`SELECT data FROM settings WHERE id = 1`);
@@ -101,15 +135,87 @@ export function mergeWithDefaults(raw) {
   return merged;
 }
 
+/**
+ * Atomically increment the settings revision in `_meta` and return the new value.
+ * SQL-side increment (not read-modify-write) so concurrent writers cannot collide
+ * on the same revision number.
+ */
+function bumpRevisionSync(db) {
+  db.run(
+    `INSERT INTO _meta(key, value) VALUES('settings_revision', '1')
+     ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1`
+  );
+  const row = db.get(`SELECT value FROM _meta WHERE key = 'settings_revision'`);
+  return row && row.value !== undefined ? Number(row.value) : 1;
+}
+
+export async function bumpSettingsRevision(passedDb) {
+  const db = passedDb || (await getAdapter());
+  let newRevision = 1;
+  try {
+    newRevision = bumpRevisionSync(db);
+  } catch {
+    // If _meta table is missing, don't crash
+  }
+
+  invalidateSettingsCache();
+
+  try {
+    publishKhatamEvent(KHATAM_EVENTS.CONFIG_RELOAD, {
+      scope: "settings",
+      revision: newRevision,
+      timestamp: Date.now(),
+    });
+  } catch {}
+
+  return newRevision;
+}
+
 export async function getSettings() {
-  const raw = await readRaw();
-  return mergeWithDefaults(raw);
+  const now = Date.now();
+  // 1. In-memory cache hit within TTL — zero SQLite queries.
+  if (settingsCache.data && now < settingsCache.expiresAt) {
+    return settingsCache.data;
+  }
+
+  // 2. TTL expired (or cold cache): check settings_revision, then re-read the row.
+  const db = await getAdapter();
+  let currentRevision = null;
+  try {
+    const metaRow = db.get(`SELECT value FROM _meta WHERE key = 'settings_revision'`);
+    if (metaRow && metaRow.value !== undefined && metaRow.value !== null) {
+      currentRevision = String(metaRow.value);
+    }
+  } catch {
+    // _meta query failed (e.g. table not ready) — treat as unknown revision
+  }
+
+  const row = db.get(`SELECT data FROM settings WHERE id = 1`);
+  const raw = row ? parseJson(row.data, {}) : {};
+  const merged = mergeWithDefaults(raw);
+
+  // Seed settings_revision on first read of a legacy database.
+  if (currentRevision === null) {
+    try {
+      db.run(
+        `INSERT INTO _meta(key, value) VALUES('settings_revision', '1') ON CONFLICT(key) DO NOTHING`
+      );
+      currentRevision = "1";
+    } catch {}
+  }
+
+  settingsCache.data = merged;
+  settingsCache.revision = currentRevision;
+  settingsCache.expiresAt = now + SETTINGS_CACHE_TTL_MS;
+
+  return merged;
 }
 
 // Atomic read-merge-write inside transaction (prevents losing concurrent updates)
 export async function updateSettings(updates) {
   const db = await getAdapter();
   let next;
+  let newRevision = 1;
   db.transaction(function () {
     const row = db.get(`SELECT data FROM settings WHERE id = 1`);
     const current = row ? parseJson(row.data, {}) : {};
@@ -118,7 +224,22 @@ export async function updateSettings(updates) {
       `INSERT INTO settings(id, data) VALUES(1, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data`,
       [stringifyJson(next)],
     );
+
+    try {
+      newRevision = bumpRevisionSync(db);
+    } catch {}
   });
+
+  invalidateSettingsCache();
+
+  try {
+    publishKhatamEvent(KHATAM_EVENTS.CONFIG_RELOAD, {
+      scope: "settings",
+      revision: newRevision,
+      timestamp: Date.now(),
+    });
+  } catch {}
+
   return mergeWithDefaults(next);
 }
 

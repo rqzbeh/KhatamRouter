@@ -4,8 +4,10 @@ import fs from "node:fs";
 import { ensureDirs, DATA_FILE } from "./paths.js";
 
 // Use global to survive Next.js dev hot-reload (module state resets on reload)
-if (!global._dbAdapter) global._dbAdapter = { instance: null, initPromise: null, logged: false };
-const state = global._dbAdapter;
+function getState() {
+  if (!global._dbAdapter) global._dbAdapter = { instance: null, initPromise: null, logged: false };
+  return global._dbAdapter;
+}
 
 /**
  * Open an existing database read-only, without treating driver failures as
@@ -143,6 +145,7 @@ async function initAdapter() {
   if (!adapter) adapter = await trySqlJs();
   if (!adapter) throw new Error("[DB] No SQLite driver available (bun/better/node/sql.js all failed)");
 
+  const state = getState();
   if (!state.logged) {
     console.log(`[DB] Driver: ${adapter.driver} | file: ${DATA_FILE}`);
     state.logged = true;
@@ -159,6 +162,7 @@ async function initAdapter() {
 }
 
 export async function getAdapter() {
+  const state = getState();
   if (state.instance) return state.instance;
   if (!state.initPromise) {
     state.initPromise = initAdapter()
@@ -173,6 +177,7 @@ export async function getAdapter() {
 }
 
 export function getAdapterSync() {
+  const state = getState();
   if (!state.instance) throw new Error("[DB] adapter not initialized — await getAdapter() first");
   return state.instance;
 }
