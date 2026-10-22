@@ -32,6 +32,7 @@ import { stripUnsupportedModalities } from "../translator/concerns/modality.js";
 import { prefetchRemoteImages } from "../translator/concerns/prefetch.js";
 import { defaultClaudeToolType, shouldDefaultClaudeToolType } from "../translator/concerns/toolCall.js";
 import { resolveSessionId } from "../utils/sessionManager.js";
+import { isToolCloakEnabled, cloakToolsInRequest } from "@/lib/stealth/toolCloak.js";
 
 /**
  * Core chat handler - shared between SSE and Worker
@@ -326,6 +327,15 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   // Pin cache breakpoints to the final body — every saver above can reshape
   // system/tools/messages, and a stale anchor costs a full prefix rewrite.
   if (passthrough && clientTool === "claude") anchorClaudeCache(translatedBody);
+
+  // Wave 5: Tool cloaking (sanitisation + PascalCase remapping). Default-off.
+  if (isToolCloakEnabled(provider)) {
+    const cloaked = cloakToolsInRequest(translatedBody, { provider });
+    translatedBody = cloaked.body;
+    if (cloaked.restoreMap?.size) {
+      toolNameMap = new Map([...(toolNameMap || []), ...cloaked.restoreMap]);
+    }
+  }
 
   const executor = getExecutor(provider);
   trackPendingRequest(model, provider, connectionId, true);

@@ -31,6 +31,7 @@ import { enforceUnifiedAcl } from "../services/allowedModels.js";
 import { getApiKeyByKey } from "@/lib/db/repos/apiKeysRepo.js";
 import { checkApiKeyUsageLimits, formatQuotaErrorResponse } from "@/lib/usage/apiKeyUsageLimits.js";
 import { gateTarget, observeFailure, observeSuccess, isResilienceEnabled } from "@/domain/fallbackResilience.js";
+import { isStickinessEnabled, computeSessionKey, getStickyConnection, setStickyConnection, clearStickyConnection } from "@/lib/stealth/stickiness.js";
 
 /**
  * Handle chat completion request
@@ -272,6 +273,10 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   // Extract userAgent from request
   const userAgent = request?.headers?.get("user-agent") || "";
 
+  // Wave 5: Prompt-cache session stickiness (default-off behind STEALTH_STICKINESS=1 / STEALTH_ALL=1)
+  const stickinessKey = isStickinessEnabled() ? computeSessionKey(body, provider) : null;
+  const preferredConnectionId = stickinessKey ? getStickyConnection(stickinessKey) : null;
+
   // Try with available accounts (fallback on errors)
   const excludeConnectionIds = new Set();
   let lastError = null;
@@ -279,7 +284,10 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   let lastHeaders = null;
 
   while (true) {
-    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, { requestedModel: requestedModel || model });
+    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, {
+      requestedModel: requestedModel || model,
+      preferredConnectionId: preferredConnectionId && !excludeConnectionIds.has(preferredConnectionId) ? preferredConnectionId : null,
+    });
 
     // All accounts unavailable
     if (!credentials || credentials.allRateLimited) {
@@ -379,6 +387,10 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         if (isResilienceEnabled()) {
           await observeSuccess({ provider, connectionId: credentials.connectionId });
         }
+        // Wave 5: record session pin on success
+        if (stickinessKey && credentials.connectionId) {
+          setStickyConnection(stickinessKey, credentials.connectionId);
+        }
       }
     });
 
@@ -418,6 +430,9 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     if (shouldFallback) {
       log.warn("FALLBACK", `⇄ ACC:${credentials.connectionName} UNAVAILABLE (${result.status}) → NEXT ACCOUNT`);
       excludeConnectionIds.add(credentials.connectionId);
+      if (stickinessKey && credentials.connectionId === preferredConnectionId) {
+        clearStickyConnection(stickinessKey);
+      }
       lastError = result.error;
       lastStatus = result.status;
       lastHeaders = upstreamResponseHeaders(result.response?.headers);
