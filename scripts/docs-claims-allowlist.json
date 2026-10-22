@@ -1,5 +1,6 @@
 {
   "ghcr.io/rqzbeh/khatamrouter:latest": "only exists after the first release",
+  "ghcr.io/rqzbeh/khatamrouter:edge": "only exists after the first release",
   "ghcr.io/rqzbeh/khatamrouter:0.1.0": "only exists after the first release",
   "ghcr.io/rqzbeh/khatamrouter:X.Y.Z": "documentation placeholder for a release semver tag; no release has been tagged yet",
   "ghcr.io/rqzbeh/khatamrouter:X.Y": "documentation placeholder for the moving major.minor alias; no release has been tagged yet",

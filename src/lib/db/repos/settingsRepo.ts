@@ -79,6 +79,7 @@ export interface Settings {
   cavemanLevel: string;
   ponytailEnabled: boolean;
   ponytailLevel: string;
+  loopGuardEnabled: boolean;
   pxpipeEnabled: boolean;
   pxpipeAutoInstall: boolean;
   pxpipeMinChars: number;
@@ -142,6 +143,7 @@ export const DEFAULT_SETTINGS: Settings = {
   cavemanLevel: "full",
   ponytailEnabled: false,
   ponytailLevel: "full",
+  loopGuardEnabled: false,
   pxpipeEnabled: false,
   pxpipeAutoInstall: true,
   pxpipeMinChars: 25000,
