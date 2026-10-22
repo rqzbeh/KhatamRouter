@@ -39,13 +39,13 @@
 - 🗄️ **Versioned migrations & hybrid quota store** — Idempotent `_khatam_migrations` runner with backup-before-migrate safety, additive schema v3, hybrid Redis/SQLite sliding-window quota store with fail-open semantics, and 5s settings cache.
 - 🎚️ **Unified Tri-State ACL & Granular Limits** — Constant-time internal trust, tri-state access control (allow/deny/passthrough across kinds, providers, combos, and models with 404 enumeration defense), `/v1/models` catalog filtering, connection concurrency/rate overrides (`rate_limit_overrides_json`), multi-window key rate limits, and USD spend caps with fail-open resilience.
 - 🧱 **Hardened request ingestion** — Bounded 128 MiB JSON request bodies (`proxyClientMaxBodySize`), 64 MiB h2c chunked stream cap with strict CRLF enforcement, and immediate rejection of combined Content-Length/Transfer-Encoding smuggling attempts.
+- 🛡️ **4-state resilient circuit breaker** — `CLOSED → DEGRADED → OPEN → HALF_OPEN` provider health in `src/shared/utils/circuitBreaker.js`, with 429 body classification (rate-limit vs quota exhaustion), kind-aware escalating cooldowns, `domain_circuit_breakers` persistence plus an optional `khatam:cb:` Redis mirror, and ordered pre-dispatch gates. Client 4xx errors and policy refusals never trip health; opt in with `KHATAM_RESILIENCE_CIRCUIT_BREAKER=1`.
 - ✂️ **Multi-layer token savers** — Token-reducing 10 MiB RTK tool compression (intentionally truncates verbose diffs, logs, and build outputs), Caveman terseness prompts, and YAGNI-first Ponytail (Lite/Full/Ultra) modes saving an upstream-claimed 20-40% input and up to 65% output tokens.
 - 🔄 **Unified API gateway & Next.js dashboard (port 20128)** — Single lightweight endpoint serving both web dashboard and OpenAI-compatible `/v1/*` proxy routing across 40+ providers.
 
 #### 🟡 Upcoming Roadmap Capabilities
 
 - 🔀 **Split-plane architecture (Phase 2)** — High-throughput Go gateway data plane on port 20129 (`ENDPOINT_PORT`) dedicated to heavy inference streams while port 20128 (`DASHBOARD_PORT`) serves the control plane.
-- 🛡️ **4-state resilient circuit breaker (Wave 4)** — `CLOSED → DEGRADED → OPEN → HALF_OPEN` transitions with failure-kind cooldowns; client 4xx errors and upstream policy refusals never trip account health.
 - 🕵️ **Stealth and anti-ban layer (Wave 5)** — Canonical CLI header ordering, proxy-header scrubbing, provider client fingerprints, tool-name cloaking, zero-width obfuscation, and session stickiness protect your credentials.
 - 🔍 **Live model discovery & capability-aware custom models (Wave 5)** — Auto-detects vision, video, audio, tools, reasoning, and context limits with fail-closed combo routing that never routes unsupported payloads.
 
@@ -63,8 +63,8 @@ We value engineering honesty over hype. Here is the exact status of each archite
 | **Granular Per-Connection / Key Limits** | 🟢 Shipped | Wave 3: Connection concurrency/rate overrides (`rate_limit_overrides_json`), multi-window key limits (RPM/RPH/RPD), and USD spend caps with fail-open degradation |
 | **Hardened Request Ingestion & Smuggling Defense** | 🟢 Shipped | HTTP/1.1 & h2c smuggling defenses, 128 MiB JSON cap, 64 MiB chunked cap |
 | **Token Savers (RTK, Caveman, Ponytail)** | 🟢 Shipped | Pre-translation tool compression with 10 MiB cap, prompt injection modes |
+| **4-State Resilient Circuit Breakers** | 🟢 Shipped | Wave 4: 4-state machine in `src/shared/utils/circuitBreaker.js`, 429 classification, escalating cooldowns, `domain_circuit_breakers` persistence, and pre-dispatch gates |
 | **Split-Plane Dual-Port Architecture** | 🟡 Roadmap | Phase 2: Dedicated Go gateway (`cmd/khatam-gateway`) on port 20129 (currently unified on port 20128) |
-| **4-State Resilient Circuit Breakers** | 🟡 Roadmap | Wave 4: Failure-kind cooldowns exempting client 4xx and policy refusals |
 | **Stealth & Anti-Ban Fingerprinting** | 🟡 Roadmap | Wave 5: CLI client header mimicry, fingerprint spoofing, ZWJ cloaking, stickiness |
 | **Dynamic Capability Discovery & Custom Models** | 🟡 Roadmap | Wave 5: Automatic capability querying and fail-closed routing across model combos |
 
