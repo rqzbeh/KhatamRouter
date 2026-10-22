@@ -199,6 +199,124 @@ describe("Wave 4: Docs claims verifier (scripts/verify-docs-claims.mjs)", () => 
     expect(shippedFailure.reason).toContain("src/does/not/exist.js");
   });
 
+  it("fails (CLAIM CLASS 1b) on a foreign registry image reference in a translated README", () => {
+    const fixtureDir = createTempFixture({
+      "README.md": `# Overview\n`,
+      "ROADMAP.md": `# Roadmap\n`,
+      "i18n/README.es.md": `# Documentación\n\n## Docker\n\n- GHCR: [\`ghcr.io/someoneelse/thing\`](https://ghcr.io/someoneelse/thing)\n\n\`\`\`bash\ndocker run -d -p 20128:20128 ghcr.io/someoneelse/thing:latest\n\`\`\`\n`,
+      "scripts/docs-claims-allowlist.json": JSON.stringify({}),
+    });
+
+    const result = spawnSync(
+      process.execPath,
+      [scriptPath, "--root", fixtureDir, "--offline", "--json"],
+      { encoding: "utf8" }
+    );
+
+    expect(result.status).not.toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.success).toBe(false);
+
+    const foreignFailure = parsed.claims.foreignImages.find(
+      (f) => f.status === "FAIL" && f.doc.includes("README.es.md")
+    );
+    expect(foreignFailure).toBeDefined();
+    expect(foreignFailure.ref).toContain("ghcr.io/someoneelse/thing");
+    expect(foreignFailure.owner).toBe("someoneelse");
+    expect(foreignFailure.line).toBeGreaterThan(0);
+  });
+
+  it("fails (CLAIM CLASS 1b) on an untagged hub.docker.com/r/<foreign-owner>/<name> reference", () => {
+    const fixtureDir = createTempFixture({
+      "README.md": `# Overview\n\nPublished images: [Docker Hub](https://hub.docker.com/r/decolua/9router).\n`,
+      "ROADMAP.md": `# Roadmap\n`,
+      "scripts/docs-claims-allowlist.json": JSON.stringify({}),
+    });
+
+    const result = spawnSync(
+      process.execPath,
+      [scriptPath, "--root", fixtureDir, "--offline", "--json"],
+      { encoding: "utf8" }
+    );
+
+    expect(result.status).not.toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    const foreignFailure = parsed.claims.foreignImages.find((f) => f.status === "FAIL");
+    expect(foreignFailure).toBeDefined();
+    expect(foreignFailure.ref).toBe("hub.docker.com/r/decolua/9router");
+    expect(foreignFailure.line).toBe(3);
+  });
+
+  it("fails (CLAIM CLASS 1b) on a bare `docker pull <foreign-owner>/<name>` image line", () => {
+    const fixtureDir = createTempFixture({
+      "README.md": `# Overview\n\n\`\`\`bash\ndocker pull decolua/9router:latest\n\`\`\`\n`,
+      "ROADMAP.md": `# Roadmap\n`,
+      "scripts/docs-claims-allowlist.json": JSON.stringify({}),
+    });
+
+    const result = spawnSync(
+      process.execPath,
+      [scriptPath, "--root", fixtureDir, "--offline", "--json"],
+      { encoding: "utf8" }
+    );
+
+    expect(result.status).not.toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    const foreignFailure = parsed.claims.foreignImages.find((f) => f.status === "FAIL");
+    expect(foreignFailure).toBeDefined();
+    expect(foreignFailure.ref).toBe("decolua/9router:latest");
+    expect(foreignFailure.line).toBe(4);
+  });
+
+  it("passes (CLAIM CLASS 1b) for our own registry and a plain attribution link to the upstream repo", () => {
+    const fixtureDir = createTempFixture({
+      "README.md": `# Overview\n\nImage: \`ghcr.io/rqzbeh/khatamrouter:edge\`\n\nBuilt on 9Router by [decolua](https://github.com/decolua/9router).\n`,
+      "ROADMAP.md": `# Roadmap\n`,
+      "i18n/README.fr.md": `# Documentation\n\n- GHCR : [\`ghcr.io/rqzbeh/khatamrouter\`](https://github.com/rqzbeh/KhatamRouter/pkgs/container/khatamrouter)\n`,
+      "scripts/docs-claims-allowlist.json": JSON.stringify({}),
+    });
+
+    const result = spawnSync(
+      process.execPath,
+      [scriptPath, "--root", fixtureDir, "--offline", "--json"],
+      { encoding: "utf8" }
+    );
+
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.success).toBe(true);
+    expect(parsed.failures).toBe(0);
+    expect(parsed.claims.foreignImages.some((f) => f.status === "FAIL")).toBe(false);
+    expect(
+      parsed.claims.foreignImages.filter((f) => f.doc === "README.md").map((f) => f.ref)
+    ).toEqual(["ghcr.io/rqzbeh/khatamrouter:edge"]);
+  });
+
+  it("allows a foreign image reference explicitly exempted in scripts/docs-claims-allowlist.json", () => {
+    const fixtureDir = createTempFixture({
+      "README.md": `# Overview\n\nSidecar: \`ghcr.io/chopratejas/headroom:latest\`\n`,
+      "ROADMAP.md": `# Roadmap\n`,
+      "scripts/docs-claims-allowlist.json": JSON.stringify({
+        foreignImageExceptions: [
+          { path: "README.md", ref: "ghcr.io/chopratejas/headroom:*", reason: "third-party sidecar" },
+        ],
+      }),
+    });
+
+    const result = spawnSync(
+      process.execPath,
+      [scriptPath, "--root", fixtureDir, "--offline", "--json"],
+      { encoding: "utf8" }
+    );
+
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.failures).toBe(0);
+    const entry = parsed.claims.foreignImages.find((f) => f.ref.startsWith("ghcr.io/chopratejas/headroom"));
+    expect(entry.status).toBe("WARN");
+    expect(entry.reason).toContain("third-party sidecar");
+  });
+
   it("passes (exit 0) when all claims are valid and backed by source constants", () => {
     const fixtureDir = createTempFixture({
       "open-sse/rtk/constants.js": `export const RAW_CAP = 10 * 1024 * 1024; // 10 MiB\n`,

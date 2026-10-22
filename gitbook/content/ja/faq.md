@@ -301,13 +301,13 @@ npm start
 
 ### Docker
 ```bash
-docker pull 9router:latest
+docker pull ghcr.io/rqzbeh/khatamrouter:latest
 docker stop 9router
 docker rm 9router
 docker run -d \
   -p 3000:3000 \
   -v 9router-data:/app/data \
-  9router:latest
+  ghcr.io/rqzbeh/khatamrouter:latest
 ```
 
 **バージョンを確認:**
