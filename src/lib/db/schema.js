@@ -3,7 +3,7 @@
 // pre-change safety backup in migrate.js: when the stored version is lower,
 // one lightweight DB backup is taken before applying schema changes. Forgetting
 // to bump only skips that backup — it does NOT break the additive auto-sync.
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const PRAGMA_SQL = `
 PRAGMA journal_mode = WAL;
@@ -236,8 +236,17 @@ export const TABLES = {
       cooldown_until: "TEXT",
       degraded_until: "TEXT",
       updated_at: "TEXT NOT NULL",
+      // Wave 4 (migration 003): diagnostics needed to restore a breaker exactly.
+      last_failure_kind: "TEXT",
+      open_cycle_count: "INTEGER DEFAULT 0",
+      kind_failure_counts_json: "TEXT",
+      transition_history_json: "TEXT",
     },
-    indexes: ["CREATE INDEX IF NOT EXISTS idx_dcb_state ON domain_circuit_breakers(state)"],
+    indexes: [
+      "CREATE INDEX IF NOT EXISTS idx_dcb_state ON domain_circuit_breakers(state)",
+      "CREATE INDEX IF NOT EXISTS idx_dcb_cooldown ON domain_circuit_breakers(cooldown_until)",
+      "CREATE INDEX IF NOT EXISTS idx_dcb_updated ON domain_circuit_breakers(updated_at)",
+    ],
   },
   model_capabilities: {
     columns: {

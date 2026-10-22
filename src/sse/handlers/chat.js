@@ -30,6 +30,7 @@ import { isTrustedInternalRequest } from "../services/internalTrust.js";
 import { enforceUnifiedAcl } from "../services/allowedModels.js";
 import { getApiKeyByKey } from "@/lib/db/repos/apiKeysRepo.js";
 import { checkApiKeyUsageLimits, formatQuotaErrorResponse } from "@/lib/usage/apiKeyUsageLimits.js";
+import { gateTarget, observeFailure, observeSuccess, isResilienceEnabled } from "@/domain/fallbackResilience.js";
 
 /**
  * Handle chat completion request
@@ -296,6 +297,26 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       return errorResponse(lastStatus || HTTP_STATUS.SERVICE_UNAVAILABLE, lastError || "All accounts unavailable", lastHeaders);
     }
 
+    // Wave 4 pre-dispatch gate. Inert unless KHATAM_RESILIENCE_CIRCUIT_BREAKER=1:
+    // `gateTarget` returns a proceed verdict before touching any breaker state.
+    if (isResilienceEnabled()) {
+      const verdict = await gateTarget({
+        provider,
+        connectionId: credentials.connectionId,
+        model,
+        connection: credentials._connection || null,
+      }).catch(() => null);
+      if (verdict && verdict.kind === "skip") {
+        log.warn("RESILIENCE", `↷ ACC:${credentials.connectionName} skipped pre-dispatch (${verdict.reason}${verdict.retryAfterHuman ? `, ${verdict.retryAfterHuman}` : ""})`);
+        excludeConnectionIds.add(credentials.connectionId);
+        // Seed the terminal error only while nothing has been recorded: a later
+        // real upstream failure keeps overwriting lastError/lastStatus exactly as
+        // before, so the final status code never drifts from the pre-Wave-4 path.
+        if (!lastError) lastError = verdict.message;
+        continue;
+      }
+    }
+
     // Account selection shown in the unified "▶" line (acc:...)
     const refreshedCredentials = await checkAndRefreshToken(provider, credentials);
 
@@ -353,6 +374,11 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         await clearAccountError(credentials.connectionId, credentials, model);
         // "Consecutive" strikes: a success clears the breaker for this pair.
         clearAntigravityStrikes(credentials.connectionId, model);
+        // Wave 4: closes a HALF_OPEN probe and decays CLOSED failure counts.
+        // No-op when the flag is off.
+        if (isResilienceEnabled()) {
+          await observeSuccess({ provider, connectionId: credentials.connectionId });
+        }
       }
     });
 
@@ -374,6 +400,20 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     const shouldFallback = provider === "antigravity" && quotaResetMs
       ? true
       : (await markAccountUnavailable(credentials.connectionId, result.status, result.error, provider, model, resetsAtMs)).shouldFallback;
+
+    // Wave 4: record failure against the breaker when enabled.
+    // Client-error statuses (400, 406, 408, 409, 410, 422) and POLICY refusals
+    // are exempt inside `observeFailure` and never move health.
+    if (isResilienceEnabled()) {
+      await observeFailure({
+        provider,
+        connectionId: credentials.connectionId,
+        model,
+        status: result.status,
+        error: result.error,
+        headers: result.response?.headers,
+      }).catch(() => null);
+    }
 
     if (shouldFallback) {
       log.warn("FALLBACK", `⇄ ACC:${credentials.connectionName} UNAVAILABLE (${result.status}) → NEXT ACCOUNT`);
