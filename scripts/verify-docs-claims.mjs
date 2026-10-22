@@ -202,6 +202,244 @@ async function checkDockerImageReference(imageRef, allowlist, offline, cache, re
   }
 }
 
+// ── CLAIM CLASS 1b: Foreign registry / image references ─────────────────────
+// CLAIM CLASS 1 above only sees `ghcr.io/<owner>/<name>:<tag>`, so an untagged
+// `ghcr.io/upstream/project` or a `hub.docker.com/r/<owner>/<name>` link is
+// invisible to it. This check validates the registry OWNER of every image
+// reference, with or without a tag, and also covers image arguments of
+// `docker pull` / `docker run` commands. Plain links (for example an upstream
+// attribution link to github.com/<owner>/<repo>) are deliberately not image
+// references and are never flagged here.
+const OWN_REGISTRY_OWNER = "rqzbeh";
+
+const REGISTRY_IMAGE_PATTERNS = [
+  /\bghcr\.io\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:[:@][A-Za-z0-9_.-]+)?/g,
+  /\bhub\.docker\.com\/r\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:[:@][A-Za-z0-9_.-]+)?/g,
+  /\bimg\.shields\.io\/docker\/(?:pulls|image)\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+/g,
+];
+
+function stripImageDecorations(raw) {
+  return raw
+    .trim()
+    .replace(/^[`"'<(]+/, "")
+    .replace(/[`"'>),.;]+$/, "")
+    .replace(/\.svg$/i, "")
+    .replace(/^docker\.io\//, "")
+    .replace(/^registry-1\.docker\.io\//, "");
+}
+
+// Returns { ref, owner, name } for a namespaced image reference, or null when the
+// token is not a namespaced image reference (a bare name is treated as a local
+// build tag, e.g. `docker build -t khatamrouter .` then `docker run khatamrouter`).
+function parseImageRef(rawRef) {
+  const ref = stripImageDecorations(rawRef);
+  if (!ref) return null;
+
+  const ghcrMatch = ref.match(/^ghcr\.io\/([^/:@]+)\/([^/:@]+)/i);
+  if (ghcrMatch) return { ref, owner: ghcrMatch[1], name: ghcrMatch[2] };
+
+  const hubMatch = ref.match(/^hub\.docker\.com\/r\/([^/:@]+)\/([^/:@]+)/i);
+  if (hubMatch) return { ref, owner: hubMatch[1], name: hubMatch[2] };
+
+  const shieldsMatch = ref.match(/^img\.shields\.io\/docker\/(?:pulls|image)\/([^/:@]+)\/([^/:@]+)/i);
+  if (shieldsMatch) return { ref, owner: shieldsMatch[1], name: shieldsMatch[2] };
+
+  if (!ref.includes("/")) return null;
+
+  const segments = ref.split("/");
+  const first = segments[0];
+  const isRegistryHost = first.includes(".") || first.includes(":") || first.toLowerCase() === "localhost";
+  if (isRegistryHost) {
+    if (segments.length < 3) return null;
+    return { ref, owner: segments[1], name: segments[2].split(/[:@]/)[0] };
+  }
+  // Docker Hub namespace form: <owner>/<name>[:tag]
+  return { ref, owner: first, name: segments[1].split(/[:@]/)[0] };
+}
+
+function collectContinuation(lines, startIdx) {
+  const parts = [];
+  let idx = startIdx;
+  while (idx < lines.length) {
+    const continues = /\\\s*$/.test(lines[idx]);
+    parts.push(lines[idx].replace(/\\\s*$/, ""));
+    if (!continues) break;
+    idx++;
+  }
+  return { text: parts.join(" "), endIdx: idx };
+}
+
+// The image argument: for `docker pull` it is the first positional token; for a
+// `docker run` invocation in these docs the image is the last positional token
+// (options always precede it).
+function extractDockerImage(text) {
+  const withoutComment = text.replace(/\s#.*$/, "");
+  const tokens = withoutComment.split(/\s+/).filter(Boolean);
+  if (tokens[0] !== "docker") return null;
+  if (tokens[1] === "pull") {
+    const candidate = tokens.slice(2).find((t) => !t.startsWith("-"));
+    return candidate || null;
+  }
+  if (tokens[1] === "run") {
+    const positional = tokens.slice(2).filter((t) => !t.startsWith("-"));
+    return positional.length ? positional[positional.length - 1] : null;
+  }
+  return null;
+}
+
+function globToRegExp(glob) {
+  let out = "";
+  for (let i = 0; i < glob.length; i++) {
+    const ch = glob[i];
+    if (ch === "*") {
+      if (glob[i + 1] === "*") {
+        out += ".*";
+        i++;
+      } else {
+        out += "[^/]*";
+      }
+    } else if ("\\^$.|?+()[]{}".includes(ch)) {
+      out += `\\${ch}`;
+    } else {
+      out += ch;
+    }
+  }
+  return new RegExp(`^${out}$`);
+}
+
+function findForeignImageAllowlistReason(allowlist, docRelative, ref) {
+  const entries = Array.isArray(allowlist.foreignImageExceptions) ? allowlist.foreignImageExceptions : [];
+  const normalizedDoc = docRelative.split(path.sep).join("/");
+  for (const entry of entries) {
+    if (!entry || typeof entry !== "object") continue;
+    if (entry.path && !globToRegExp(entry.path).test(normalizedDoc)) continue;
+    if (entry.ref && !globToRegExp(entry.ref).test(ref)) continue;
+    return entry.reason || "Allowlisted foreign image reference";
+  }
+  return null;
+}
+
+function checkForeignImageReferences(docPath, repoRoot, allowlist) {
+  const content = fs.readFileSync(docPath, "utf8");
+  const lines = content.split("\n");
+  const docRelative = path.relative(repoRoot, docPath);
+  const results = [];
+  const candidates = [];
+
+  const dockerCommands = [];
+  lines.forEach((line, lineIdx) => {
+    if (!/^\s*docker\s+(?:pull|run)\b/.test(line)) return;
+    const { text, endIdx } = collectContinuation(lines, lineIdx);
+    const image = extractDockerImage(text);
+    if (image) {
+      dockerCommands.push({
+        startIdx: lineIdx,
+        endIdx,
+        kind: /^\s*docker\s+pull\b/.test(line) ? "pull" : "run",
+        ref: stripImageDecorations(image),
+      });
+    }
+  });
+
+  const matchDockerCommand = (line1Based, ref) =>
+    dockerCommands.find(
+      (cmd) => ref === cmd.ref && line1Based - 1 >= cmd.startIdx && line1Based - 1 <= cmd.endIdx
+    );
+
+  lines.forEach((line, lineIdx) => {
+    for (const pattern of REGISTRY_IMAGE_PATTERNS) {
+      for (const match of line.matchAll(pattern)) {
+        const ref = stripImageDecorations(match[0]);
+        const cmd = matchDockerCommand(lineIdx + 1, ref);
+        candidates.push({
+          line: lineIdx + 1,
+          ref,
+          fromDockerCommand: Boolean(cmd),
+          dockerKind: cmd ? cmd.kind : null,
+        });
+      }
+    }
+  });
+
+  for (const cmd of dockerCommands) {
+    const alreadyReported = candidates.some((c) => c.ref === cmd.ref && c.fromDockerCommand);
+    if (!alreadyReported) {
+      candidates.push({
+        line: cmd.startIdx + 1,
+        ref: cmd.ref,
+        fromDockerCommand: true,
+        dockerKind: cmd.kind,
+      });
+    }
+  }
+
+  const seen = new Set();
+  for (const candidate of candidates) {
+    const key = `${candidate.line}:${candidate.ref}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const parsed = parseImageRef(candidate.ref);
+    if (!parsed) {
+      // A bare name in `docker pull` is an implicit Docker Hub library reference
+      // (docker.io/library/<name>), so it never names this project's image. A bare
+      // name in `docker run` may be a local `docker build -t <name> .` tag and is
+      // left alone.
+      const isBarePull = candidate.fromDockerCommand && candidate.dockerKind === "pull";
+      if (!isBarePull) continue;
+      results.push({
+        doc: docRelative,
+        line: candidate.line,
+        ref: `docker.io/library/${candidate.ref}`,
+        owner: "docker.io/library",
+        ok: false,
+        warn: false,
+        reason: `Foreign registry image reference '${candidate.ref}' resolves to Docker Hub's library namespace, not this project (owner '${OWN_REGISTRY_OWNER}')`,
+      });
+      continue;
+    }
+
+    if (parsed.owner.toLowerCase() === OWN_REGISTRY_OWNER) {
+      results.push({
+        doc: docRelative,
+        line: candidate.line,
+        ref: parsed.ref,
+        owner: parsed.owner,
+        ok: true,
+        warn: false,
+        reason: `Registry owner '${parsed.owner}' is this project's registry`,
+      });
+      continue;
+    }
+
+    const allowlistReason = findForeignImageAllowlistReason(allowlist, docRelative, parsed.ref);
+    if (allowlistReason) {
+      results.push({
+        doc: docRelative,
+        line: candidate.line,
+        ref: parsed.ref,
+        owner: parsed.owner,
+        ok: true,
+        warn: true,
+        reason: `Allowlisted: ${allowlistReason}`,
+      });
+      continue;
+    }
+
+    results.push({
+      doc: docRelative,
+      line: candidate.line,
+      ref: parsed.ref,
+      owner: parsed.owner,
+      ok: false,
+      warn: false,
+      reason: `Foreign registry owner '${parsed.owner}' in image reference '${parsed.ref}' (this project publishes from owner '${OWN_REGISTRY_OWNER}')`,
+    });
+  }
+
+  return results;
+}
+
 // ── CLAIM CLASS 2: Cited source constants ───────────────────────────────────
 function checkCitedSourceConstants(docPath, repoRoot) {
   const content = fs.readFileSync(docPath, "utf8");
@@ -648,6 +886,7 @@ async function main() {
 
   const report = {
     class1_docker: [],
+    class1b_foreignImages: [],
     class2_constants: [],
     class3_adjectives: [],
     class4_envVars: [],
@@ -709,6 +948,25 @@ async function main() {
           reason: res.reason,
         });
       }
+    }
+
+    // CLAIM CLASS 1b: foreign registry / image references (tag optional)
+    const foreignResults = checkForeignImageReferences(docPath, options.rootDir, allowlist);
+    for (const r of foreignResults) {
+      report.totalChecks++;
+      if (!r.ok) {
+        report.failures++;
+      } else if (r.warn) {
+        report.warnings++;
+      }
+      report.class1b_foreignImages.push({
+        doc: r.doc,
+        line: r.line,
+        ref: r.ref,
+        owner: r.owner,
+        status: !r.ok ? "FAIL" : r.warn ? "WARN" : "OK",
+        reason: r.reason,
+      });
     }
 
     // CLAIM CLASS 2: Cited source constants
@@ -793,6 +1051,7 @@ async function main() {
           filesScanned: docPaths.length,
           claims: {
             dockerImages: report.class1_docker,
+            foreignImages: report.class1b_foreignImages,
             sourceConstants: report.class2_constants,
             bannedAdjectives: report.class3_adjectives,
             envVars: report.class4_envVars,
@@ -815,6 +1074,23 @@ async function main() {
     } else {
       for (const item of report.class1_docker) {
         console.log(`  [${item.status}] ${item.doc}:${item.line} -> ${item.ref} (${item.reason})`);
+      }
+    }
+    console.log("");
+
+    console.log(`[CLAIM CLASS 1b] Foreign registry image references (${report.class1b_foreignImages.length} found):`);
+    if (report.class1b_foreignImages.length === 0) {
+      console.log("  [OK] No registry image references found.");
+    } else {
+      const failForeign = report.class1b_foreignImages.filter((f) => f.status !== "OK");
+      if (failForeign.length === 0) {
+        console.log(
+          `  [OK] All ${report.class1b_foreignImages.length} registry image references point at owner '${OWN_REGISTRY_OWNER}'.`
+        );
+      } else {
+        for (const item of failForeign) {
+          console.log(`  [${item.status}] ${item.doc}:${item.line} -> ${item.ref} (${item.reason})`);
+        }
       }
     }
     console.log("");
