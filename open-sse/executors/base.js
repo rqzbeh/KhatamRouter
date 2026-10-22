@@ -4,6 +4,7 @@ import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import { dbg } from "../utils/debugLog.js";
 import { ANTHROPIC_API_VERSION, OPENAI_COMPAT_BASE, ANTHROPIC_COMPAT_BASE } from "../providers/shared.js";
 import { resolveOpenAICompatibleApiType } from "../services/provider.js";
+import { isStealthEnabled, applyStealthToDispatch } from "@/lib/stealth/dispatch.js";
 
 /**
  * BaseExecutor - Base class for provider executors
@@ -140,12 +141,20 @@ export class BaseExecutor {
       const mergedSignal = signal ? AbortSignal.any([signal, connectCtrl.signal]) : connectCtrl.signal;
 
       try {
-        const bodyStr = JSON.stringify(transformedBody);
+        let activeHeaders = headers;
+        let bodyStr;
+        if (isStealthEnabled(this.provider)) {
+          const stealthOut = applyStealthToDispatch(this.provider, headers, transformedBody);
+          activeHeaders = stealthOut.headers;
+          bodyStr = stealthOut.bodyString;
+        } else {
+          bodyStr = JSON.stringify(transformedBody);
+        }
         const fetchT0 = Date.now();
         dbg("FETCH", `${this.provider.toUpperCase()} → ${url} | body=${bodyStr.length}B | connectTimeout=${timeoutMs}ms`);
         const response = await proxyAwareFetch(url, {
           method: "POST",
-          headers,
+          headers: activeHeaders,
           body: bodyStr,
           signal: mergedSignal
         }, proxyOptions);
@@ -162,7 +171,7 @@ export class BaseExecutor {
           continue;
         }
 
-        return { response, url, headers, transformedBody };
+        return { response, url, headers: activeHeaders, transformedBody };
       } catch (error) {
         clearTimeout(connectTimer);
         lastError = error;
