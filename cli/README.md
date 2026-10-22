@@ -6,8 +6,7 @@
 
 [![npm](https://img.shields.io/npm/v/9router.svg)](https://www.npmjs.com/package/9router)
 [![Downloads](https://img.shields.io/npm/dm/9router.svg)](https://www.npmjs.com/package/9router)
-[![Docker Pulls](https://img.shields.io/docker/pulls/decolua/9router.svg?logo=docker&label=Docker%20pulls)](https://hub.docker.com/r/decolua/9router)
-[![GHCR](https://img.shields.io/badge/GHCR-decolua%2F9router-blue?logo=github)](https://github.com/decolua/9router/pkgs/container/9router)
+[![GHCR](https://img.shields.io/badge/GHCR-ghcr.io%2Frqzbeh%2Fkhatamrouter-blue?logo=github)](https://github.com/rqzbeh/KhatamRouter/pkgs/container/khatamrouter)
 [![License](https://img.shields.io/npm/l/9router.svg)](https://github.com/decolua/9router/blob/main/LICENSE)
 
 <a href="https://trendshift.io/repositories/22628" target="_blank"><img src="https://trendshift.io/api/badge/repositories/22628" alt="decolua%2F9router | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
@@ -50,12 +49,12 @@ npx 9router
 **Option 2 — Docker (server/VPS):**
 
 ```bash
-docker run -d --name 9router -p 20128:20128 \
+docker run -d --name khatamrouter -p 20128:20128 -p 20129:20129 \
   -v "$HOME/.9router:/app/data" -e DATA_DIR=/app/data \
-  decolua/9router:latest
+  ghcr.io/rqzbeh/khatamrouter:latest
 ```
 
-Published images: [Docker Hub](https://hub.docker.com/r/decolua/9router) • [GHCR](https://github.com/decolua/9router/pkgs/container/9router) (multi-platform amd64/arm64).
+Published image: [GHCR](https://github.com/rqzbeh/KhatamRouter/pkgs/container/khatamrouter) (multi-platform amd64/arm64). No Docker Hub image is published.
 
 🎉 Dashboard opens at `http://localhost:20128`
 

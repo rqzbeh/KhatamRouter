@@ -26,13 +26,37 @@ function findMarkdownFiles(dir, excludeDirs = []) {
   return results;
 }
 
+// Top-level Markdown files that document how to install/run/operate the project
+// are part of the user-facing docs surface, so they are scanned alongside
+// README.md and ROADMAP.md. Files that are not usage documentation are skipped:
+// CHANGELOG.md (historical release log), LICENSE*.md (legal text) and CLAUDE.md
+// (agent instructions, not user docs). There is no top-level allowlist here on
+// purpose: a new top-level *.md must be scanned by default so it cannot drift.
+const NON_USAGE_TOP_LEVEL_MD = new Set(["CHANGELOG.md", "CLAUDE.md", "LICENSE.md", "LICENCE.md"]);
+
+function isNonUsageMarkdown(fileName) {
+  if (NON_USAGE_TOP_LEVEL_MD.has(fileName)) return true;
+  return /^(?:LICEN[CS]E|CHANGELOG)(?:\.[^/]*)?\.md$/i.test(fileName);
+}
+
 export function resolveDefaultDocFiles(rootDir) {
   const files = [];
+  const seen = new Set();
+  const push = (p) => {
+    const key = path.resolve(p);
+    if (seen.has(key)) return;
+    seen.add(key);
+    files.push(p);
+  };
 
-  // 1. Root docs: README.md, ROADMAP.md
-  for (const f of ["README.md", "ROADMAP.md"]) {
-    const p = path.join(rootDir, f);
-    if (fs.existsSync(p)) files.push(p);
+  // 1. Root docs: README.md, ROADMAP.md plus every other top-level usage doc
+  //    (DOCKER.md, README.<locale>.md, …). Skipped: see NON_USAGE_TOP_LEVEL_MD.
+  if (fs.existsSync(rootDir)) {
+    for (const entry of fs.readdirSync(rootDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+      if (isNonUsageMarkdown(entry.name)) continue;
+      push(path.join(rootDir, entry.name));
+    }
   }
 
   // 2. i18n/*.md (10 translation files)
@@ -41,18 +65,26 @@ export function resolveDefaultDocFiles(rootDir) {
     const entries = fs.readdirSync(i18nDir, { withFileTypes: true });
     for (const entry of entries) {
       if (entry.isFile() && entry.name.endsWith(".md")) {
-        files.push(path.join(i18nDir, entry.name));
+        push(path.join(i18nDir, entry.name));
       }
     }
   }
 
   // 3. docs/**/*.md (exclude docs/images)
   const docsDir = path.join(rootDir, "docs");
-  files.push(...findMarkdownFiles(docsDir, ["images"]));
+  for (const f of findMarkdownFiles(docsDir, ["images"])) push(f);
 
   // 4. gitbook/**/*.md (if any)
   const gitbookDir = path.join(rootDir, "gitbook");
-  files.push(...findMarkdownFiles(gitbookDir));
+  for (const f of findMarkdownFiles(gitbookDir)) push(f);
+
+  // 5. cli/**/*.md — the CLI package's own docs (cli/README.md ships to npm)
+  //    also instruct users how to pull and run the container.
+  const cliDir = path.join(rootDir, "cli");
+  for (const f of findMarkdownFiles(cliDir, ["node_modules"])) {
+    if (isNonUsageMarkdown(path.basename(f))) continue;
+    push(f);
+  }
 
   return files;
 }
@@ -105,6 +137,24 @@ function loadAllowlist(allowlistPath) {
 }
 
 // ── CLAIM CLASS 1: Docker image references ──────────────────────────────────
+// A single slow ghcr.io response must not fail an otherwise-correct doc, so a
+// timed-out registry call is retried a couple of times before it is judged.
+const REGISTRY_TIMEOUT_MS = 6000;
+const REGISTRY_RETRIES = 2;
+
+async function fetchWithTimeoutRetry(url, init = {}, retries = REGISTRY_RETRIES) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fetch(url, { ...init, signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS) });
+    } catch (err) {
+      lastErr = err;
+      if (attempt < retries) await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+    }
+  }
+  throw lastErr;
+}
+
 async function checkDockerImageReference(imageRef, allowlist, offline, cache, registryBaseUrl = "https://ghcr.io") {
   // imageRef format: ghcr.io/<owner>/<name>:<tag>
   const match = imageRef.match(/^ghcr\.io\/([^/:]+)\/([^/:]+):([^/:]+)$/);
@@ -140,7 +190,7 @@ async function checkDockerImageReference(imageRef, allowlist, offline, cache, re
   try {
     const base = registryBaseUrl.replace(/\/+$/, "");
     const tokenUrl = `${base}/token?scope=repository:${encodeURIComponent(`${owner}/${name}`)}:pull&service=ghcr.io`;
-    const tokenRes = await fetch(tokenUrl, { signal: AbortSignal.timeout(6000) });
+    const tokenRes = await fetchWithTimeoutRetry(tokenUrl);
     if (!tokenRes.ok) {
       if (allowlistReason) {
         const res = { ok: true, warn: true, reason: `Allowlisted: ${allowlistReason} (auth HTTP ${tokenRes.status})` };
@@ -166,13 +216,12 @@ async function checkDockerImageReference(imageRef, allowlist, offline, cache, re
     }
 
     const manifestUrl = `${base}/v2/${owner}/${name}/manifests/${tag}`;
-    const manifestRes = await fetch(manifestUrl, {
+    const manifestRes = await fetchWithTimeoutRetry(manifestUrl, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: "application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json, */*",
       },
-      signal: AbortSignal.timeout(6000),
     });
 
     if (manifestRes.status >= 200 && manifestRes.status < 400) {

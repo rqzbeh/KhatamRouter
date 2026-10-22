@@ -317,6 +317,108 @@ describe("Wave 4: Docs claims verifier (scripts/verify-docs-claims.mjs)", () => 
     expect(entry.reason).toContain("third-party sidecar");
   });
 
+  it("scans top-level DOCKER.md and fails on a foreign docker pull image, naming the file", () => {
+    const fixtureDir = createTempFixture({
+      "README.md": `# Overview\n`,
+      "ROADMAP.md": `# Roadmap\n`,
+      "DOCKER.md": `# Docker\n\n## Quick start\n\n\`\`\`bash\ndocker pull decolua/9router:latest\n\`\`\`\n`,
+      "scripts/docs-claims-allowlist.json": JSON.stringify({}),
+    });
+
+    const result = spawnSync(
+      process.execPath,
+      [scriptPath, "--root", fixtureDir, "--offline", "--json"],
+      { encoding: "utf8" }
+    );
+
+    expect(result.status).not.toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.success).toBe(false);
+
+    const dockerFailure = parsed.claims.foreignImages.find(
+      (f) => f.status === "FAIL" && f.doc === "DOCKER.md"
+    );
+    expect(dockerFailure).toBeDefined();
+    expect(dockerFailure.ref).toBe("decolua/9router:latest");
+    expect(dockerFailure.owner).toBe("decolua");
+    expect(dockerFailure.line).toBe(6);
+  });
+
+  it("scans cli/README.md and fails on a foreign hub.docker.com image link, naming the file", () => {
+    const fixtureDir = createTempFixture({
+      "README.md": `# Overview\n`,
+      "ROADMAP.md": `# Roadmap\n`,
+      "cli/README.md": `# CLI\n\nPublished images: [Docker Hub](https://hub.docker.com/r/someoneelse/thing).\n`,
+      "scripts/docs-claims-allowlist.json": JSON.stringify({}),
+    });
+
+    const result = spawnSync(
+      process.execPath,
+      [scriptPath, "--root", fixtureDir, "--offline", "--json"],
+      { encoding: "utf8" }
+    );
+
+    expect(result.status).not.toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.success).toBe(false);
+
+    const cliFailure = parsed.claims.foreignImages.find(
+      (f) => f.status === "FAIL" && f.doc === "cli/README.md"
+    );
+    expect(cliFailure).toBeDefined();
+    expect(cliFailure.ref).toBe("hub.docker.com/r/someoneelse/thing");
+    expect(cliFailure.line).toBe(3);
+  });
+
+  it("counts the widened scan set in filesScanned (DOCKER.md and cli/README.md included)", () => {
+    const fixtureDir = createTempFixture({
+      "README.md": `# Overview\n`,
+      "ROADMAP.md": `# Roadmap\n`,
+      "DOCKER.md": `# Docker\n\nImage: \`ghcr.io/rqzbeh/khatamrouter:edge\`\n`,
+      "cli/README.md": `# CLI\n\nImage: \`ghcr.io/rqzbeh/khatamrouter:edge\`\n`,
+      "CHANGELOG.md": `# Changelog\n\n- Old entry mentions decolua/9router:0.5.81.\n`,
+      "scripts/docs-claims-allowlist.json": JSON.stringify({}),
+    });
+
+    const result = spawnSync(
+      process.execPath,
+      [scriptPath, "--root", fixtureDir, "--offline", "--json"],
+      { encoding: "utf8" }
+    );
+
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.success).toBe(true);
+    // README.md, ROADMAP.md, DOCKER.md and cli/README.md — CHANGELOG.md is not usage docs.
+    expect(parsed.filesScanned).toBe(4);
+    const docs = parsed.claims.foreignImages.map((f) => f.doc);
+    expect(docs).toContain("DOCKER.md");
+    expect(docs).toContain("cli/README.md");
+    expect(docs).not.toContain("CHANGELOG.md");
+  });
+
+  it("treats a github.com/decolua/9router attribution link in DOCKER.md as non-image prose", () => {
+    const fixtureDir = createTempFixture({
+      "README.md": `# Overview\n`,
+      "ROADMAP.md": `# Roadmap\n`,
+      "DOCKER.md": `# Docker\n\nBuilt on 9Router by [decolua](https://github.com/decolua/9router). Image: \`ghcr.io/rqzbeh/khatamrouter:edge\`\n`,
+      "scripts/docs-claims-allowlist.json": JSON.stringify({}),
+    });
+
+    const result = spawnSync(
+      process.execPath,
+      [scriptPath, "--root", fixtureDir, "--offline", "--json"],
+      { encoding: "utf8" }
+    );
+
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.failures).toBe(0);
+    expect(
+      parsed.claims.foreignImages.filter((f) => f.doc === "DOCKER.md").map((f) => f.ref)
+    ).toEqual(["ghcr.io/rqzbeh/khatamrouter:edge"]);
+  });
+
   it("passes (exit 0) when all claims are valid and backed by source constants", () => {
     const fixtureDir = createTempFixture({
       "open-sse/rtk/constants.js": `export const RAW_CAP = 10 * 1024 * 1024; // 10 MiB\n`,

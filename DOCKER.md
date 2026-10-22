@@ -1,6 +1,6 @@
 # Docker
 
-Run 9Router in a container. Published image: [`decolua/9router`](https://hub.docker.com/r/decolua/9router) — multi-platform `linux/amd64` + `linux/arm64`.
+Run KhatamRouter in a container. Published image: [`ghcr.io/rqzbeh/khatamrouter`](https://github.com/rqzbeh/KhatamRouter/pkgs/container/khatamrouter) — multi-platform `linux/amd64` + `linux/arm64`. There is no Docker Hub image.
 
 ---
 
@@ -11,21 +11,24 @@ Run 9Router in a container. Published image: [`decolua/9router`](https://hub.doc
 ```bash
 docker run -d \
   -p 20128:20128 \
+  -p 20129:20129 \
   -v "$HOME/.9router:/app/data" \
   -e DATA_DIR=/app/data \
-  --name 9router \
-  decolua/9router:latest
+  --name khatamrouter \
+  ghcr.io/rqzbeh/khatamrouter:latest
 ```
 
 App listens on port `20128`. Open: http://localhost:20128
 
+Port `20129` is exposed by the image but reserved for the Phase 2 Go gateway data plane; nothing serves traffic on it yet.
+
 ## Manage container
 
 ```bash
-docker logs -f 9router        # view logs
-docker stop 9router           # stop
-docker start 9router          # start again
-docker rm -f 9router          # remove
+docker logs -f khatamrouter   # view logs
+docker stop khatamrouter      # stop
+docker start khatamrouter     # start again
+docker rm -f khatamrouter     # remove
 ```
 
 ## Data persistence
@@ -55,25 +58,27 @@ Container path: `/app/data/db/data.sqlite`
 ```bash
 docker run -d \
   -p 20128:20128 \
+  -p 20129:20129 \
   -v "$HOME/.9router:/app/data" \
   -e DATA_DIR=/app/data \
   -e PORT=20128 \
   -e HOSTNAME=0.0.0.0 \
   -e DEBUG=true \
-  --name 9router \
-  decolua/9router:latest
+  --name khatamrouter \
+  ghcr.io/rqzbeh/khatamrouter:latest
 ```
 
 ## Optional Headroom sidecar
 
-The 9Router image does not bundle Python or Headroom. To use Headroom in Docker, run it as a separate service and point 9Router at that proxy:
+The KhatamRouter image does not bundle Python or Headroom. To use Headroom in Docker, run it as a separate service and point KhatamRouter at that proxy:
 
 ```yaml
 services:
-  9router:
-    image: decolua/9router:latest
+  khatamrouter:
+    image: ghcr.io/rqzbeh/khatamrouter:latest
     ports:
       - "20128:20128"
+      - "20129:20129"
     volumes:
       - "$HOME/.9router:/app/data"
     environment:
@@ -95,15 +100,21 @@ If Headroom runs on the Docker host instead of as a sidecar, use `http://host.do
 ## Update to latest
 
 ```bash
-docker pull decolua/9router:latest
-docker rm -f 9router
+docker pull ghcr.io/rqzbeh/khatamrouter:latest
+docker rm -f khatamrouter
 # re-run the quick start command
+```
+
+To follow the newest master build instead of the last release, use the `edge` tag:
+
+```bash
+docker pull ghcr.io/rqzbeh/khatamrouter:edge
 ```
 
 To pin a specific version instead of following `latest`, use a numbered image tag:
 
 ```bash
-docker pull decolua/9router:0.5.81
+docker pull ghcr.io/rqzbeh/khatamrouter:0.1.0
 ```
 
 ---
@@ -113,75 +124,49 @@ docker pull decolua/9router:0.5.81
 ## Build image locally (test)
 
 ```bash
-docker build -t 9router .
+docker build -f Dockerfile.bun -t khatamrouter .
 
-docker run --rm -p 20128:20128 \
+docker run --rm -p 20128:20128 -p 20129:20129 \
   -v "$HOME/.9router:/app/data" \
   -e DATA_DIR=/app/data \
-  9router
+  khatamrouter
 ```
 
-The Dockerfile uses the official Alpine and npm registries by default. Regional mirrors can be supplied when needed:
-
-```bash
-docker build \
-  --build-arg ALPINE_MIRROR=mirrors.aliyun.com \
-  --build-arg NPM_REGISTRY=https://registry.npmmirror.com/ \
-  -t 9router .
-```
+Source builds use `Dockerfile.bun`, the same file CI publishes from. It pins `oven/bun:1.4.3-slim` and installs from the official Debian and npm registries.
 
 ## Publish (automatic via CI)
 
-Push a Docker-safe semver git tag `vX.Y.Z` (or a prerelease such as `vX.Y.Z-rc.1`) → GitHub Actions builds `linux/amd64` and `linux/arm64` on native runners, health-checks each platform image, verifies the resulting manifest and `/api/health`, then publishes:
+Merging to `master` (after the `Verify` workflow succeeds) publishes:
 
-- `ghcr.io/decolua/9router:X.Y.Z` + `:latest`
-- `decolua/9router:X.Y.Z` + `:latest`
+- `ghcr.io/rqzbeh/khatamrouter:edge`
+- `ghcr.io/rqzbeh/khatamrouter:sha-<short>`
 
-The `v` prefix is used only for the git tag; image tags omit it. A stable tag push promotes `latest`, but a prerelease tag such as `vX.Y.Z-rc.1` publishes only its numbered image by default. Prereleases require an explicit manual `promote_latest` opt-in. Promotion happens only after both native platform builds, both platform health checks, manifest inspection, and the resolved-manifest smoke test succeed. A failed or timed-out platform build therefore cannot move `latest`.
+Pushing a semver git tag `vX.Y.Z` (or a prerelease such as `vX.Y.Z-rc.1`) builds `linux/amd64` and `linux/arm64` on native runners and publishes:
 
-The workflow rejects SemVer build metadata such as `v1.2.3+build.7` because the `+` form is not a valid Docker image tag. The git tag and both `package.json` versions must match exactly.
+- `ghcr.io/rqzbeh/khatamrouter:X.Y.Z`
+- `ghcr.io/rqzbeh/khatamrouter:X.Y` (moving major.minor alias)
+- `ghcr.io/rqzbeh/khatamrouter:latest` (stable tags only)
+
+The `v` prefix is used only for the git tag; image tags omit it. A prerelease tag such as `vX.Y.Z-rc.1` publishes its own numbered tag but is left out of the `latest` alias.
+
+Tagged builds are checked after the manifest is assembled: the workflow boots the merged image on `linux/amd64`, polls `/dashboard` until it answers within 90 seconds, and asserts that the SQLite migrations ran. A failing boot check fails the publish.
 
 ```bash
 # Use scripts/release.js (recommended)
 node scripts/release.js "Release title" "Notes"
 
 # Or manually
-git tag v0.5.81 && git push origin v0.5.81
-```
-
-To republish an existing tag, run the `Build and Push Docker Image` workflow manually and provide the exact tag, for example `v0.5.81`, in the `release_tag` input. Manual runs publish the numbered tag but leave `latest` unchanged by default:
-
-```text
-release_tag:     v0.5.81
-promote_latest:  false
-```
-
-The `promote_latest` checkbox is an explicit opt-in for changing `latest`. Use it when a deliberate rollback or recovery should make that version the current default:
-
-```text
-release_tag:     v0.5.75
-promote_latest:  true
+git tag v0.1.0 && git push origin v0.1.0
 ```
 
 Numbered image tags are mutable because a republish can replace their manifest. For a deployment that must be immutable, pin the image digest instead:
 
 ```bash
-docker pull decolua/9router@sha256:<verified-digest>
+docker pull ghcr.io/rqzbeh/khatamrouter@sha256:<verified-digest>
 ```
 
-The release workflow runs `/api/health` on each native `amd64` and `arm64` platform image before it uploads the digest artifact or assembles the multi-platform manifest. It then runs a second health check against the resolved version manifest before any requested `latest` promotion.
+The workflow is tag- and merge-driven. Creating a git tag does not automatically create a GitHub Release, so the Releases page and the published image tags can be at different versions unless a maintainer creates a release separately.
 
-During recovery, the selected tag remains the application source while the Dockerfile from the workflow revision is used, so an older tag can be rebuilt with the current publishing fixes.
-
-The workflow is tag-driven. Creating a git tag does not automatically create a GitHub Release, so the Releases page and the published package/image tags can be at different versions unless a maintainer creates a release separately.
-
-The upstream repository needs these repository secrets for Docker Hub publishing:
-
-- `DOCKERHUB_USERNAME`
-- `DOCKERHUB_TOKEN`
-
-GHCR publishing uses the workflow's `GITHUB_TOKEN` with package write permission. Forks can publish to their own GHCR namespace, but Docker Hub publication is restricted to the upstream `decolua/9router` repository.
-
-The optional repository variables `ALPINE_MIRROR` and `NPM_REGISTRY` can override the default package mirrors used by the CI Docker build.
+Publishing uses the workflow's `GITHUB_TOKEN` with package write permission, so no Docker Hub secrets are needed. Forks can publish to their own GHCR namespace by changing `IMAGE_NAME`.
 
 Workflow: `.github/workflows/docker-publish.yml`
