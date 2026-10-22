@@ -6,6 +6,7 @@ import { checkFallbackError, formatRetryAfter } from "./accountFallback.js";
 import { unavailableResponse } from "../utils/error.js";
 import { getCapabilitiesForModel } from "../providers/capabilities.js";
 import { extractTextContent } from "../translator/formats/gemini.js";
+import { deriveRequestRequirements, filterCompatibleComboTargets, isCapabilityGuardEnabled } from "@/domain/requestCapabilities.js";
 
 // Hard capabilities = input modalities; missing one drops request data (e.g. image
 // stripped). Must be prioritized. Soft (e.g. search) only degrades a feature.
@@ -317,7 +318,7 @@ export function isZeroContentResponse(data) {
  * @param {number|string} [options.comboStickyLimit=1] - Requests per combo model before switching
  * @returns {Promise<Response>}
  */
-export async function handleComboChat({ body, models, handleSingleModel, log, comboName, comboStrategy, comboStickyLimit = 1, autoSwitch = true }) {
+export async function handleComboChat({ body, models, handleSingleModel, log, comboName, comboStrategy, comboStickyLimit = 1, autoSwitch = true, capabilityGuard = null }) {
   // Apply rotation strategy if enabled
   let rotatedModels = getRotatedModels(models, comboName, comboStrategy, comboStickyLimit);
 
@@ -332,7 +333,39 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
       rotatedModels = reordered;
     }
   }
-  
+
+  // Wave 6 capability guard (default OFF behind KHATAM_MODEL_CAPABILITY_GUARD=1
+  // unless a caller passes an explicit verdict). FAIL-CLOSED: when the request
+  // carries an image and no combo target confirms vision, refuse the dispatch
+  // instead of letting a text-only model corrupt the answer.
+  const guardActive = capabilityGuard === true || (capabilityGuard !== false && isCapabilityGuardEnabled());
+  if (guardActive) {
+    const requirements = deriveRequestRequirements(body);
+    if (requirements.requiresVision) {
+      const gate = filterCompatibleComboTargets(rotatedModels, requirements, { comboName });
+      if (gate.failClosed) {
+        log.warn("COMBO", gate.error);
+        return new Response(
+          JSON.stringify({
+            error: {
+              message: gate.error,
+              type: "capability_incompatible",
+              code: "vision_unsupported",
+            },
+          }),
+          { status: 400, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      if (gate.kept.length !== rotatedModels.length) {
+        log.info(
+          "COMBO",
+          `capability guard dropped ${rotatedModels.length - gate.kept.length} non-vision target(s) for image request`
+        );
+        rotatedModels = gate.kept;
+      }
+    }
+  }
+
   let lastError = null;
   let earliestRetryAfter = null;
   let lastStatus = null;
