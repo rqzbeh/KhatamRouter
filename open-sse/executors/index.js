@@ -29,6 +29,11 @@ import WindsurfExecutor from "./windsurf.js";
 import { DefaultExecutor } from "./default.js";
 import { MinimaxCodeExecutor } from "./minimax-code.js";
 import { DevinCliExecutor } from "./devin-cli.js";
+import { AgentRouterExecutor } from "./agentrouter.js";
+import { QwenExecutor } from "./qwen.js";
+import { ZcodeExecutor } from "./zcode.js";
+import { MuseSparkWebExecutor } from "./muse-spark-web.js";
+import FreebuffExecutor from "./freebuff.js";
 
 const executors = {
   antigravity: new AntigravityExecutor(),
@@ -67,6 +72,12 @@ const executors = {
   "minimax-code": new MinimaxCodeExecutor("minimax-code"),
   "minimax-code-global": new MinimaxCodeExecutor("minimax-code-global"),
   "devin-cli": new DevinCliExecutor(),
+  qwen: new QwenExecutor(),
+  zcode: new ZcodeExecutor(),
+  zc: new ZcodeExecutor(), // Alias for zcode
+  agentrouter: new AgentRouterExecutor(),
+  "muse-spark-web": new MuseSparkWebExecutor(),
+  freebuff: new FreebuffExecutor(),
   bedrock: new BedrockExecutor(),
   br: new BedrockExecutor(), // Alias for bedrock
   // Second Bedrock entry for xAI's Grok, which speaks OpenAI Chat Completions rather than the
@@ -119,3 +130,8 @@ export { default as TraeExecutor } from "./trae.js";
 export { default as ZedExecutor } from "./zed.js";
 export { default as WindsurfExecutor } from "./windsurf.js";
 export { DevinCliExecutor } from "./devin-cli.js";
+export { AgentRouterExecutor } from "./agentrouter.js";
+export { QwenExecutor } from "./qwen.js";
+export { ZcodeExecutor } from "./zcode.js";
+export { MuseSparkWebExecutor } from "./muse-spark-web.js";
+export { FreebuffExecutor } from "./freebuff.js";

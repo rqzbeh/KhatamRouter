@@ -92,6 +92,22 @@ export function resolveRetryEntry(entry) {
   };
 }
 
+export function capRetryAttemptsByAccountCount(retryConfig, accountCount) {
+  if (!accountCount || accountCount < 3) return retryConfig;
+  const maxAttempts = accountCount >= 5 ? 1 : 2;
+  const capped = {};
+  for (const [status, entry] of Object.entries(retryConfig)) {
+    if (entry == null) {
+      capped[status] = entry;
+    } else if (typeof entry === "number") {
+      capped[status] = Math.min(entry, maxAttempts);
+    } else {
+      capped[status] = { ...entry, attempts: Math.min(entry.attempts ?? 0, maxAttempts) };
+    }
+  }
+  return capped;
+}
+
 // Requests containing these texts will bypass provider
 export const SKIP_PATTERNS = [
   "Please write a 5-10 word title for the following conversation:"

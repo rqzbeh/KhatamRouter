@@ -14,8 +14,9 @@ import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const REGISTRY_DIR = __dirname; // script lives in registry/
+const REGISTRY_DIR = join(__dirname, "../open-sse/providers/registry");
 const DRY = process.argv.includes("--dry");
+const INDEX_ONLY = process.argv.includes("--index-only");
 
 // *Config.models field → kind value
 const CFG_KIND = {
@@ -235,37 +236,70 @@ function formatEntry(entry, imports = "") {
   return lines.join("\n") + "\n";
 }
 
+// Providers temporarily hidden in KhatamRouter (see index.js comments at HEAD:
+// trae/windsurf lack tool calling; devin-cli spawns local agent with shell/fs access)
+const HIDDEN_REGISTRY_FILES = new Set(["trae.js", "devin-cli.js", "windsurf.js"]);
+
 // --- Main ---
-const files = readdirSync(REGISTRY_DIR).filter(f => f.endsWith(".js") && f !== "index.js");
-let count = 0;
+export function generateRegistryIndex(registryDir = REGISTRY_DIR) {
+  const allFiles = readdirSync(registryDir)
+    .filter(f => f.endsWith(".js") && f !== "index.js" && !HIDDEN_REGISTRY_FILES.has(f))
+    .sort((a, b) => a.localeCompare(b));
 
-for (const file of files) {
-  const path = join(REGISTRY_DIR, file);
-  const src = readFileSync(path, "utf8");
-
-  // Extract import lines (for files that import shared constants)
-  const importLines = src.split("\n").filter(l => l.startsWith("import "));
-  const importSrc = importLines.join("\n");
-
-  // Dynamic import to get entry
-  let entry;
-  try {
-    const mod = await import(`${join(REGISTRY_DIR, file)}?t=${Date.now()}`);
-    entry = mod.default;
-  } catch (e) {
-    console.error(`SKIP ${file}: ${e.message}`);
-    continue;
+  const lines = [
+    "// Auto-generated: static imports for all registry entries",
+  ];
+  for (let i = 0; i < allFiles.length; i++) {
+    lines.push(`import p${i} from "./${allFiles[i]}";`);
   }
-
-  const migrated = migrateEntry(entry, file);
-  const output = formatEntry(migrated, importSrc);
-
-  if (DRY) {
-    console.log(`\n=== ${file} ===\n${output}`);
-  } else {
-    writeFileSync(path, output, "utf8");
-    count++;
+  lines.push("export default [");
+  for (let i = 0; i < allFiles.length; i++) {
+    lines.push(`  p${i},`);
   }
+  lines.push("];\n");
+
+  const content = lines.join("\n");
+  writeFileSync(join(registryDir, "index.js"), content, "utf8");
+  console.log(`✅ Generated registry index with ${allFiles.length} providers`);
 }
 
-console.log(DRY ? `[DRY] Would migrate ${files.length} files` : `✅ Migrated ${count} files`);
+if (INDEX_ONLY) {
+  generateRegistryIndex(REGISTRY_DIR);
+} else {
+  const files = readdirSync(REGISTRY_DIR).filter(f => f.endsWith(".js") && f !== "index.js");
+  let count = 0;
+
+  for (const file of files) {
+    const path = join(REGISTRY_DIR, file);
+    const src = readFileSync(path, "utf8");
+
+    // Extract import lines (for files that import shared constants)
+    const importLines = src.split("\n").filter(l => l.startsWith("import "));
+    const importSrc = importLines.join("\n");
+
+    // Dynamic import to get entry
+    let entry;
+    try {
+      const mod = await import(`${join(REGISTRY_DIR, file)}?t=${Date.now()}`);
+      entry = mod.default;
+    } catch (e) {
+      console.error(`SKIP ${file}: ${e.message}`);
+      continue;
+    }
+
+    const migrated = migrateEntry(entry, file);
+    const output = formatEntry(migrated, importSrc);
+
+    if (DRY) {
+      console.log(`\n=== ${file} ===\n${output}`);
+    } else {
+      writeFileSync(path, output, "utf8");
+      count++;
+    }
+  }
+
+  console.log(DRY ? `[DRY] Would migrate ${files.length} files` : `✅ Migrated ${count} files`);
+  if (!DRY) {
+    generateRegistryIndex(REGISTRY_DIR);
+  }
+}
