@@ -15,6 +15,11 @@
  */
 
 import { createHash } from "node:crypto";
+import {
+  getRedisClient,
+  isRedisConfigured,
+  withRedisKey,
+} from "../redis/client.js";
 
 /** TTL for a sticky binding (aligned with the 15-minute session TTL used elsewhere). */
 export const STICKINESS_TTL_MS = 15 * 60 * 1000;
@@ -184,6 +189,10 @@ function evictOverflow() {
   }
 }
 
+function getRedisSessionKey(key) {
+  return withRedisKey ? withRedisKey(`session:stealth:${key}`) : `khatam:session:stealth:${key}`;
+}
+
 /**
  * Record a conversation → connection pin.
  *
@@ -208,6 +217,15 @@ export function setStickyConnection(key, connectionId, options = {}) {
       lastUsedAt: now,
     });
     evictOverflow();
+
+    // Mirror to Redis cluster session pins under khatam:session:stealth:<promptHash> (15-min TTL)
+    if (isRedisConfigured()) {
+      const client = getRedisClient();
+      if (client && typeof client.set === "function") {
+        client.set(getRedisSessionKey(key), connectionId, "EX", 900).catch(() => {});
+      }
+    }
+
     return true;
   } catch {
     return false;
@@ -215,7 +233,26 @@ export function setStickyConnection(key, connectionId, options = {}) {
 }
 
 /**
+ * Record a conversation → connection pin asynchronously, awaiting Redis persistence.
+ */
+export async function setStickyConnectionAsync(key, connectionId, options = {}) {
+  const localOk = setStickyConnection(key, connectionId, options);
+  if (!localOk) return false;
+
+  if (isRedisConfigured()) {
+    const client = getRedisClient();
+    if (client && typeof client.set === "function") {
+      try {
+        await client.set(getRedisSessionKey(key), connectionId, "EX", 900);
+      } catch {}
+    }
+  }
+  return true;
+}
+
+/**
  * Look up a pinned connection for a conversation.
+ * Synchronous read against local in-process cache, with background Redis prefetch if absent.
  *
  * @param {string | null} key - Session key from `computeSessionKey`
  * @param {{ force?: boolean }} [options]
@@ -229,18 +266,57 @@ export function getStickyConnection(key, options = {}) {
 
     const now = Date.now();
     const entry = pins.get(key);
-    if (!entry) return null;
-
-    if (now - entry.lastUsedAt > STICKINESS_TTL_MS) {
-      pins.delete(key);
-      return null;
+    if (entry) {
+      if (now - entry.lastUsedAt > STICKINESS_TTL_MS) {
+        pins.delete(key);
+        return null;
+      }
+      entry.lastUsedAt = now;
+      return entry.connectionId;
     }
 
-    entry.lastUsedAt = now;
-    return entry.connectionId;
+    // If absent locally but Redis is configured, trigger asynchronous prefetch for subsequent calls
+    if (isRedisConfigured()) {
+      const client = getRedisClient();
+      if (client && typeof client.get === "function") {
+        client.get(getRedisSessionKey(key)).then((remoteConn) => {
+          if (remoteConn && !pins.has(key)) {
+            pins.set(key, { connectionId: remoteConn, createdAt: Date.now(), lastUsedAt: Date.now() });
+          }
+        }).catch(() => {});
+      }
+    }
+
+    return null;
   } catch {
     return null;
   }
+}
+
+/**
+ * Look up a pinned connection for a conversation, checking Redis cluster state if absent locally.
+ */
+export async function getStickyConnectionAsync(key, options = {}) {
+  const local = getStickyConnection(key, options);
+  if (local) return local;
+
+  const enabled = options.force || isStickinessEnabled();
+  if (!enabled || !key || typeof key !== "string") return null;
+
+  if (isRedisConfigured()) {
+    const client = getRedisClient();
+    if (client && typeof client.get === "function") {
+      try {
+        const remoteConn = await client.get(getRedisSessionKey(key));
+        if (remoteConn) {
+          pins.set(key, { connectionId: remoteConn, createdAt: Date.now(), lastUsedAt: Date.now() });
+          return remoteConn;
+        }
+      } catch {}
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -252,7 +328,16 @@ export function getStickyConnection(key, options = {}) {
 export function clearStickyConnection(key) {
   try {
     if (!key || typeof key !== "string") return false;
-    return pins.delete(key);
+    const deleted = pins.delete(key);
+
+    if (isRedisConfigured()) {
+      const client = getRedisClient();
+      if (client && typeof client.del === "function") {
+        client.del(getRedisSessionKey(key)).catch(() => {});
+      }
+    }
+
+    return deleted;
   } catch {
     return false;
   }

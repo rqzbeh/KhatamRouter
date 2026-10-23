@@ -31,12 +31,11 @@ const nextConfig = {
   // @aws-sdk/credential-providers must stay external for the same class of reason: it reads
   // ~/.aws/config and the SSO token cache from disk at runtime and resolves its credential
   // plugins by dynamic require, neither of which survives bundling.
-  // bun:sqlite / sql.js / better-sqlite3: the SQLite driver family must load as
-  // real native/external modules at runtime (bun:sqlite is Bun's builtin, the
-  // others are native addons) — bundling them would break platform resolution.
+  // bun:sqlite: the sole SQLite driver is Bun's builtin; keep it external so the
+  // runtime resolves the native module instead of the bundler inlining it.
   // ioredis: Redis client is loaded lazily by src/lib/redis/client.ts and keeps
   // its own optional native dependency graph, so it must stay external too.
-  serverExternalPackages: ["better-sqlite3", "sql.js", "node:sqlite", "bun:sqlite", "ioredis", "open", "@aws-sdk/credential-providers"],
+  serverExternalPackages: ["bun:sqlite", "ioredis", "open", "@aws-sdk/credential-providers"],
   turbopack: {
     root: tracingRoot
   },

@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from "uuid";
 import { getAdapter } from "../driver.js";
 import { keyAccessFromColumns, keyAccessToColumns } from "@/shared/utils/keyAccess.js";
 import { KEY_ACCESS_UNRESTRICTED } from "@/shared/constants/keyAccess.js";
+import { evictCachedApiKey } from "@/lib/auth/apiKeyCache.js";
 
 function parseJsonArrayOrNull(val) {
   if (val === null || val === undefined) return null;
@@ -90,9 +91,12 @@ export async function createApiKey(name, machineId) {
 export async function updateApiKey(id, data) {
   const db = await getAdapter();
   let result = null;
+  let previousKey = null;
+
   db.transaction(() => {
     const row = db.get(`SELECT * FROM apiKeys WHERE id = ?`, [id]);
     if (!row) return;
+    previousKey = row.key;
     const merged = { ...rowToKey(row), ...data };
     const cols = keyAccessToColumns(merged.access);
 
@@ -135,13 +139,46 @@ export async function updateApiKey(id, data) {
     }
     result = rowToKey(db.get(`SELECT * FROM apiKeys WHERE id = ?`, [id]));
   });
+
+  // Evict advisory auth cache on update (e.g. revoke, ban, modify)
+  if (previousKey) {
+    try { await evictCachedApiKey(previousKey); } catch {}
+  }
+  if (result?.key && result.key !== previousKey) {
+    try { await evictCachedApiKey(result.key); } catch {}
+  }
+
   return result;
 }
 
 export async function deleteApiKey(id) {
   const db = await getAdapter();
+  const existing = db.get(`SELECT key FROM apiKeys WHERE id = ?`, [id]);
   const res = db.run(`DELETE FROM apiKeys WHERE id = ?`, [id]);
-  return (res?.changes ?? 0) > 0;
+  const deleted = (res?.changes ?? 0) > 0;
+
+  if (deleted && existing?.key) {
+    try { await evictCachedApiKey(existing.key); } catch {}
+  }
+
+  return deleted;
+}
+
+export async function revokeApiKey(id) {
+  return await updateApiKey(id, { isActive: false });
+}
+
+export async function banApiKey(id) {
+  return await updateApiKey(id, { isActive: false });
+}
+
+export async function regenerateApiKey(id, machineId) {
+  const existing = await getApiKeyById(id);
+  if (!existing) return null;
+  const targetMachineId = machineId || existing.machineId;
+  const { generateApiKeyWithMachine } = await import("@/shared/utils/apiKey");
+  const result = generateApiKeyWithMachine(targetMachineId);
+  return await updateApiKey(id, { key: result.key, machineId: targetMachineId });
 }
 
 export async function validateApiKey(key) {

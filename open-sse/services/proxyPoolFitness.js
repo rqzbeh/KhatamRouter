@@ -2,6 +2,11 @@
 // Scope format: `provider::model` (for example `freebuff::openai/gpt-5`).
 // The map is a read-through cache; fail-open when persistence is unavailable.
 
+import { getRedisClient, isRedisConfigured, withRedisKey } from "@/lib/redis/client.js";
+
+export const PROXY_POOL_COUNTER_KEY = "counter:proxy:pool:index";
+let inMemoryProxyCounter = 0;
+
 const FITNESS_STATE_KEY = "__9routerPoolFitness__";
 const fitness = (globalThis[FITNESS_STATE_KEY] ??= new Map());
 
@@ -130,4 +135,63 @@ export async function poolFitnessSnapshot(now = Date.now()) {
     }
   }
   return out;
+}
+
+/**
+ * Get the next proxy pool rotation counter from Redis INCR (or in-memory fallback).
+ * Coordinates rotation atomically across cluster instances without writing to SQLite.
+ *
+ * @returns {Promise<number>}
+ */
+export async function getNextProxyPoolCounter() {
+  if (isRedisConfigured()) {
+    try {
+      const client = getRedisClient();
+      if (client) {
+        const key = withRedisKey(PROXY_POOL_COUNTER_KEY);
+        return await client.incr(key);
+      }
+    } catch {
+      // Fail-open to in-memory counter
+    }
+  }
+  inMemoryProxyCounter += 1;
+  return inMemoryProxyCounter;
+}
+
+/**
+ * Rotate and pick a fit proxy pool ID using atomic Redis counter.
+ *
+ * @param {string[]} poolIds - Array of candidate proxy pool IDs
+ * @param {string} [scope=""] - Target scope (provider::model)
+ * @param {number} [now=Date.now()]
+ * @returns {Promise<string|null>} Selected fit proxy pool ID, or null if none fit
+ */
+export async function rotateProxyPoolIds(poolIds, scope = "", now = Date.now()) {
+  const fit = fitPoolIds(poolIds, scope, now);
+  if (!fit || fit.length === 0) return null;
+  if (fit.length === 1) return fit[0];
+
+  const counter = await getNextProxyPoolCounter();
+  const index = (counter - 1) % fit.length;
+  return fit[index];
+}
+
+/**
+ * Reset proxy pool rotation counter (in Redis and in memory).
+ *
+ * @returns {Promise<boolean>}
+ */
+export async function resetProxyPoolCounter() {
+  inMemoryProxyCounter = 0;
+  if (!isRedisConfigured()) return true;
+  try {
+    const client = getRedisClient();
+    if (!client) return true;
+    const key = withRedisKey(PROXY_POOL_COUNTER_KEY);
+    await client.del(key);
+    return true;
+  } catch {
+    return false;
+  }
 }

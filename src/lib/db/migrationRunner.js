@@ -131,22 +131,6 @@ export function backupDatabaseFile(db, dbFile, version) {
 
   checkpointBeforeSnapshot(db);
 
-  // sql.js keeps the live database in memory and flushes the file on a debounce
-  // — copy from the live bytes, not from a possibly stale file.
-  const exportBytes =
-    db && db.driver === "sql.js" && db.raw && typeof db.raw.export === "function" ? db.raw.export() : null;
-  if (exportBytes) {
-    const bakFile = `${dbFile}.bak-${version}`;
-    if (fs.existsSync(bakFile)) return bakFile;
-    try {
-      fs.writeFileSync(bakFile, Buffer.from(exportBytes), { flag: "wx" });
-      return bakFile;
-    } catch (e) {
-      console.warn(`[DB][migrate] pre-migration snapshot failed (continuing): ${e.message}`);
-      return null;
-    }
-  }
-
   if (!fs.existsSync(dbFile)) return null;
   const bakFile = `${dbFile}.bak-${version}`;
   if (fs.existsSync(bakFile)) return bakFile;

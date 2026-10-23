@@ -134,6 +134,15 @@ async function closeInstance(instance) {
   try { instance.removeAllListeners(); } catch {}
 }
 
+/** Test seams: explicitly set client or subscriber (primarily for tests) */
+export function setRedisClient(newClient) {
+  client = newClient;
+}
+
+export function setRedisSubscriber(newSubscriber) {
+  subscriber = newSubscriber;
+}
+
 /** Close both connections and reset module state. Safe to call when unused. */
 export async function closeRedisClient() {
   const activeSubscriber = subscriber;

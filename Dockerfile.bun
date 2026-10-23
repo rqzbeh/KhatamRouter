@@ -1,4 +1,9 @@
 # ── Multi-stage Dockerfile for Native Bun Runtime (KhatamRouter) ─────────────
+# Wave 7.5 (spec/0075-bun-only-redis-default): this file is the single maintained
+# application Dockerfile. `Dockerfile.bun` is kept as a byte-identical alias for
+# compatibility with older build scripts and CapRover configs; a unit test
+# (tests/unit/wave75-docker-compose.test.js) fails if the two ever diverge.
+#
 # Pinned to oven/bun:1.4.3-slim per Constitution Principle II & Wave 1 spec.
 FROM oven/bun:1.4.3-slim AS base
 WORKDIR /app
@@ -88,13 +93,10 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/custom-server.js ./custom-server.js
 COPY --from=builder /app/runtime-secrets.cjs ./runtime-secrets.cjs
 
-# Bun uses bun:sqlite natively. Remove any traced copies of Node-only addons
-# so no traced chunk can dlopen it and abort before fallback.
-RUN find /app \
-      -path '*/node_modules/better-sqlite3' \
-      -prune \
-      -exec rm -rf '{}' + \
-  && test -z "$(find /app -type f -name 'better_sqlite3.node' -print -quit 2>/dev/null || true)"
+# Wave 7.5 / SC-009: bun:sqlite is built into the Bun binary, so the image must
+# ship no Node-only SQLite addon. If output tracing ever drags one in, fail the
+# build here instead of shipping it.
+RUN test -z "$(find /app -type f -name 'better_sqlite3.node' -print -quit 2>/dev/null || true)"
 
 RUN chown -R bun:bun /app /app/data
 

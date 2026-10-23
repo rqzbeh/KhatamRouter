@@ -82,9 +82,9 @@ async function readDesktopAccountCookies() {
     return null; // locked by a running Desktop
   }
   try {
-    const { DatabaseSync } = await import("node:sqlite");
-    const db = new DatabaseSync(tmp, { readOnly: true });
-    const rows = db.prepare("SELECT name, value FROM cookies WHERE host_key = ?").all("." + ACCOUNT_HOST);
+    const { Database } = await import("bun:sqlite");
+    const db = new Database(tmp, { readonly: true });
+    const rows = db.query("SELECT name, value FROM cookies WHERE host_key = ?").all("." + ACCOUNT_HOST);
     db.close();
     const jar = Object.fromEntries(rows.map((r) => [r.name, r.value]));
     return jar.passToken ? jar : null;

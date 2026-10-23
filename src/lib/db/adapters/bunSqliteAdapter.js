@@ -102,12 +102,17 @@ export async function createBunSqliteAdapter(filePath) {
 
   return {
     driver: "bun:sqlite",
+    raw: db,
+    prepare(sql) {
+      return prepare(sql);
+    },
     run(sql, params = []) {
       const r = prepare(sql).run(...params);
       return { changes: Number(r.changes ?? 0), lastInsertRowid: Number(r.lastInsertRowid ?? 0) };
     },
     get(sql, params = []) {
-      return prepare(sql).get(...params);
+      const row = prepare(sql).get(...params);
+      return row ?? null;
     },
     all(sql, params = []) {
       return prepare(sql).all(...params);
@@ -126,15 +131,37 @@ export async function createBunSqliteAdapter(filePath) {
       return statement.all();
     },
     transaction(fn) {
-      // bun:sqlite has db.transaction() API (similar to better-sqlite3)
+      // bun:sqlite has db.transaction() API (built-in)
       const tx = db.transaction(fn);
       return tx();
     },
-    checkpoint() { try { db.exec("PRAGMA wal_checkpoint(TRUNCATE)"); } catch {} },
+    immediate(fn) {
+      const tx = db.transaction(fn);
+      if (typeof tx.immediate === "function") {
+        return tx.immediate();
+      }
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        const res = fn();
+        db.exec("COMMIT");
+        return res;
+      } catch (error) {
+        try { db.exec("ROLLBACK"); } catch {}
+        throw error;
+      }
+    },
+    async backup(destination) {
+      if (filePath === ":memory:") return;
+      try { db.exec("PRAGMA wal_checkpoint(TRUNCATE)"); } catch {}
+      const { default: fs } = await import("node:fs");
+      await fs.promises.copyFile(filePath, destination);
+    },
+    checkpoint(mode = "TRUNCATE") {
+      try { db.exec(`PRAGMA wal_checkpoint(${mode})`); } catch {}
+    },
     close() {
       clearInterval(checkpointTimer);
       gracefulClose();
     },
-    raw: db,
   };
 }

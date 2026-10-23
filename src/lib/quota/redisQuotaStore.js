@@ -32,6 +32,7 @@ import {
   isRedisConfigured,
   withRedisKey,
 } from "../redis/client.js";
+import { SqliteQuotaStore } from "./sqliteQuotaStore.js";
 
 /**
  * Hash a raw API key or token to a SHA-256 hex string so cleartext secrets
@@ -84,11 +85,12 @@ end
 export class RedisQuotaStore {
   constructor(options = {}) {
     this.driver = "redis";
-    this.customClient = options.client || null;
+    this.customClient = options.client !== undefined ? options.client : undefined;
+    this.fallbackStore = options.fallbackStore || options.fallback || new SqliteQuotaStore(options.sqliteOptions);
   }
 
   getClient() {
-    if (this.customClient) return this.customClient;
+    if (this.customClient !== undefined) return this.customClient;
     if (!isRedisConfigured()) return null;
     return getRedisClient();
   }
@@ -124,6 +126,17 @@ export class RedisQuotaStore {
 
     const client = this.getClient();
     if (!client) {
+      if (this.fallbackStore) {
+        try {
+          const fallbackRes = await this.fallbackStore.consume(params);
+          return {
+            ...fallbackRes,
+            degraded: true,
+          };
+        } catch {
+          // Fall through to fail-open
+        }
+      }
       return {
         allowed: true,
         degraded: true,
@@ -206,6 +219,17 @@ export class RedisQuotaStore {
       }
     } catch (error) {
       warnRedisError(error, "consume");
+      if (this.fallbackStore) {
+        try {
+          const fallbackRes = await this.fallbackStore.consume(params);
+          return {
+            ...fallbackRes,
+            degraded: true,
+          };
+        } catch {
+          // Fall through to fail-open
+        }
+      }
       return {
         allowed: true,
         degraded: true,
@@ -248,6 +272,15 @@ export class RedisQuotaStore {
 
     const client = this.getClient();
     if (!client) {
+      if (this.fallbackStore) {
+        try {
+          const fallbackRes = await this.fallbackStore.peek(params);
+          return {
+            ...fallbackRes,
+            degraded: true,
+          };
+        } catch {}
+      }
       return {
         allowed: true,
         degraded: true,
@@ -283,6 +316,15 @@ export class RedisQuotaStore {
       };
     } catch (error) {
       warnRedisError(error, "peek");
+      if (this.fallbackStore) {
+        try {
+          const fallbackRes = await this.fallbackStore.peek(params);
+          return {
+            ...fallbackRes,
+            degraded: true,
+          };
+        } catch {}
+      }
       return {
         allowed: true,
         degraded: true,

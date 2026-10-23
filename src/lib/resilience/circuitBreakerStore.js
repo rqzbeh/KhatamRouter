@@ -15,6 +15,11 @@
 
 import { getAdapter } from "@/lib/db/driver.js";
 import { isRedisConfigured, withRedisKey } from "@/lib/redis/client.js";
+import {
+  publishKhatamEvent,
+  subscribeKhatamEvent,
+  KHATAM_EVENTS,
+} from "@/lib/redis/events.js";
 import { getCircuitBreaker, resetAllCircuitBreakers } from "@/shared/utils/circuitBreaker.js";
 import {
   BREAKER_TABLE,
@@ -303,6 +308,37 @@ export async function clearRedisSnapshot(domain, options = {}) {
   }
 }
 
+// Flag to avoid self-echoing remote circuit trip events
+let isApplyingRemoteTrip = false;
+
+// Subscribe to cluster circuit trips to sync state across router replicas
+try {
+  subscribeKhatamEvent(KHATAM_EVENTS.CIRCUIT_TRIP, (payload) => {
+    if (!payload || !payload.domain) return;
+    const { domain, state, reason, lastFailureKind } = payload;
+    const breaker = getCircuitBreaker(domain);
+    if (!breaker) return;
+
+    if (state === "OPEN" && breaker.state !== "OPEN") {
+      isApplyingRemoteTrip = true;
+      try {
+        breaker.openCircuit(lastFailureKind || null, reason || "circuit_trip_sync");
+      } finally {
+        isApplyingRemoteTrip = false;
+      }
+    } else if (state === "DEGRADED" && breaker.state === "CLOSED") {
+      isApplyingRemoteTrip = true;
+      try {
+        breaker.transition("DEGRADED", reason || "circuit_trip_sync");
+      } finally {
+        isApplyingRemoteTrip = false;
+      }
+    }
+  });
+} catch {
+  // Fail-open if pub/sub bus cannot be initialized
+}
+
 // ─── Wired Domain Factory ──────────────────────────────────────────────────
 
 /**
@@ -329,10 +365,30 @@ export function getCircuitBreakerForDomain(domain, options = {}) {
     return await loadBreakerRow(domain);
   };
 
+  const onStateChange = (name, oldState, newState) => {
+    if (typeof options.onStateChange === "function") {
+      try { options.onStateChange(name, oldState, newState); } catch {}
+    }
+    // Publish cluster circuit_trip event when circuit transitions to OPEN or DEGRADED
+    if (!isApplyingRemoteTrip && (newState === "OPEN" || newState === "DEGRADED")) {
+      try {
+        const breaker = getCircuitBreaker(name);
+        publishKhatamEvent(KHATAM_EVENTS.CIRCUIT_TRIP, {
+          domain: name,
+          state: newState,
+          reason: breaker?.lastFailureReason || "circuit_trip",
+          cooldownMs: typeof breaker?.effectiveCooldownMs === "function" ? breaker.effectiveCooldownMs() : 60000,
+          lastFailureKind: breaker?.lastFailureKind || null,
+        });
+      } catch {}
+    }
+  };
+
   return getCircuitBreaker(domain, {
     ...options,
     persistence,
     restore,
+    onStateChange,
   });
 }
 

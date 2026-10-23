@@ -1,14 +1,33 @@
 import { getAdapter } from "../driver.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
 import { makeKv } from "../helpers/kvStore.js";
+import {
+  subscribeKhatamEvent,
+  KHATAM_EVENTS,
+} from "../../redis/events.js";
 
 const pricingKv = makeKv("pricing");
 const CACHE_TTL_MS = 5000;
 
 let cache = { value: null, expiresAt: 0 };
 
-function invalidate() {
+export function invalidatePricingCache() {
   cache = { value: null, expiresAt: 0 };
+}
+
+function invalidate() {
+  invalidatePricingCache();
+}
+
+// Subscribe to cluster config reload events to invalidate in-memory pricing cache across replicas
+try {
+  subscribeKhatamEvent(KHATAM_EVENTS.CONFIG_RELOAD, (payload) => {
+    if (!payload || payload.scope === "pricing" || payload.scope === "all" || payload.scope === "settings") {
+      invalidatePricingCache();
+    }
+  });
+} catch {
+  // Safe fail-open if events bus cannot hook
 }
 
 async function getUserPricing() {

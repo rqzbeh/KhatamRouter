@@ -63,8 +63,7 @@ function createSpinner(text) {
 }
 
 const pkg = require("./package.json");
-const { ensureSqliteRuntime, buildEnvWithRuntime } = require("./hooks/sqliteRuntime");
-const { ensureTrayRuntime } = require("./hooks/trayRuntime");
+const { ensureTrayRuntime, getRuntimeNodeModules } = require("./hooks/trayRuntime");
 const args = process.argv.slice(2);
 
 // Subcommands (`9router xai video …`) run against an already-running gateway
@@ -94,13 +93,79 @@ if (args[0] === "connect" || args[0] === "show") {
   return;
 }
 
-// Self-heal SQLite runtime deps (sql.js + better-sqlite3) into ~/.9router/runtime
-// so the server can resolve them via NODE_PATH. Best-effort — sql.js is required,
-// better-sqlite3 is optional. Logs to stderr only on failure.
-try { ensureSqliteRuntime({ silent: true }); } catch {}
-
 // Self-heal tray runtime (systray for macOS/Linux only). Windows skipped.
-try { ensureTrayRuntime({ silent: true }); } catch {}
+try {
+  ensureTrayRuntime({ silent: true });
+  const runtimeNm = getRuntimeNodeModules();
+  if (runtimeNm && fs.existsSync(runtimeNm)) {
+    const Module = require("module");
+    if (Module.globalPaths && !Module.globalPaths.includes(runtimeNm)) {
+      Module.globalPaths.push(runtimeNm);
+    }
+    const sep = path.delimiter;
+    process.env.NODE_PATH = process.env.NODE_PATH ? `${runtimeNm}${sep}${process.env.NODE_PATH}` : runtimeNm;
+  }
+} catch {}
+
+// Locate Bun executable on PATH or common installation locations
+function findBunExecutable() {
+  if (process.versions && process.versions.bun) {
+    return process.execPath;
+  }
+  const checkCmd = process.platform === "win32" ? "where bun" : "which bun";
+  try {
+    const out = execSync(checkCmd, { stdio: ["ignore", "pipe", "ignore"], encoding: "utf8" }).trim();
+    if (out) {
+      const firstLine = out.split(/\r?\n/)[0].trim();
+      if (firstLine && fs.existsSync(firstLine)) return firstLine;
+      return "bun";
+    }
+  } catch {}
+
+  const home = os.homedir();
+  const candidates = process.platform === "win32"
+    ? [
+        path.join(process.env.USERPROFILE || home, ".bun", "bin", "bun.exe"),
+        path.join(process.env.LOCALAPPDATA || "", "Microsoft", "WinGet", "Links", "bun.exe"),
+      ]
+    : [
+        path.join(home, ".bun", "bin", "bun"),
+        "/usr/local/bin/bun",
+        "/opt/homebrew/bin/bun",
+        "/usr/bin/bun",
+      ];
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) return candidate;
+  }
+
+  try {
+    const { spawnSync } = require("child_process");
+    const res = spawnSync("bun", ["--version"], { stdio: "ignore" });
+    if (res.status === 0) return "bun";
+  } catch {}
+
+  return null;
+}
+
+// Fail closed with clear install guidance if Bun is not available
+function ensureBun() {
+  const bunPath = findBunExecutable();
+  if (!bunPath) {
+    console.error("\x1b[31m%s\x1b[0m", "❌ Error: Bun runtime is required to run 9Router.");
+    console.error("");
+    console.error("Starting with Wave 7.5, 9Router runs exclusively on Bun (bun:sqlite)");
+    console.error("and no longer supports Node-only execution.");
+    console.error("");
+    console.error("Please install Bun from https://bun.sh:");
+    console.error("  curl -fsSL https://bun.sh/install | bash        # macOS / Linux");
+    console.error('  powershell -c "irm bun.sh/install.ps1 | iex"   # Windows');
+    console.error("  npm install -g bun                             # via npm");
+    console.error("");
+    console.error("Visit https://bun.sh for detailed installation instructions.");
+    process.exit(1);
+  }
+  return bunPath;
+}
 
 // Configuration constants
 const APP_NAME = pkg.name; // Use from package.json
@@ -175,6 +240,10 @@ Commands:
   xai video --prompt "..." --output video.mp4
                       Generate a Grok Imagine video via the running gateway
                       (see: ${APP_NAME} xai video --help)
+
+Prerequisites:
+  Bun runtime is required to run the gateway server (https://bun.sh).
+  Node-only execution is no longer supported starting with Wave 7.5.
 `);
     process.exit(0);
   } else if (args[i] === "--version" || args[i] === "-v") {
@@ -188,9 +257,6 @@ if (skipUpdate && !trayMode && !process.stdin.isTTY) {
   trayMode = true;
   process.env.TRAY_MODE = "1";
 }
-
-// Always use Node.js runtime with absolute path
-const RUNTIME = process.execPath;
 
 // Compare semver versions: returns 1 if a > b, -1 if a < b, 0 if equal
 function compareVersions(a, b) {
@@ -283,7 +349,7 @@ function killAllAppProcesses(appPort) {
       if (platform === "win32") {
         // Windows: use WMI to get full CommandLine (tasklist /V doesn't include it)
         try {
-          const psCmd = `powershell -NonInteractive -WindowStyle Hidden -Command "Get-WmiObject Win32_Process -Filter 'Name=\\"node.exe\\"' | Select-Object ProcessId,CommandLine | ConvertTo-Csv -NoTypeInformation"`;
+          const psCmd = `powershell -NonInteractive -WindowStyle Hidden -Command "Get-WmiObject Win32_Process -Filter 'Name=\\"node.exe\\" OR Name=\\"bun.exe\\"' | Select-Object ProcessId,CommandLine | ConvertTo-Csv -NoTypeInformation"`;
           const output = execSync(psCmd, {
             encoding: "utf8",
             windowsHide: true,
@@ -291,11 +357,11 @@ function killAllAppProcesses(appPort) {
           });
           const lines = output.split("\n").slice(1).filter(l => l.trim());
           lines.forEach(line => {
-            // Whitelist: real node process running 9router/cli.js, or next-server.
+            // Whitelist: real node/bun process running 9router/cli.js or app server, or next-server.
             // Avoids killing editors/grep/strace/cursor that just have "9router" in cmdline.
             const cmd = line.toLowerCase();
             const isAppProcess =
-              (cmd.includes("node") && cmd.includes("9router") && (cmd.includes("cli.js") || cmd.includes("\\9router") || cmd.includes("/9router")))
+              ((cmd.includes("node") || cmd.includes("bun")) && cmd.includes("9router") && (cmd.includes("cli.js") || cmd.includes("\\9router") || cmd.includes("/9router")))
               || cmd.includes("next-server");
             if (isAppProcess) {
               const match = line.match(/^"(\d+)"/);
@@ -317,11 +383,11 @@ function killAllAppProcesses(appPort) {
           const lines = output.split('\n');
 
           lines.forEach(line => {
-            // Whitelist: real node process running 9router/cli.js, or next-server.
+            // Whitelist: real node/bun process running 9router/cli.js or app server, or next-server.
             // Avoids killing grep/strace/editors/cursor that incidentally match "9router".
             const cmd = line.toLowerCase();
             const isAppProcess =
-              (cmd.includes("node") && cmd.includes("9router") && (cmd.includes("cli.js") || cmd.includes("/9router")))
+              ((cmd.includes("node") || cmd.includes("bun")) && cmd.includes("9router") && (cmd.includes("cli.js") || cmd.includes("/9router")))
               || cmd.includes("next-server");
             if (isAppProcess) {
               const parts = line.trim().split(/\s+/);
@@ -542,6 +608,9 @@ function openBrowser(url) {
   });
 }
 
+// Ensure Bun runtime is available before starting the server
+const bunExecutable = ensureBun();
+
 // Find standalone server (bundled in bin/app for published package).
 // Prefer custom-server.js (injects real socket IP) when present.
 const standaloneDir = path.join(__dirname, "app");
@@ -630,16 +699,21 @@ function startServer(updatePromise) {
   function spawnServer() {
     serverStartTime = Date.now();
     crashLog = [];
-    const child = spawn(RUNTIME, ["--dns-result-order=ipv4first", "--max-old-space-size=6144", serverPath], {
+    const env = {
+      ...process.env,
+      PORT: port.toString(),
+      HOSTNAME: host
+    };
+    if (bunExecutable && bunExecutable !== "bun") {
+      const bunDir = path.dirname(bunExecutable);
+      env.PATH = `${bunDir}${path.delimiter}${env.PATH || ""}`;
+    }
+    const child = spawn("bun", [serverPath], {
       cwd: standaloneDir,
       stdio: showLog ? "inherit" : ["ignore", "ignore", "pipe"],
       detached: true,
       windowsHide: true,
-      env: {
-        ...buildEnvWithRuntime(process.env),
-        PORT: port.toString(),
-        HOSTNAME: host
-      }
+      env
     });
     if (!showLog && child.stderr) {
       child.stderr.on("data", (data) => {
