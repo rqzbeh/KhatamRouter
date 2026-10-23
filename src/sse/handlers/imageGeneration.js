@@ -15,6 +15,10 @@ import { updateProviderCredentials, checkAndRefreshToken } from "../services/tok
 import { handleComboChat } from "open-sse/services/combo.js";
 import * as log from "../utils/logger.js";
 import { saveRequestUsage } from "@/lib/usageDb.js";
+import { isTrustedInternalRequest } from "../services/internalTrust.js";
+import { enforceUnifiedAcl } from "../services/allowedModels.js";
+import { getApiKeyByKey } from "@/lib/db/repos/apiKeysRepo.js";
+import { checkApiKeyUsageLimits, formatQuotaErrorResponse } from "@/lib/usage/apiKeyUsageLimits.js";
 
 // Providers that don't require credentials (noAuth)
 const NO_AUTH_PROVIDERS = new Set(["sdwebui", "comfyui"]);
@@ -68,9 +72,40 @@ export async function handleImageGeneration(request) {
   if (!modelStr) return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing model");
   if (!body.prompt) return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing required field: prompt");
 
+  let aclEvaluated = false;
+  const isTrustedInternal = await isTrustedInternalRequest(request);
+  if (!isTrustedInternal) {
+    const keyRecord = apiKey ? await getApiKeyByKey(apiKey) : null;
+    if (keyRecord) {
+      const aclDenied = await enforceUnifiedAcl({
+        request,
+        kind: "image",
+        modelStr,
+        keyRecord,
+      });
+      if (aclDenied) return aclDenied;
+      aclEvaluated = true;
+
+      // Granular API Key Rate/Quota Limits & Spend Caps
+      const limitResult = await checkApiKeyUsageLimits({ apiKeyRow: keyRecord });
+      if (limitResult && !limitResult.allowed) {
+        const formatted = formatQuotaErrorResponse(limitResult);
+        return new Response(JSON.stringify(formatted.body), {
+          status: formatted.status,
+          headers: {
+            ...formatted.headers,
+            "Access-Control-Allow-Origin": "*",
+          },
+        });
+      }
+    }
+  }
+
   // Per-key access control: requested target, before combo expansion.
-  const keyAccessDenied = await enforceKeyAccess(await getKeyAccessContext(request), modelStr);
-  if (keyAccessDenied) return keyAccessDenied;
+  if (!aclEvaluated) {
+    const keyAccessDenied = await enforceKeyAccess(await getKeyAccessContext(request), modelStr);
+    if (keyAccessDenied) return keyAccessDenied;
+  }
 
   // Combo expansion: model may be a combo name → run fallback/round-robin across models
   const comboModels = await getComboModels(modelStr);

@@ -331,6 +331,7 @@ export class CircuitBreaker {
   openCircuit(kind = null, reason = null) {
     if (kind) this.lastFailureKind = kind;
     this.transition(BREAKER_STATE.OPEN, reason || `open-${kind || "failure"}`);
+    if (this.lastFailureTime == null) this.lastFailureTime = Date.now();
     this.halfOpenProbeStartedAt = null;
     this.halfOpenAllowed = 0;
     this.persist();

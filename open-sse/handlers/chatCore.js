@@ -33,7 +33,36 @@ import { prefetchRemoteImages } from "../translator/concerns/prefetch.js";
 import { defaultClaudeToolType, shouldDefaultClaudeToolType } from "../translator/concerns/toolCall.js";
 import { resolveSessionId } from "../utils/sessionManager.js";
 import { isToolCloakEnabled, cloakToolsInRequest } from "@/lib/stealth/toolCloak.js";
+import { checkConnectionLimits, releaseConnectionSlot } from "../services/rateLimitManager/connectionLimiter.js";
 import { applyLoopGuard } from "../utils/loopGuard.js";
+import { getPricingForModel, calculateCostFromTokens } from "../providers/pricing.js";
+import { recordKeyQuotaUsage } from "@/domain/keyQuota.js";
+import { fanoutUsageEvent } from "@/lib/usage/usageFanout.js";
+
+async function recordPostFlightCostLedger({ apiKey, apiKeyId, provider, model, tokens, requestId, connectionId }) {
+  if ((!apiKey && !apiKeyId) || !tokens) return;
+  try {
+    const pricing = getPricingForModel(provider, model);
+    const costUsd = calculateCostFromTokens(tokens, pricing) || 0;
+    await recordKeyQuotaUsage({
+      apiKey,
+      apiKeyId,
+      requestId,
+      provider,
+      model,
+      promptTokens: tokens.prompt_tokens ?? tokens.input_tokens ?? 0,
+      completionTokens: tokens.completion_tokens ?? tokens.output_tokens ?? 0,
+      totalTokens: (tokens.prompt_tokens ?? tokens.input_tokens ?? 0) + (tokens.completion_tokens ?? tokens.output_tokens ?? 0),
+      costUsd,
+      inputCostPerMillion: pricing?.input || 0,
+      outputCostPerMillion: pricing?.output || 0,
+      status: "success",
+    });
+    fanoutUsageEvent({ provider, model, tokens, connectionId, apiKey }).catch(() => {});
+  } catch {
+    // Fail-open
+  }
+}
 
 /**
  * Core chat handler - shared between SSE and Worker
@@ -62,7 +91,7 @@ export function stripContinuityFields(body) {
   return body;
 }
 
-export async function handleChatCore({ body, modelInfo, credentials, log, onCredentialsRefreshed, onRequestSuccess, onDisconnect, clientRawRequest, connectionId, userAgent, apiKey, ccFilterNaming, rtkEnabled, headroomEnabled, headroomUrl, headroomCompressUserMessages, headroomTimeoutMs, cavemanEnabled, cavemanLevel, ponytailEnabled, ponytailLevel, loopGuardEnabled = false, pxpipeEnabled, pxpipeMinChars, pxpipeTimeoutMs, pxpipeTransform, onPxpipeEvent, sourceFormatOverride, providerThinking, providerOverrides }) {
+export async function handleChatCore({ body, modelInfo, credentials, log, onCredentialsRefreshed, onRequestSuccess, onDisconnect, clientRawRequest, connectionId, userAgent, apiKey, apiKeyId, ccFilterNaming, rtkEnabled, headroomEnabled, headroomUrl, headroomCompressUserMessages, headroomTimeoutMs, cavemanEnabled, cavemanLevel, ponytailEnabled, ponytailLevel, loopGuardEnabled = false, pxpipeEnabled, pxpipeMinChars, pxpipeTimeoutMs, pxpipeTransform, onPxpipeEvent, sourceFormatOverride, providerThinking, providerOverrides }) {
   const { provider, model } = modelInfo;
   const requestStartTime = Date.now();
   // Stable per-session color so all lines of one CLI conversation share a tag
@@ -348,6 +377,44 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     }
   }
 
+  // Enforce connection limits (rpm, rpd, tpm, tpd, minTime, maxConcurrent, modelConcurrency)
+  const connDescriptor = {
+    provider,
+    id: connectionId,
+    account: credentials?.account || credentials?.email || credentials?.name || connectionId,
+    rate_limit_overrides_json: credentials?.rate_limit_overrides_json,
+    rateLimitOverrides: credentials?.rateLimitOverrides || credentials?.providerSpecificData?.rateLimitOverrides,
+  };
+  const connLimitCheck = await checkConnectionLimits({
+    connection: connDescriptor,
+    model,
+  });
+
+  if (!connLimitCheck.allowed) {
+    trackPendingRequest(model, provider, connectionId, false, true);
+    return createErrorResult(
+      HTTP_STATUS.RATE_LIMITED,
+      `Connection rate limit exceeded: ${connLimitCheck.reason}`,
+      connLimitCheck.retryAfterMs ? Date.now() + connLimitCheck.retryAfterMs : null,
+      {
+        "retry-after": String(Math.ceil((connLimitCheck.retryAfterMs || 1000) / 1000)),
+        "x-ratelimit-reset-requests": String(connLimitCheck.retryAfterMs || 1000),
+      }
+    );
+  }
+
+  let connSlotReleased = false;
+  const releaseConnSlot = () => {
+    if (connSlotReleased) return;
+    connSlotReleased = true;
+    releaseConnectionSlot({
+      connection: connDescriptor,
+      model,
+      leaseId: connLimitCheck.slotsHeld?.leaseId,
+      modelLeaseId: connLimitCheck.slotsHeld?.modelLeaseId,
+    });
+  };
+
   const executor = getExecutor(provider);
   trackPendingRequest(model, provider, connectionId, true);
   appendRequestLog({ model, provider, connectionId, status: "PENDING" }).catch(() => { });
@@ -357,10 +424,14 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
 
   const streamController = createStreamController({
     onDisconnect: (reason) => {
+      releaseConnSlot();
       trackPendingRequest(model, provider, connectionId, false);
       if (onDisconnect) onDisconnect(reason);
     },
-    onError: () => trackPendingRequest(model, provider, connectionId, false),
+    onError: () => {
+      releaseConnSlot();
+      trackPendingRequest(model, provider, connectionId, false);
+    },
     log, provider, model, reqTag
   });
 
@@ -430,6 +501,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     }
     reqLogger.logTargetRequest(providerUrl, providerHeaders, finalBody);
   } catch (error) {
+    releaseConnSlot();
     trackPendingRequest(model, provider, connectionId, false, true);
     appendRequestLog({ model, provider, connectionId, status: `FAILED ${error.name === "AbortError" ? 499 : HTTP_STATUS.BAD_GATEWAY}` }).catch(() => { });
     saveRequestDetail(buildRequestDetail({
@@ -504,6 +576,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
 
   // Provider returned error
   if (!providerResponse.ok) {
+    releaseConnSlot();
     trackPendingRequest(model, provider, connectionId, false, true);
     const { statusCode, message, resetsAtMs } = await parseUpstreamError(providerResponse, executor);
     appendRequestLog({ model, provider, connectionId, status: `FAILED ${statusCode}` }).catch(() => { });
@@ -527,9 +600,13 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     return createErrorResult(statusCode, errMsg, resetsAtMs, upstreamResponseHeaders(providerResponse.headers));
   }
 
-  const sharedCtx = { provider, model, body, stream, translatedBody, finalBody, requestStartTime, connectionId, apiKey, clientRawRequest, onRequestSuccess, pxpipe: pxpipeSummary, reqTag, log };
+  const resolvedApiKeyId = apiKeyId || clientRawRequest?.apiKeyId || null;
+  const sharedCtx = { provider, model, body, stream, translatedBody, finalBody, requestStartTime, connectionId, apiKey, apiKeyId: resolvedApiKeyId, clientRawRequest, onRequestSuccess, pxpipe: pxpipeSummary, reqTag, log };
   const appendLog = (extra) => appendRequestLog({ model, provider, connectionId, ...extra }).catch(() => { });
-  const trackDone = () => trackPendingRequest(model, provider, connectionId, false);
+  const trackDone = () => {
+    releaseConnSlot();
+    trackPendingRequest(model, provider, connectionId, false);
+  };
 
   // Provider forced streaming but client wants JSON. The Responses wire always
   // streams upstream (openaiToOpenAIResponsesRequest pins stream:true), so a
@@ -537,13 +614,32 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   // this path — handleForcedSSEToJson returns null when the body is not SSE.
   if (!clientRequestedStreaming && (providerRequiresStreaming || providerResponseFormat === FORMATS.OPENAI_RESPONSES)) {
     const result = await handleForcedSSEToJson({ ...sharedCtx, providerResponse, sourceFormat, targetFormat: providerResponseFormat, customToolNames, toolNameMap, trackDone, appendLog });
-    if (result) { streamController.handleComplete(); return result; }
+    if (result) {
+      streamController.handleComplete();
+      if (result.response && (apiKey || resolvedApiKeyId)) {
+        try {
+          const cloned = await result.response.clone().json();
+          if (cloned.usage) {
+            recordPostFlightCostLedger({ apiKey, apiKeyId: resolvedApiKeyId, provider, model, tokens: cloned.usage, requestId: sessionSeed, connectionId }).catch(() => {});
+          }
+        } catch {}
+      }
+      return result;
+    }
   }
 
   // True non-streaming response
   if (!stream) {
     const result = await handleNonStreamingResponse({ ...sharedCtx, providerResponse, sourceFormat, targetFormat: providerResponseFormat, reqLogger, toolNameMap, customToolNames, trackDone, appendLog });
     streamController.handleComplete();
+    if (result?.response && (apiKey || resolvedApiKeyId)) {
+      try {
+        const cloned = await result.response.clone().json();
+        if (cloned.usage) {
+          recordPostFlightCostLedger({ apiKey, apiKeyId: resolvedApiKeyId, provider, model, tokens: cloned.usage, requestId: sessionSeed, connectionId }).catch(() => {});
+        }
+      } catch {}
+    }
     return result;
   }
 

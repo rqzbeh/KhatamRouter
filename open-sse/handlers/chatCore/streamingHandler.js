@@ -8,7 +8,31 @@ import { buildAbortedResponsesTerminalBytes } from "../../utils/responsesStreamH
 import { buildStreamErrorBytes } from "../../utils/streamHelpers.js";
 import { buildRequestDetail, extractRequestConfig, saveUsageStats, formatDoneLine } from "./requestDetail.js";
 import { saveRequestDetail } from "@/lib/usageDb.js";
+import { getPricingForModel, calculateCostFromTokens } from "../../providers/pricing.js";
+import { recordKeyQuotaUsage } from "@/domain/keyQuota.js";
+import { fanoutUsageEvent } from "@/lib/usage/usageFanout.js";
+import { decloakToolsInResponse } from "@/lib/stealth/toolCloak.js";
 import { SSE_HEADERS_CORS as SSE_HEADERS } from "../../utils/sseConstants.js";
+
+function createDecloakTransformStream(toolNameMap) {
+  const decoder = new TextDecoder("utf-8");
+  const encoder = new TextEncoder();
+  return new TransformStream({
+    transform(chunk, controller) {
+      if (!chunk) return;
+      const text = typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true });
+      const decloaked = decloakToolsInResponse(text, toolNameMap);
+      controller.enqueue(typeof chunk === "string" ? decloaked : encoder.encode(decloaked));
+    },
+    flush(controller) {
+      const rest = decoder.decode();
+      if (rest) {
+        const decloaked = decloakToolsInResponse(rest, toolNameMap);
+        controller.enqueue(encoder.encode(decloaked));
+      }
+    }
+  });
+}
 import { upstreamResponseHeaders } from "../../utils/upstreamHeaders.js";
 
 // Codex returns Responses API SSE → which client format to translate INTO, by request sourceFormat.
@@ -94,6 +118,10 @@ export async function handleStreamingResponse({ providerResponse, provider, mode
   const stallTimeoutMs = PROVIDERS[provider]?.stallTimeoutMs || STREAM_STALL_TIMEOUT_MS;
   const transformedBody = pipeWithDisconnect(providerResponse, transformStream, streamController, onAbortTerminal, stallTimeoutMs);
 
+  const outputBody = (toolNameMap && toolNameMap.size > 0 && !needsTranslation(targetFormat, sourceFormat))
+    ? transformedBody.pipeThrough(createDecloakTransformStream(toolNameMap))
+    : transformedBody;
+
   saveRequestDetail(buildRequestDetail({
     provider, model, connectionId,
     latency: { ttft: 0, total: Date.now() - requestStartTime },
@@ -110,14 +138,14 @@ export async function handleStreamingResponse({ providerResponse, provider, mode
 
   return {
     success: true,
-    response: new Response(transformedBody, { headers: { ...SSE_HEADERS, ...upstreamResponseHeaders(providerResponse.headers) } })
+    response: new Response(outputBody, { headers: { ...SSE_HEADERS, ...upstreamResponseHeaders(providerResponse.headers) } })
   };
 }
 
 /**
  * Build onStreamComplete callback for streaming usage tracking.
  */
-export function buildOnStreamComplete({ provider, model, connectionId, apiKey, requestStartTime, body, stream, finalBody, translatedBody, clientRawRequest, pxpipe, reqTag, log }) {
+export function buildOnStreamComplete({ provider, model, connectionId, apiKey, apiKeyId, requestStartTime, body, stream, finalBody, translatedBody, clientRawRequest, pxpipe, reqTag, log }) {
   const streamDetailId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 
   const onStreamComplete = (contentObj, usage, ttftAt) => {
@@ -145,6 +173,29 @@ export function buildOnStreamComplete({ provider, model, connectionId, apiKey, r
     // Persist stream usage to DB (no console line; the "📊 done" line below is authoritative)
     saveUsageStats({ provider, model, tokens: usage, connectionId, apiKey, endpoint: clientRawRequest?.endpoint, label: "STREAM USAGE", silent: true });
     if (log?.line) log.line(reqTag, "📊", formatDoneLine({ usage, latency }));
+
+    // Record usage into request_cost_ledger for spend cap enforcement and fan out usage events
+    if (usage && (apiKey || apiKeyId)) {
+      try {
+        const pricing = getPricingForModel(provider, model);
+        const costUsd = calculateCostFromTokens(usage, pricing) || 0;
+        recordKeyQuotaUsage({
+          apiKey,
+          apiKeyId,
+          requestId: streamDetailId,
+          provider,
+          model,
+          promptTokens: usage.prompt_tokens ?? usage.input_tokens ?? 0,
+          completionTokens: usage.completion_tokens ?? usage.output_tokens ?? 0,
+          totalTokens: (usage.prompt_tokens ?? usage.input_tokens ?? 0) + (usage.completion_tokens ?? usage.output_tokens ?? 0),
+          costUsd,
+          inputCostPerMillion: pricing?.input || 0,
+          outputCostPerMillion: pricing?.output || 0,
+          status: "success",
+        }).catch(() => {});
+        fanoutUsageEvent({ provider, model, tokens: usage, connectionId, apiKey }).catch(() => {});
+      } catch {}
+    }
   };
 
   return { onStreamComplete, streamDetailId };

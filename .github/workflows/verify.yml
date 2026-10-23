@@ -146,7 +146,7 @@ jobs:
         working-directory: tests
         run: |
           set -euo pipefail
-          npx vitest run --reporter=verbose \
+          bun x --bun vitest run --reporter=verbose \
             unit/capabilities.test.js \
             unit/capabilities-service-kind.test.js \
             unit/db-driver-chain.test.js \
@@ -191,13 +191,23 @@ jobs:
         working-directory: tests
         run: |
           set -euo pipefail
-          npx vitest run --reporter=verbose \
+          bun x --bun vitest run --reporter=verbose \
             unit/wave1-bun-ts-redis-sqlite.test.js \
             unit/wave2-migrations.test.js \
             unit/wave2-quota-store.test.js \
             unit/wave3-acl.test.js \
             unit/wave3-limits.test.js \
-            unit/wave4-docs-claims.test.js
+            unit/wave4-docs-claims.test.js \
+            unit/wave4-resilience.test.js \
+            unit/wave5-stealth.test.js \
+            unit/wave6-models.test.js \
+            unit/wave7-parity.test.js \
+            unit/wave75-bun-sqlite.test.js \
+            unit/wave75-docker-compose.test.js \
+            unit/wave75-idempotency.test.js \
+            unit/wave75-redis-accelerators.test.js \
+            unit/wave75-redis-shared-state.test.js \
+            unit/wave75-twins-alignment.test.js
 
   verify:
     name: Verify (tests + baselines)
@@ -254,6 +264,16 @@ jobs:
             echo "   - \`unit/wave3-acl.test.js\`"
             echo "   - \`unit/wave3-limits.test.js\`"
             echo "   - \`unit/wave4-docs-claims.test.js\`"
+            echo "   - \`unit/wave4-resilience.test.js\`"
+            echo "   - \`unit/wave5-stealth.test.js\`"
+            echo "   - \`unit/wave6-models.test.js\`"
+            echo "   - \`unit/wave7-parity.test.js\`"
+            echo "   - \`unit/wave75-bun-sqlite.test.js\`"
+            echo "   - \`unit/wave75-docker-compose.test.js\`"
+            echo "   - \`unit/wave75-idempotency.test.js\`"
+            echo "   - \`unit/wave75-redis-accelerators.test.js\`"
+            echo "   - \`unit/wave75-redis-shared-state.test.js\`"
+            echo "   - \`unit/wave75-twins-alignment.test.js\`"
             echo ""
             echo "### Checks deliberately excluded (this gate does NOT run them)"
             echo ""

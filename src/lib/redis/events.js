@@ -12,6 +12,7 @@
 
 import { EventEmitter } from "node:events";
 import {
+  getRedisClient,
   getRedisSubscriber,
   isRedisConfigured,
   isRedisAvailable,
@@ -22,6 +23,8 @@ export const KHATAM_EVENTS = Object.freeze({
   CONFIG_RELOAD: "khatam:events:config_reload",
   CIRCUIT_TRIP: "khatam:events:circuit_trip",
   QUOTA_EXCEEDED: "khatam:events:quota_exceeded",
+  USAGE: "khatam:events:usage",
+  CONSOLE_LOG: "khatam:events:console_log",
 });
 
 const INSTANCE_ID = `${process.pid}-${Math.random().toString(36).slice(2, 10)}`;
@@ -114,12 +117,12 @@ export function publishKhatamEvent(channel, payload) {
   localBus.emit(channel, payload);
 
   if (!isRedisConfigured()) return false;
-  const sub = getRedisSubscriber();
-  if (!sub || !isRedisAvailable()) return false;
+  const client = getRedisClient();
+  if (!client || !isRedisAvailable()) return false;
 
   try {
     const raw = JSON.stringify({ source: INSTANCE_ID, payload: payload ?? null });
-    const published = sub.publish(channel, raw);
+    const published = client.publish(channel, raw);
     if (published && typeof published.catch === "function") {
       published.catch((error) => {
         warnPublish(`publish to ${channel} failed: ${error?.message ?? error}`);

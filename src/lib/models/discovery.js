@@ -296,6 +296,10 @@ export function extractMaxOutputTokens(record) {
 export function normalizeDiscoveredModels(payload, providerIdOrOptions = null) {
   if (!payload) return [];
 
+  const provider = typeof providerIdOrOptions === "string"
+    ? providerIdOrOptions
+    : (providerIdOrOptions?.provider || providerIdOrOptions?.providerId || null);
+
   let rawList = null;
   try {
     if (Array.isArray(payload)) {
@@ -343,9 +347,16 @@ export function normalizeDiscoveredModels(payload, providerIdOrOptions = null) {
       const modalities = ["text"];
       if (supportsVision) modalities.push("image");
 
+      const itemProvider =
+        toNonEmptyString(item.provider) ||
+        toNonEmptyString(item.providerId) ||
+        provider ||
+        null;
+
       const normalized = {
         id,
         name,
+        ...(itemProvider ? { provider: itemProvider } : {}),
         contextWindow,
         maxOutputTokens,
         supportsVision,

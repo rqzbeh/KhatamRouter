@@ -126,6 +126,21 @@ export class RedisQuotaStore {
 
     const client = this.getClient();
     if (!client) {
+      // Redis is not configured at all: this is the documented Wave 2 contract —
+      // do not consume anything, report a degraded allow. The SQLite degradation
+      // below applies only when Redis IS configured but the connection/command
+      // fails (an outage), so limits keep being enforced in that case.
+      if (!isRedisConfigured()) {
+        return {
+          allowed: true,
+          degraded: true,
+          current: 0,
+          limit,
+          remaining: limit,
+          resetAtMs,
+          resetMs,
+        };
+      }
       if (this.fallbackStore) {
         try {
           const fallbackRes = await this.fallbackStore.consume(params);
@@ -271,6 +286,19 @@ export class RedisQuotaStore {
     const resetMs = Math.max(0, resetAtMs - now);
 
     const client = this.getClient();
+      // Unset REDIS_URL keeps the documented fail-open contract (no consumption);
+      // only a configured-but-failing Redis degrades to the SQLite store.
+      if (!isRedisConfigured()) {
+        return {
+          allowed: true,
+          degraded: true,
+          current: 0,
+          limit,
+          remaining: limit,
+          resetAtMs,
+          resetMs,
+        };
+      }
     if (!client) {
       if (this.fallbackStore) {
         try {

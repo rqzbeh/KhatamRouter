@@ -244,11 +244,11 @@ export function getRotatedModels(models, comboName, strategy, stickyLimit = 1) {
  *
  * @param {string[]} models - Array of model names in the combo
  * @param {string} comboName - Name of the combo
- * @param {string} [strategy="round-robin"] - Combo strategy
+ * @param {string} [strategy] - Combo strategy ("fallback" or "round-robin"); undefined means no rotation
  * @param {number|string} [stickyLimit=1] - Consecutive requests per model before switching
  * @returns {Promise<string[]>} Rotated models array
  */
-export async function getRotatedModelsAtomic(models, comboName, strategy = "round-robin", stickyLimit = 1) {
+export async function getRotatedModelsAtomic(models, comboName, strategy, stickyLimit = 1) {
   if (!models || models.length <= 1 || strategy !== "round-robin") {
     return models;
   }

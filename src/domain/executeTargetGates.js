@@ -94,17 +94,31 @@ function circuitGate(target, deps) {
   const breaker = resolveBreaker(target, deps);
   if (!breaker) return null;
 
-  // Pure read: never consume a probe slot just by asking.
   const status = typeof breaker.getStatus === "function" ? breaker.getStatus() : null;
   if (!status) return null;
-  if (status.state !== BREAKER_STATE.OPEN) return null;
 
-  return skipVerdict(GATE.CIRCUIT, {
-    retryAfterMs: status.retryAfterMs,
-    message: sanitizeFailureReason(
-      `Circuit open for ${breaker.name || breakerDomainFor(target) || "target"}${status.lastFailureKind ? ` (${status.lastFailureKind})` : ""}`
-    ),
-  });
+  if (status.state === BREAKER_STATE.OPEN) {
+    return skipVerdict(GATE.CIRCUIT, {
+      retryAfterMs: status.retryAfterMs,
+      message: sanitizeFailureReason(
+        `Circuit open for ${breaker.name || breakerDomainFor(target) || "target"}${status.lastFailureKind ? ` (${status.lastFailureKind})` : ""}`
+      ),
+    });
+  }
+
+  if (status.state === BREAKER_STATE.HALF_OPEN) {
+    const allowed = typeof breaker.canExecute === "function" ? breaker.canExecute() : true;
+    if (!allowed) {
+      return skipVerdict(GATE.CIRCUIT, {
+        retryAfterMs: status.retryAfterMs || 1000,
+        message: sanitizeFailureReason(
+          `Half-open probe budget exhausted for ${breaker.name || breakerDomainFor(target) || "target"}`
+        ),
+      });
+    }
+  }
+
+  return null;
 }
 
 /** Gate 2 — armed cooldown (connection-level model lock / rate limit). */

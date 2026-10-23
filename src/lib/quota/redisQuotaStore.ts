@@ -123,6 +123,19 @@ export class RedisQuotaStore {
     const ttlSec = Math.max(60, Math.ceil((winMs * 2) / 1000) + 10);
 
     const client = this.getClient();
+      // Unset REDIS_URL keeps the documented fail-open contract (no consumption);
+      // only a configured-but-failing Redis degrades to the SQLite store.
+      if (!isRedisConfigured()) {
+        return {
+          allowed: true,
+          degraded: true,
+          current: 0,
+          limit,
+          remaining: limit,
+          resetAtMs,
+          resetMs,
+        };
+      }
     if (!client) {
       if (this.fallbackStore) {
         try {
@@ -261,6 +274,19 @@ export class RedisQuotaStore {
     const resetMs = Math.max(0, resetAtMs - now);
 
     const client = this.getClient();
+      // Unset REDIS_URL keeps the documented fail-open contract (no consumption);
+      // only a configured-but-failing Redis degrades to the SQLite store.
+      if (!isRedisConfigured()) {
+        return {
+          allowed: true,
+          degraded: true,
+          current: 0,
+          limit,
+          remaining: limit,
+          resetAtMs,
+          resetMs,
+        };
+      }
     if (!client) {
       if (this.fallbackStore) {
         try {

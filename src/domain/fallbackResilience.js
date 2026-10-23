@@ -69,31 +69,24 @@ export async function gateTarget(target, options = {}) {
   const domain = breakerDomainFor(descriptor);
 
   try {
-    // A caller-supplied resolver wins (tests, batch callers that pre-resolve);
-    // otherwise the durable store is consulted lazily, only on this path.
-    const getBreaker = typeof options.getBreaker === "function"
-      ? options.getBreaker
-      : () => resolveBreaker(domain);
-
-    const verdict = await evaluateTargetGates(descriptor, {
-      getBreaker,
-      hasCredential: options.hasCredential,
-      now: options.now,
-    });
-
-    // The gate chain is synchronous by contract; the default resolver is async,
-    // so when it produced a promise the chain saw an unresolved breaker and
-    // proceeded. Re-check the breaker here rather than silently skipping it.
-    if (verdict.kind !== "skip" && typeof options.getBreaker !== "function") {
-      const breaker = await resolveBreaker(domain);
-      if (breaker) {
-        const recheck = await evaluateTargetGates(
-          { ...descriptor, breaker },
-          { hasCredential: options.hasCredential, now: options.now }
-        );
-        if (recheck.kind === "skip") return recheck;
+    let breaker = descriptor.breaker || null;
+    if (!breaker) {
+      if (typeof options.getBreaker === "function") {
+        const res = options.getBreaker(domain);
+        breaker = res && typeof res.then === "function" ? await res : res;
+      } else {
+        breaker = await resolveBreaker(domain);
       }
     }
+
+    const verdict = await evaluateTargetGates(
+      { ...descriptor, breaker: breaker || descriptor.breaker },
+      {
+        getBreaker: () => breaker,
+        hasCredential: options.hasCredential,
+        now: options.now,
+      }
+    );
 
     return verdict;
   } catch {

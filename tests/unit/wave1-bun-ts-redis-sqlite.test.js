@@ -304,12 +304,16 @@ describe("driver.js integrity preflight", () => {
     await expect(verifyDatabaseIntegrity(path.join(tempDir, "missing.sqlite"))).resolves.toBe(false);
   });
 
-  it("verifyDatabaseIntegrity() returns true for a healthy SQLite file", async () => {
+  it("verifyDatabaseIntegrity() returns true for a healthy SQLite file (under Bun), fails closed otherwise", async () => {
     const { verifyDatabaseIntegrity } = await import("@/lib/db/driver.js");
     const file = path.join(tempDir, "healthy.sqlite");
     await makeRealSqliteFile(file);
 
-    await expect(verifyDatabaseIntegrity(file)).resolves.toBe(true);
+    if (process.versions.bun) {
+      await expect(verifyDatabaseIntegrity(file)).resolves.toBe(true);
+    } else {
+      await expect(verifyDatabaseIntegrity(file)).rejects.toThrow(/requires the Bun runtime/);
+    }
   });
 
   it("verifyDatabaseIntegrity() rejects a corrupt file instead of repairing it", async () => {
@@ -324,7 +328,7 @@ describe("driver.js integrity preflight", () => {
     expect(fs.readFileSync(file).equals(before)).toBe(true);
   });
 
-  it("refuses the sql.js fallback when a database file already exists on disk", async () => {
+  it("asserts fail-closed behavior when Bun runtime is absent (no driver fallback)", async () => {
     const dataDir = path.join(tempDir, "data");
     process.env.DATA_DIR = dataDir;
     const dbFile = path.join(dataDir, "db", "data.sqlite");
@@ -333,24 +337,32 @@ describe("driver.js integrity preflight", () => {
     // Point driver.js at this test's directory explicitly: Bun's runner cannot
     // reset the module cache, so paths.js may already hold an older DATA_DIR.
     await mockPathsTo(dataDir);
-    await failNativeDrivers();
 
     const { getAdapter } = await import("@/lib/db/driver.js");
-    await expect(getAdapter()).rejects.toThrow(/Refusing sql\.js fallback/i);
+    if (!process.versions.bun) {
+      await expect(getAdapter()).rejects.toThrow(/requires the Bun runtime \(bun:sqlite\)/i);
+    } else {
+      const adapter = await getAdapter();
+      expect(adapter.driver).toBe("bun:sqlite");
+      adapter.close?.();
+    }
     expect(fs.existsSync(dbFile)).toBe(true);
   });
 
-  it("still falls back to sql.js for a brand-new database (no existing file)", async () => {
+  it("fails closed for a brand-new database when Bun runtime is absent (no sql.js fallback)", async () => {
     const dataDir = path.join(tempDir, "fresh");
     process.env.DATA_DIR = dataDir;
 
     await mockPathsTo(dataDir);
-    await failNativeDrivers();
 
     const { getAdapter } = await import("@/lib/db/driver.js");
-    const adapter = await getAdapter();
-    expect(adapter.driver).toBe("sql.js");
-    adapter.close?.();
+    if (!process.versions.bun) {
+      await expect(getAdapter()).rejects.toThrow(/requires the Bun runtime \(bun:sqlite\)/i);
+    } else {
+      const adapter = await getAdapter();
+      expect(adapter.driver).toBe("bun:sqlite");
+      adapter.close?.();
+    }
   });
 });
 
@@ -529,7 +541,7 @@ describe("Khatam events", () => {
 
       const subscriber = instances.find((i) => i.subscriptions.includes(KHATAM_EVENTS.CIRCUIT_TRIP));
       expect(subscriber).toBeTruthy();
-      const forwarded = subscriber.published.find((p) => p.channel === KHATAM_EVENTS.CIRCUIT_TRIP);
+      const forwarded = instances.flatMap((i) => i.published).find((p) => p.channel === KHATAM_EVENTS.CIRCUIT_TRIP);
       expect(forwarded).toBeTruthy();
       expect(JSON.parse(forwarded.message)).toMatchObject({ payload: { provider: "openai" } });
 

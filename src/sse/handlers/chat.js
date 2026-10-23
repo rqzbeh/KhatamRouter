@@ -32,6 +32,7 @@ import { getApiKeyByKey } from "@/lib/db/repos/apiKeysRepo.js";
 import { checkApiKeyUsageLimits, formatQuotaErrorResponse } from "@/lib/usage/apiKeyUsageLimits.js";
 import { gateTarget, observeFailure, observeSuccess, isResilienceEnabled } from "@/domain/fallbackResilience.js";
 import { isStickinessEnabled, computeSessionKey, getStickyConnection, setStickyConnection, clearStickyConnection } from "@/lib/stealth/stickiness.js";
+import { handleIdempotencyPreRequest, handleIdempotencyPostRequest } from "@/lib/idempotency/index.js";
 
 /**
  * Handle chat completion request
@@ -96,6 +97,65 @@ export async function handleChat(request, clientRawRequest = null) {
     return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing model");
   }
 
+  // Idempotency: Pre-request check for non-streaming inference requests
+  const idempotency = await handleIdempotencyPreRequest({
+    req: request,
+    body,
+    apiKey,
+  });
+
+  if (!idempotency.shouldProceed) {
+    if (idempotency.replayed) {
+      const resp = idempotency.response;
+      return new Response(typeof resp.body === "string" ? resp.body : JSON.stringify(resp.body), {
+        status: resp.status || 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+          "Idempotency-Replayed": "true",
+          ...(resp.headers || {}),
+        },
+      });
+    }
+    const err = idempotency.response;
+    return new Response(typeof err?.body === "string" ? err.body : JSON.stringify(err?.body || {}), {
+      status: err?.status || 400,
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+        ...(err?.headers || {}),
+      },
+    });
+  }
+
+  const finishResponse = async (responsePromise) => {
+    const response = await responsePromise;
+    if (idempotency?.context && !idempotency.bypass) {
+      try {
+        if (response && response.status < 400) {
+          const cloned = await response.clone().json();
+          await handleIdempotencyPostRequest({
+            context: idempotency.context,
+            body,
+            response: {
+              status: response.status,
+              headers: Object.fromEntries(response.headers.entries()),
+              body: cloned,
+            },
+          });
+        } else {
+          await handleIdempotencyPostRequest({
+            context: idempotency.context,
+            body,
+            response: { status: response?.status || 500 },
+          });
+        }
+      } catch {}
+    }
+    return response;
+  };
+
+  let aclEvaluated = false;
   // 3-5. Unified Tri-State ACL check: kind ("llm") -> combo/provider -> model
   if (!isTrustedInternal) {
     const keyRecord = apiKey ? await getApiKeyByKey(apiKey) : null;
@@ -106,19 +166,20 @@ export async function handleChat(request, clientRawRequest = null) {
         modelStr,
         keyRecord,
       });
-      if (aclDenied) return aclDenied;
+      if (aclDenied) return await finishResponse(aclDenied);
+      aclEvaluated = true;
 
       // 6. Granular API Key Rate/Quota Limits & Spend Caps
       const limitResult = await checkApiKeyUsageLimits({ apiKeyRow: keyRecord });
       if (limitResult && !limitResult.allowed) {
         const formatted = formatQuotaErrorResponse(limitResult);
-        return new Response(JSON.stringify(formatted.body), {
+        return await finishResponse(new Response(JSON.stringify(formatted.body), {
           status: formatted.status,
           headers: {
             ...formatted.headers,
             "Access-Control-Allow-Origin": "*",
           },
-        });
+        }));
       }
     }
   }
@@ -126,14 +187,17 @@ export async function handleChat(request, clientRawRequest = null) {
   // Per-key access control: a restricted key may call only its listed combos and
   // models. Checked once on the requested target, before bypass, combo expansion
   // and any credential lookup; an allowed combo grants the members it routes to.
+  // When unified ACL has already evaluated this key, skip the redundant legacy check.
   const keyAccess = await getKeyAccessContext(request);
-  const keyAccessDenied = await enforceKeyAccess(keyAccess, modelStr);
-  if (keyAccessDenied) return keyAccessDenied;
+  if (!aclEvaluated) {
+    const keyAccessDenied = await enforceKeyAccess(keyAccess, modelStr);
+    if (keyAccessDenied) return await finishResponse(keyAccessDenied);
+  }
 
   // Bypass naming/warmup requests before combo rotation to avoid wasting rotation slots
   const userAgent = request?.headers?.get("user-agent") || "";
   const bypassResponse = handleBypassRequest(body, modelStr, userAgent, !!settings.ccFilterNaming);
-  if (bypassResponse) return bypassResponse.response || bypassResponse;
+  if (bypassResponse) return await finishResponse(bypassResponse.response || bypassResponse);
 
   const requiredCapabilities = detectRequiredCapabilities(body);
 
@@ -149,7 +213,7 @@ export async function handleChat(request, clientRawRequest = null) {
 
     if (comboStrategy === "fusion") {
       log.info("CHAT", `Combo "${modelStr}" with ${comboModels.length} models (strategy: fusion)`);
-      return handleFusionChat({
+      return await finishResponse(handleFusionChat({
         body,
         models: comboModels,
         handleSingleModel: (b, m, isPanel) => {
@@ -164,12 +228,12 @@ export async function handleChat(request, clientRawRequest = null) {
         comboName: modelStr,
         judgeModel: comboStrategies[modelStr]?.judgeModel,
         tuning: comboStrategies[modelStr]?.fusionTuning,
-      });
+      }));
     }
 
     const comboStickyLimit = settings.comboStickyRoundRobinLimit;
     log.info("CHAT", `Combo "${modelStr}" with ${augmentedModels.length} models (strategy: ${comboStrategy}, sticky: ${comboStickyLimit})`);
-    return handleComboChat({
+    return await finishResponse(handleComboChat({
       body,
       models: augmentedModels,
       handleSingleModel: withCapacityAdapterStripping(
@@ -180,7 +244,7 @@ export async function handleChat(request, clientRawRequest = null) {
       comboName: modelStr,
       comboStrategy,
       comboStickyLimit
-    });
+    }));
   }
 
   // Single model request — may still switch to a capacity-adapter model if the
@@ -189,7 +253,7 @@ export async function handleChat(request, clientRawRequest = null) {
   if (soloAugmented.length > 1) {
     const adapterAdded = soloAugmented.filter((m) => m !== modelStr);
     log.info("CHAT", `Capacity adapter for [${[...requiredCapabilities].join(",")}] on "${modelStr}" → trying ${soloAugmented.join(", ")}`);
-    return handleComboChat({
+    return await finishResponse(handleComboChat({
       body,
       models: soloAugmented,
       handleSingleModel: withCapacityAdapterStripping(
@@ -199,16 +263,17 @@ export async function handleChat(request, clientRawRequest = null) {
       log,
       comboName: modelStr,
       comboStrategy: getActiveAdapterStrategy(requiredCapabilities, settings)
-    });
+    }));
   }
 
-  return handleSingleModelChat(body, modelStr, clientRawRequest, request, apiKey, contextMarker ? `${modelStr.slice(modelStr.indexOf("/") + 1)}[${contextMarker}]` : null);
+  return await finishResponse(handleSingleModelChat(body, modelStr, clientRawRequest, request, apiKey, contextMarker ? `${modelStr.slice(modelStr.indexOf("/") + 1)}[${contextMarker}]` : null));
 }
 
 /**
  * Handle single model chat request
  */
 async function handleSingleModelChat(body, modelStr, clientRawRequest = null, request = null, apiKey = null, requestedModel = null) {
+  const keyRecord = apiKey ? await getApiKeyByKey(apiKey) : null;
   const modelInfo = await getModelInfo(modelStr);
 
   // If provider is null, this might be a combo name - check and handle
@@ -350,6 +415,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       connectionId: credentials.connectionId,
       userAgent,
       apiKey,
+      apiKeyId: keyRecord?.id,
       ccFilterNaming: !!chatSettings.ccFilterNaming,
       rtkEnabled: !!chatSettings.rtkEnabled,
       headroomEnabled: !!chatSettings.headroomEnabled,
