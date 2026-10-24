@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { sanitizeFunctionResponsePayload } from "../../open-sse/translator/formats/gemini.js";
+import { openaiToGeminiRequest } from "../../open-sse/translator/request/openai-to-gemini.js";
 
 // A tool_call_id and a tool-result payload key are both client-supplied. A value
 // like "constructor" must be treated as a key, never as an inherited member of
@@ -58,5 +59,43 @@ describe("prototype-named keys are treated as data", () => {
     const safe = Object.create(null);
     expect(() => (safe.constructor ||= []).push("x")).not.toThrow();
     expect(safe.constructor).toEqual(["x"]);
+  });
+
+  it("translates OpenAI requests with prototype-named tool_call_id without throwing", () => {
+    for (const reservedId of ["toString", "valueOf", "constructor", "hasOwnProperty", "__proto__"]) {
+      const body = {
+        model: "gemini-2.5-flash",
+        messages: [
+          {
+            role: "assistant",
+            tool_calls: [
+              {
+                id: reservedId,
+                type: "function",
+                function: { name: "test_tool", arguments: "{}" },
+              },
+            ],
+          },
+          {
+            role: "tool",
+            tool_call_id: reservedId,
+            content: '{"result":"success"}',
+          },
+        ],
+      };
+
+      expect(() => openaiToGeminiRequest("gemini-2.5-flash", body, false)).not.toThrow();
+      const geminiReq = openaiToGeminiRequest("gemini-2.5-flash", body, false);
+      expect(geminiReq.contents).toBeDefined();
+
+      const functionResponsePart = geminiReq.contents
+        .flatMap((c) => c.parts || [])
+        .find((p) => p.functionResponse)?.functionResponse;
+
+      expect(functionResponsePart).toBeDefined();
+      expect(functionResponsePart.name).toBe("test_tool");
+      expect(functionResponsePart.id).toBe(reservedId);
+      expect(functionResponsePart.response).toEqual({ result: { result: "success" } });
+    }
   });
 });

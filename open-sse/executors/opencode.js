@@ -70,10 +70,23 @@ export function generateSessionId(timestamp = Date.now()) {
   return `ses_${descendingTimeHex(timestamp, counter)}${unstableRandom()}`;
 }
 
+// Split per kind: request ids are high-cardinality (one per turn) while session
+// ids are bounded by live conversations, and a shared pool let request churn
+// evict a session id — re-minting the upstream session mid-conversation, which
+// is exactly the state the cache exists to preserve. Value = id; eviction is
+// insertion-ordered and entries are small, so a plain Map is enough.
+export const translatedIdStores = { session: new Map(), request: new Map() };
+export const MAX_TRANSLATED_IDS = 5000;
+
 export function translateSessionId(sessionId, clientTool = "") {
   if (typeof sessionId === "string" && OPENCODE_SESSION_RE.test(sessionId.trim())) {
     return sessionId.trim();
   }
+  const store = translatedIdStores.session;
+  const cacheKey = `${clientTool || "generic"}\0${sessionId || ""}`;
+  const cached = store.get(cacheKey);
+  if (cached) return cached;
+
   const digest = crypto
     .createHash("sha256")
     .update(`opencode\0${clientTool || "generic"}\0${sessionId || ""}`)
@@ -85,7 +98,36 @@ export function translateSessionId(sessionId, clientTool = "") {
   for (let i = 6; i < 20; i++) {
     randomPart += BASE62_CHARS[digest[i] % 62];
   }
-  return `ses_${timeHex}${randomPart}`;
+  const id = `ses_${timeHex}${randomPart}`;
+  if (store.size >= MAX_TRANSLATED_IDS) {
+    store.delete(store.keys().next().value);
+  }
+  store.set(cacheKey, id);
+  return id;
+}
+
+export function translateRequestId(requestId, clientTool = "") {
+  const store = translatedIdStores.request;
+  const cacheKey = `${clientTool || "generic"}\0${requestId || ""}`;
+  const cached = store.get(cacheKey);
+  if (cached) return cached;
+
+  const digest = crypto
+    .createHash("sha256")
+    .update(`opencode\0request\0${clientTool || "generic"}\0${requestId || ""}`)
+    .digest();
+  const time = BigInt(`0x${digest.subarray(0, 5).toString("hex")}`) & SESSION_TIME_MASK;
+  const timeHex = descendingTimeHex(time, 1);
+  let randomPart = "";
+  for (let i = 6; i < 20; i++) {
+    randomPart += BASE62_CHARS[digest[i] % 62];
+  }
+  const id = `msg_${timeHex}${randomPart}`;
+  if (store.size >= MAX_TRANSLATED_IDS) {
+    store.delete(store.keys().next().value);
+  }
+  store.set(cacheKey, id);
+  return id;
 }
 
 function normalizeSession(value) {

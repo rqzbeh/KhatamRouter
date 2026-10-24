@@ -13,7 +13,10 @@ import {
   OPENCODE_SESSION_RE,
   generateSessionId,
   translateSessionId,
+  translateRequestId,
   stableSessionId,
+  translatedIdStores,
+  MAX_TRANSLATED_IDS,
 } from "../../open-sse/executors/opencode.js";
 import {
   generateSessionId as generateZenSessionId,
@@ -324,5 +327,23 @@ describe("OpenCode Stable Session Reuse (429 follow-up)", () => {
   it("declares forceStream on the opencode transport so chatCore serves SSE upstream", async () => {
     const { PROVIDERS } = await import("../../open-sse/config/providers.js");
     expect(PROVIDERS.opencode?.forceStream).toBe(true);
+  });
+
+  it("splits translatedIdStores into dedicated session and request pools", () => {
+    expect(translatedIdStores.session).toBeInstanceOf(Map);
+    expect(translatedIdStores.request).toBeInstanceOf(Map);
+    expect(translatedIdStores.session).not.toBe(translatedIdStores.request);
+
+    // Warm up a session id
+    const sesId = translateSessionId("session-pool-test", "claude");
+    expect(translatedIdStores.session.has("claude\0session-pool-test")).toBe(true);
+
+    // High request churn should not evict the session id
+    for (let i = 0; i < 50; i++) {
+      translateRequestId(`req_churn_${i}`, "claude");
+    }
+
+    expect(translatedIdStores.session.has("claude\0session-pool-test")).toBe(true);
+    expect(translateSessionId("session-pool-test", "claude")).toBe(sesId);
   });
 });
