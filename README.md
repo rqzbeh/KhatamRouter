@@ -68,7 +68,7 @@ We value engineering honesty over hype. Here is the exact status of each archite
 | **Stealth & Anti-Ban Fingerprinting** | 🟢 Shipped | Wave 5: CLI client header/field ordering in `src/lib/stealth/cliFingerprints.js`, reverse-proxy header scrub, tool-name cloaking with RESTORE map, zero-width obfuscation, session stickiness |
 | **Dynamic Capability Discovery & Custom Models** | 🟢 Shipped | Wave 6: Live model discovery in `src/lib/models/discovery.js`, pure precedence cascade, self-healing context reconciler, and fail-closed combo routing |
 | **VansRouter Provider Parity** | 🟢 Shipped | Wave 7: 30 ported providers (`open-sse/providers/registry/`), stateless executors (`open-sse/executors/agentrouter.js`, `zcode.js`, `qwen.js`, `freebuff.js`, `muse-spark-web.js`), free-tier catalogue (`open-sse/providers/freeTiers.js`), and default-off LoopGuard (`open-sse/utils/loopGuard.js`) |
-| **Bun-Only Runtime & Redis-by-Default** | 🟡 In review | Wave 7.5: Bun-only server & CLI runtime, sole `bun:sqlite` engine, compose with `redis:8.2-alpine` default stack, lease semaphores, 4102 passing tests |
+| **Bun-Only Runtime & Redis-by-Default** | 🟢 Shipped | Wave 7.5: Bun-only server & CLI runtime, sole `bun:sqlite` engine, compose with `redis:8.2-alpine` default stack, lease semaphores, 4102 passing tests |
 | **Split-Plane Dual-Port Architecture** | 🟡 Roadmap | Phase 2: Dedicated Go gateway (`cmd/khatam-gateway`) on port 20129 (currently unified on port 20128) |
 
 The detailed per-wave plan, known limitations and non-goals are tracked in [ROADMAP.md](./ROADMAP.md); the table above remains the authoritative shipped-versus-planned summary.

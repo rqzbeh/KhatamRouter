@@ -37,7 +37,7 @@ The table below mirrors the shipped rows of the authoritative status table in [R
 | **Stealth & Anti-Ban Fingerprinting** | 🟢 Shipped | Wave 5: CLI client header/field ordering in `src/lib/stealth/cliFingerprints.js`, reverse-proxy header scrub, tool-name cloaking with RESTORE map, zero-width obfuscation, session stickiness |
 | **Dynamic Capability Discovery & Fail-Closed Routing** | 🟢 Shipped | Wave 6: Live `/v1/models` discovery in `src/lib/models/discovery.js`, 7-tier precedence cascade, self-healing context reconciler, fail-closed vision gating |
 | **VansRouter Provider Parity & Stateless Executors** | 🟢 Shipped | Wave 7: 30 new providers in `open-sse/providers/registry/`, specialized executors in `open-sse/executors/`, free-tier catalog in `open-sse/providers/freeTiers.js`, Ponytail prompts in `open-sse/rtk/ponytailPrompt.js`, and stateless `open-sse/utils/loopGuard.js` |
-| **Bun-Only Runtime & Redis-by-Default** | 🟡 In review | Wave 7.5: Sole `bun:sqlite` engine, complete Node.js removal, docker-compose with `redis:8.2-alpine`, lease semaphores, Webpack retained, 4102 passing tests (0 regressions) |
+| **Bun-Only Runtime & Redis-by-Default** | 🟢 Shipped | Wave 7.5: Sole `bun:sqlite` engine, complete Node.js removal, docker-compose with `redis:8.2-alpine`, lease semaphores, Webpack retained, 4102 passing tests (0 regressions) |
 
 ### Operational Baseline (Shipped)
 
@@ -174,7 +174,7 @@ Wave 7 achieves full provider parity with the VansRouter ecosystem:
 
 ## Wave 7.5 — Bun-Only Runtime & Redis by Default
 
-**Status**: 🟡 Draft PR #63 (not yet merged to master)
+**Status**: 🟢 Shipped — PR #63 merged to master as `51615273` (2026-10-24)
 
 Wave 7.5 establishes an uncompromised native Bun architecture and default Redis coordination stack:
 
