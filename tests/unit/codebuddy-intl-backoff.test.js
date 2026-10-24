@@ -27,6 +27,7 @@ describe("CodeBuddy Intl block backoff (#5024)", () => {
     expect(checkFallbackError(400, "request illegal", 0, provider)).toEqual({
       shouldFallback: false,
       cooldownMs: 0,
+      requestScoped: true,
     });
   });
 
@@ -34,6 +35,7 @@ describe("CodeBuddy Intl block backoff (#5024)", () => {
     expect(checkFallbackError(400, { code: 11128, msg: "first message is not system prompt" }, 0, "codebuddy-intl")).toEqual({
       shouldFallback: false,
       cooldownMs: 0,
+      requestScoped: true,
     });
   });
 });
