@@ -133,36 +133,37 @@ import p130 from "./searxng.js";
 import p131 from "./selfhosted-embedding.js";
 import p132 from "./selfhosted-stt.js";
 import p133 from "./selfhosted-tts.js";
-import p134 from "./serper.js";
-import p135 from "./siliconflow.js";
-import p136 from "./snowflake.js";
-import p137 from "./stability-ai.js";
-import p138 from "./tavily.js";
-import p139 from "./tencent.js";
-import p140 from "./tinyfish.js";
-import p141 from "./together.js";
-import p142 from "./tokenharbor.js";
-import p143 from "./tokenrouter.js";
-import p144 from "./topaz.js";
-import p145 from "./tortoise.js";
-import p146 from "./upstage.js";
-import p147 from "./v1m.js";
-import p148 from "./venice.js";
-import p149 from "./vercel-ai-gateway.js";
-import p150 from "./vertex-partner.js";
-import p151 from "./vertex.js";
-import p152 from "./volcengine-ark.js";
-import p153 from "./volcengine.js";
-import p154 from "./voyage-ai.js";
-import p155 from "./wandb.js";
-import p156 from "./xai.js";
-import p157 from "./xiaomi-mimo.js";
-import p158 from "./xiaomi-tokenplan.js";
-import p159 from "./xquik.js";
-import p160 from "./youcom.js";
-import p161 from "./zcode.js";
-import p162 from "./zed.js";
-import p163 from "./zenmux.js";
+import p134 from "./sensenova.js";
+import p135 from "./serper.js";
+import p136 from "./siliconflow.js";
+import p137 from "./snowflake.js";
+import p138 from "./stability-ai.js";
+import p139 from "./tavily.js";
+import p140 from "./tencent.js";
+import p141 from "./tinyfish.js";
+import p142 from "./together.js";
+import p143 from "./tokenharbor.js";
+import p144 from "./tokenrouter.js";
+import p145 from "./topaz.js";
+import p146 from "./tortoise.js";
+import p147 from "./upstage.js";
+import p148 from "./v1m.js";
+import p149 from "./venice.js";
+import p150 from "./vercel-ai-gateway.js";
+import p151 from "./vertex-partner.js";
+import p152 from "./vertex.js";
+import p153 from "./volcengine-ark.js";
+import p154 from "./volcengine.js";
+import p155 from "./voyage-ai.js";
+import p156 from "./wandb.js";
+import p157 from "./xai.js";
+import p158 from "./xiaomi-mimo.js";
+import p159 from "./xiaomi-tokenplan.js";
+import p160 from "./xquik.js";
+import p161 from "./youcom.js";
+import p162 from "./zcode.js";
+import p163 from "./zed.js";
+import p164 from "./zenmux.js";
 export default [
   p0,
   p1,
@@ -328,4 +329,5 @@ export default [
   p161,
   p162,
   p163,
+  p164,
 ];

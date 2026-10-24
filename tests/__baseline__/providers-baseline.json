@@ -1291,6 +1291,11 @@
     "validateUrl": "https://api.sambanova.ai/v1/models",
     "format": "openai"
   },
+  "sensenova": {
+    "baseUrl": "https://token.sensenova.cn/v1/chat/completions",
+    "validateUrl": "https://token.sensenova.cn/v1/models",
+    "format": "openai"
+  },
   "siliconflow": {
     "baseUrl": "https://api.siliconflow.com/v1/chat/completions",
     "validateUrl": "https://api.siliconflow.com/v1/models",

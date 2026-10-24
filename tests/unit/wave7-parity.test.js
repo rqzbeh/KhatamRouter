@@ -57,9 +57,9 @@ describe("Wave 7: Provider Registry Parity", () => {
     for (const id of NEW_PROVIDERS) {
       expect(registryIds.has(id), `Missing provider: ${id}`).toBe(true);
     }
-    // 134 pre-existing + exactly 30 ported = 164 (trae/windsurf/devin-cli stay
+    // 134 pre-existing + 30 ported + 1 sensenova = 165 (trae/windsurf/devin-cli stay
     // hidden by design; see scripts/migrate-registry.mjs HIDDEN_REGISTRY_FILES)
-    expect(REGISTRY.length).toBe(164);
+    expect(REGISTRY.length).toBe(165);
   });
 
   it("builds all new providers into PROVIDERS map", () => {
