@@ -70,12 +70,12 @@ Only the following capabilities are shipped and operational today:
 Wave 2 established the persistence and quota foundation required for distributed rate and spend enforcement:
 
 - **Concrete Artifacts**:
-  - Migration runner: `src/lib/db/migrationRunner.js` (and `migrationRunner.ts`) with idempotent execution tracking in `_khatam_migrations` and automated pre-migration DB backups.
+  - Migration runner: `src/lib/db/migrationRunner.js` with idempotent execution tracking in `_khatam_migrations` and automated pre-migration DB backups.
   - Migration 002: `src/lib/db/migrations/002-wave2-storage-quota.js` adding tables and columns for limits, quotas, cost ledger, circuit breakers, and capabilities.
   - Central schema version: `SCHEMA_VERSION = 3` in `src/lib/db/schema.js`.
-  - Quota store files: `src/lib/quota/storeFactory.js`, `src/lib/quota/redisQuotaStore.js`, `src/lib/quota/sqliteQuotaStore.js`, and `src/lib/quota/index.js` (with TypeScript source variants).
+  - Quota store files: `src/lib/quota/storeFactory.js`, `src/lib/quota/redisQuotaStore.js`, `src/lib/quota/sqliteQuotaStore.js`, and `src/lib/quota/index.js`.
   - Settings cache: 5-second in-memory TTL cache with `bumpSettingsRevision` and `invalidateSettingsCache` in `src/lib/db/repos/settingsRepo.js`.
-- **Versioned `_khatam_migrations` runner**: A dedicated startup migration engine executing ordered, versioned migration scripts to ensure schema consistency across both Bun and Go runtimes.
+- **Versioned `_khatam_migrations` runner**: A dedicated startup migration engine executing ordered, versioned migration scripts to ensure schema consistency in the Bun runtime.
 - **Schema additions (SCHEMA_VERSION = 3)**:
   - `rate_limit_overrides_json`: Connection-level limits storing overrides for `rpm`, `rpd`, `tpm`, `tpd`, `minTime`, `maxConcurrent`, and `modelConcurrency`.
   - `api_key_quota_limits`: Granular per-key rate, token, and concurrency limits.
@@ -213,35 +213,15 @@ Wave 8 delivers user interface controls and administrative tooling:
 
 ---
 
-## Phase 2 — Go Gateway (Waves 9–11)
-
-**Status**: 🔵 Planned
-
-Phase 2 establishes a high-performance split-plane architecture:
-
-- **Dedicated gateway binary**: High-throughput data-plane daemon (`cmd/khatam-gateway`) compiled with `CGO_ENABLED=0`, listening on dedicated port `ENDPOINT_PORT=20129`.
-- **Shared SQLite state**: Concurrent access to `$DATA_DIR/db/data.sqlite` via `modernc.org/sqlite` using identical PRAGMAs (`journal_mode = WAL`, `synchronous = NORMAL`, `busy_timeout = 5000`).
-- **RCU configuration cache**: Read-Copy-Update in-memory routing tables invalidated in real time via Redis Pub/Sub (`khatam:events:config_reload`).
-- **Zero-copy SSE framing**: Memory-efficient Server-Sent Events framing and stateful stream translation minimizing GC pressure.
-- **Native protocol handling**: Native gzip decompression for Cursor protocols and CRC32 framing for Kiro EventStreams.
-- **Asynchronous usage store**: Non-blocking channel-based usage collector flushing usage records to storage in background batches.
-- **Strangler-fig cutover**: Incremental migration of proxy traffic from port 20128 to port 20129 validated by golden parity test suites and load benchmarks.
-
-> **Operational Notice**: In the current runtime, all OpenAI-compatible `/v1/*` routes and dashboard views are served exclusively on port **20128** by Bun and Next.js. Port **20129** is reserved in `.env.example` and server configurations, but **no process is currently listening on port 20129**.
-
----
-
 ## Known Limitations Today
 
 To ensure clear operational expectations, the following limitations exist in the current implementation:
 
-- **No Go gateway yet**: All inference traffic is handled entirely by the Bun/Next.js control plane on port 20128. The Phase 2 Go gateway (`cmd/khatam-gateway`) is not yet implemented.
 - **Redis defaults in Compose, optional elsewhere**: `docker-compose.yml` runs `redis:8.2-alpine` by default for cluster Pub/Sub invalidation, sliding-window quotas, distributed lease semaphores, and advisory auth caches. However, KhatamRouter operates fully without Redis using `bun:sqlite` transactions and in-process concurrency semaphores when `REDIS_URL` is omitted. If Redis is configured but encounters an outage, quotas degrade safely to SQLite transactions so limits remain enforced, while caching/events fail open.
 - **Circuit breaker is opt-in today**: The Wave 4 breaker, 429 classifier and pre-dispatch gates are implemented and tested, but the fallback-path integration is gated behind `KHATAM_RESILIENCE_CIRCUIT_BREAKER=1`. Left unset (the default), the account-fallback loop executes its pre-Wave-4 statements unchanged — no breaker reads, no gate evaluation.
 - **Stealth and anti-ban suite is opt-in today**: The Wave 5 fingerprinting, proxy scrubbing, tool cloaking, zero-width obfuscation, and session stickiness capabilities are implemented and tested, but are default-off. Operators opt in per provider (`CLI_COMPAT_<PROVIDER>=1`, e.g. `CLI_COMPAT_CLAUDE=1`), per capability (`STEALTH_FINGERPRINTS=1`, `STEALTH_HEADER_SCRUB=1`, `STEALTH_TOOL_CLOAK=1`, `STEALTH_ZERO_WIDTH=1`, `STEALTH_STICKINESS=1`), or globally (`STEALTH_ALL=1` or `CLI_COMPAT_ALL=1`). Left unset (the default), headers and request bodies are passed untouched. Protocol-level signatures (Cursor Jyh cipher, Copilot token exchange synthesis, and low-level TLS cipher fingerprinting) remain deferred roadmap items.
 - **Model capability guard is opt-in today**: Fail-closed combo capability gating is implemented in `src/domain/requestCapabilities.js` and wired into `open-sse/services/combo.js`, but is default-off behind `KHATAM_MODEL_CAPABILITY_GUARD=1` or explicit caller options. Left unset (the default), existing fallback behavior is preserved.
 - **LoopGuard is default-off**: Stateless agent loop detection in `open-sse/utils/loopGuard.js` is implemented and verified, but disabled by default via `loopGuardEnabled: false` in settings (`src/lib/db/repos/settingsRepo.js`). Operators opt in via settings or by passing `loopGuardEnabled: true`. Furthermore, `zcode` executor's automatic captcha-solving (`solveCaptcha`) requires optional `playwright-core` and browser binaries; without them it logs a warning and fails open to standard retries.
-- **20129 refuses connections**: While `ENDPOINT_PORT=20129` is documented and recognized in runtime configuration, no service is listening on port 20129 today.
 - **The test suite posture**: 4102 passing tests on this branch vs 3979 on master (+123 tests), with 0 regressions. `tests/__baseline__/known-fails.txt` now directly mirrors measured master baseline failures. The CI verify gate (`.github/workflows/verify.yml`) asserts no regressions against this calibrated baseline.
 
 ---

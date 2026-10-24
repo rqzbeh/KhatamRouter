@@ -105,7 +105,6 @@ Run our official multi-platform container image (`linux/amd64` + `linux/arm64`):
 ```bash
 docker run -d \
   -p 20128:20128 \
-  -p 20129:20129 \
   -v "$HOME/.9router:/app/data" \
   -e DATA_DIR=/app/data \
   --name khatamrouter \
@@ -113,8 +112,6 @@ docker run -d \
 ```
 
 App listens on port `20128`. Open: http://localhost:20128
-
-Port `20129` is exposed by the image but reserved for the Phase 2 Go gateway data plane; nothing serves traffic on it yet.
 
 ## Manage container
 
@@ -152,7 +149,6 @@ Container path: `/app/data/db/data.sqlite`
 ```bash
 docker run -d \
   -p 20128:20128 \
-  -p 20129:20129 \
   -v "$HOME/.9router:/app/data" \
   -e DATA_DIR=/app/data \
   -e PORT=20128 \
@@ -172,7 +168,6 @@ services:
     image: ghcr.io/rqzbeh/khatamrouter:latest
     ports:
       - "20128:20128"
-      - "20129:20129"
     volumes:
       - "$HOME/.9router:/app/data"
     environment:
@@ -220,7 +215,7 @@ docker pull ghcr.io/rqzbeh/khatamrouter:0.1.0
 ```bash
 docker build -f Dockerfile.bun -t khatamrouter .
 
-docker run --rm -p 20128:20128 -p 20129:20129 \
+docker run --rm -p 20128:20128 \
   -v "$HOME/.9router:/app/data" \
   -e DATA_DIR=/app/data \
   khatamrouter

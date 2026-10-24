@@ -75,7 +75,6 @@ for (const rel of directReaders) {
 const dbSourceFiles = [
   "src/lib/db/driver.js",
   "src/lib/db/migrationRunner.js",
-  "src/lib/db/migrationRunner.ts",
 ];
 for (const rel of dbSourceFiles) {
   const full = path.join(repoRoot, rel);

@@ -19,7 +19,6 @@ cd "$REPO_ROOT"
 
 PROJECT_NAME="${COMPOSE_PROJECT_NAME:-}"
 DASHBOARD_PORT="${DASHBOARD_HOST_PORT:-}"
-ENDPOINT_PORT="${ENDPOINT_HOST_PORT:-120129}"
 STARTED_OWN_STACK=0
 SMOKE_DATA_DIR=""
 OVERRIDE_FILE=""
@@ -71,11 +70,6 @@ if [ -z "$PROJECT_NAME" ]; then
       DASHBOARD_PORT=30128
     fi
 
-    ENDPOINT_PORT="${ENDPOINT_PORT:-20129}"
-    if [ "$ENDPOINT_PORT" -gt 65535 ]; then
-      ENDPOINT_PORT="${ENDPOINT_PORT#1}"
-    fi
-
     REDIS_PORT="${REDIS_HOST_PORT:-16379}"
     if [ "$REDIS_PORT" -gt 65535 ]; then
       REDIS_PORT="${REDIS_PORT#1}"
@@ -98,7 +92,6 @@ services:
     image: khatamrouter:smoke-w75
     ports:
       - "${DASHBOARD_PORT}:20128"
-      - "${ENDPOINT_PORT}:20129"
     volumes:
       - ${SMOKE_DATA_DIR}:/app/data
     environment:

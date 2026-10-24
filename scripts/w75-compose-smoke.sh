@@ -27,11 +27,6 @@ if ss -tulpn 2>/dev/null | grep -q ":${DASHBOARD_PORT} "; then
   DASHBOARD_PORT=30128
 fi
 
-ENDPOINT_PORT="${ENDPOINT_HOST_PORT:-20129}"
-if [ "$ENDPOINT_PORT" -gt 65535 ]; then
-  ENDPOINT_PORT="${ENDPOINT_PORT#1}"
-fi
-
 REDIS_PORT="${REDIS_HOST_PORT:-16379}"
 if [ "$REDIS_PORT" -gt 65535 ]; then
   REDIS_PORT="${REDIS_PORT#1}"
@@ -77,7 +72,6 @@ services:
     image: khatamrouter:smoke-w75
     ports:
       - "${DASHBOARD_PORT}:20128"
-      - "${ENDPOINT_PORT}:20129"
     volumes:
       - ${SMOKE_DATA_DIR}:/app/data
     environment:

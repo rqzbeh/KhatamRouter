@@ -49,7 +49,7 @@ npx 9router
 **Option 2 — Docker (server/VPS):**
 
 ```bash
-docker run -d --name khatamrouter -p 20128:20128 -p 20129:20129 \
+docker run -d --name khatamrouter -p 20128:20128 \
   -v "$HOME/.9router:/app/data" -e DATA_DIR=/app/data \
   ghcr.io/rqzbeh/khatamrouter:latest
 ```

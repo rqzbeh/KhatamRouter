@@ -9,7 +9,7 @@ vi.mock("@/lib/dataDir.js", async () => {
 });
 
 import { createBunSqliteAdapter } from "../../src/lib/db/adapters/bunSqliteAdapter.js";
-import { createBunSqliteAdapter as createBunSqliteAdapterTs } from "../../src/lib/db/adapters/bunSqliteAdapter.ts";
+import { createBunSqliteAdapter as createBunSqliteAdapterTs } from "../../src/lib/db/adapters/bunSqliteAdapter.js";
 import { verifyDatabaseIntegrity, getAdapter, getAdapterSync } from "../../src/lib/db/driver.js";
 import { backupDatabaseFile } from "../../src/lib/db/migrationRunner.js";
 

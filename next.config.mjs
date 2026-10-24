@@ -33,7 +33,7 @@ const nextConfig = {
   // plugins by dynamic require, neither of which survives bundling.
   // bun:sqlite: the sole SQLite driver is Bun's builtin; keep it external so the
   // runtime resolves the native module instead of the bundler inlining it.
-  // ioredis: Redis client is loaded lazily by src/lib/redis/client.ts and keeps
+  // ioredis: Redis client is loaded lazily by src/lib/redis/client.js and keeps
   // its own optional native dependency graph, so it must stay external too.
   serverExternalPackages: ["bun:sqlite", "ioredis", "open", "@aws-sdk/credential-providers"],
   turbopack: {

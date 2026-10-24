@@ -155,9 +155,10 @@ describe("Wave 7.5: Docker Compose Bun & Redis Configuration (US2 / FR-008..FR-0
       expect(df).toContain('ENTRYPOINT ["bun", "custom-server.js"]');
     });
 
-    it("exposes both DASHBOARD_PORT (20128) and ENDPOINT_PORT (20129)", () => {
+    it("exposes control plane and gateway port 20128", () => {
       const df = fs.readFileSync(dockerfilePath, "utf8");
-      expect(df).toMatch(/EXPOSE\s+20128\s+20129/);
+      expect(df).toMatch(/EXPOSE\s+20128/);
+      expect(df).not.toContain("20129");
     });
 
     it("ensures no Node-only SQLite native addon is shipped in runner (SC-009)", () => {
