@@ -92,6 +92,18 @@ function openAICompletionToResponses(responseBody, customToolNames = null) {
 }
 
 /**
+ * Convert an OpenAI chat.completion response to Claude message format.
+ * Used when a client sent a Claude-format request but upstream returned OpenAI format.
+ */
+export function openaiToClaudeNonStreaming(openaiBody, model) {
+  const result = openAICompletionToClaudeMessage(openaiBody);
+  if (result && model && (!result.model || result.model === "unknown")) {
+    result.model = model;
+  }
+  return result;
+}
+
+/**
  * Translate non-streaming response body from provider format → OpenAI format.
  */
 export function translateNonStreamingResponse(responseBody, targetFormat, sourceFormat, customToolNames = null) {
