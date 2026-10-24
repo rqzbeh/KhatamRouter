@@ -1067,7 +1067,8 @@
           "hooks": [
             "museHeaders"
           ]
-        }
+        },
+        "thinkingFormat": "openai-responses"
       }
     ]
   },
@@ -1155,7 +1156,8 @@
           "combined": true,
           "header": "Authorization",
           "scheme": "bearer"
-        }
+        },
+        "thinkingFormat": "openai-responses"
       }
     ]
   },

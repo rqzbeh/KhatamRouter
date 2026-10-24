@@ -139,8 +139,23 @@ export const MODEL_CAPABILITIES = {
   "glm-5.3-flash":     { vision: true, videoInput: true, pdf: true, reasoning: true, thinkingFormat: "zai", thinkingCanDisable: false, contextWindow: 1000000, maxOutput: 131072 },
   "glm-4.6v":          { vision: true, videoInput: true, reasoning: true, thinkingFormat: "zai", contextWindow: 128000, maxOutput: 32768 },
   "glm-4.5v":          { vision: true, videoInput: true, reasoning: true, thinkingFormat: "zai", contextWindow: 64000, maxOutput: 16384 },
-  // GLM-5.2 has 1M context — pattern *glm-5* only gives 200k, so override here
-  "glm-5.2":           { reasoning: true, thinkingFormat: "zai", thinkingCanDisable: false, contextWindow: 1000000, maxOutput: 131072 },
+  // pattern completely, so it must repeat that pattern's thinkingEffortSupported or
+  // reasoning_effort is dropped for GLM-5.2 (supported from 5.2 onward).
+  "glm-5.2":           { reasoning: true, thinkingFormat: "zai", thinkingEffortSupported: true, thinkingCanDisable: false, contextWindow: 1000000, maxOutput: 131072 },
+  // OpenCode serves the same weights under this free id from its OWN inference
+  // service, which validates the body strictly: the zai `thinking` object the
+  // *glm-5.3* pattern emits is answered
+  //   400 [unknown_parameter] invalid request body: json: unknown field "thinking"
+  // while reasoning_effort is accepted (none/minimal/low/medium/high/xhigh/max → 200).
+  // Probed live 2026-10-18 on both lanes exposing the id: /inference/v1 (provider
+  // "opencode") and /zen/v1 (provider "opencode-zen"). Mirrors the
+  // PROVIDER_CAPABILITIES["opencode-go"] override for the paid glm-5.3-flash id;
+  // the zai shape stays correct for z.ai's own lines (glm / glm-cn). codebuddy-cn
+  // is unaffected — it already resolves glm-5.3-flash to the openai shape.
+  // Known gap, shared with the paid sibling: an intent that carries no level
+  // (Claude adaptive thinking, reasoning_effort "auto") still emits literal
+  // "auto" from the generic openai branch, which this service rejects.
+  "glm-5.3-flash-free": { vision: true, videoInput: true, pdf: true, reasoning: true, thinkingFormat: "openai", thinkingCanDisable: false, contextWindow: 1000000, maxOutput: 128000 },
 
   // DeepSeek's first V4 model with image input; text limits match V4-Flash.
   "deepseek-v4-flash-vision-exp": { vision: true, reasoning: true, thinkingFormat: "deepseek", contextWindow: 1000000, maxOutput: 384000 },
@@ -183,6 +198,12 @@ export const MODEL_CAPABILITIES = {
   "space-bunny-free":  { vision: true, videoInput: true, reasoning: true, thinkingFormat: "openai", contextWindow: 1048576, maxOutput: 524288 },
   "space-bunny":       { vision: true, videoInput: true, reasoning: true, thinkingFormat: "openai", contextWindow: 1048576, maxOutput: 524288 },
   "big-pickle":        { reasoning: true, thinkingFormat: "openai", contextWindow: 200000, maxOutput: 32000 },
+  "beam-free":         { reasoning: true, thinkingFormat: "openai", contextWindow: 1048576, maxOutput: 131072 },
+  "mimo-v2.6-flash-free": { vision: true, audioInput: true, videoInput: true, reasoning: true, thinkingFormat: "openai", thinkingCanDisable: false, contextWindow: 200000, maxOutput: 32000 },
+  "nemotron-3.5-super-vl-free": { vision: true, reasoning: true, thinkingFormat: "openai", contextWindow: 1048576, maxOutput: 131072 },
+  "nemotron-3.5-lightning-free": { reasoning: true, thinkingFormat: "openai", contextWindow: 262144, maxOutput: 262144 },
+  "deepseek-v4.1-flash-free": { vision: true, reasoning: true, thinkingFormat: "deepseek", contextWindow: 200000, maxOutput: 32000 },
+  "minimax-m3.1-flash-free": { vision: true, videoInput: true, reasoning: true, thinkingFormat: "openai", contextWindow: 1000000, maxOutput: 512000 },
   "exo-free":          { vision: true, reasoning: true, thinkingFormat: "openai", contextWindow: 1048576, maxOutput: 131072 },
   "fledge-alpha-free": { vision: true, reasoning: true, thinkingFormat: "openai", contextWindow: 1048576, maxOutput: 131072 },
   "longcat-2.0":             { reasoning: true, thinkingFormat: "openai", contextWindow: 1000000, maxOutput: 131072 },
@@ -233,6 +254,22 @@ export const PROVIDER_CAPABILITIES = {
     // maxOutput 128000 for this id (the provider override short-circuits before the
     // catalog overlay, so maxOutput must be stated here too).
     "claude-haiku-5-5": { vision: true, reasoning: true, search: true, thinkingFormat: "claude-adaptive", contextWindow: 1000000, maxOutput: 128000 },
+  },
+  // OpenCode Free (oc) — the free lane's MiMo route is OpenRouter-backed and takes
+  // the plain OpenAI reasoning_effort enum verbatim (live probe on
+  // oc/mimo-v2.6-flash-free: none|minimal|low|medium|high|xhigh|max all 200, any
+  // other value 400 "Invalid option"; "none" really drops thinking — empty
+  // reasoning_content and reasoning_tokens 0). The global *mimo*v2.6* pattern
+  // describes Xiaomi's own API (DeepSeek-shaped `thinking` object, always on),
+  // which this lane ignores: `thinking.type:disabled` still streamed reasoning.
+  // Limits repeat the family pattern deliberately: the synced catalog carries no
+  // `opencode` limit delta for this id, so 1M/131k is what the lane already
+  // published before this override — but the override short-circuits the catalog
+  // overlay, so models.dev's free-lane listing (200000/32000) has to be applied
+  // here if a probe ever pins the lane's real window (a 200k `max_tokens` is
+  // accepted, so the 32k figure is not enforced at request validation).
+  "opencode": {
+    "mimo-v2.6-flash-free": { vision: true, audioInput: true, videoInput: true, reasoning: true, thinkingFormat: "openai", thinkingCanDisable: true, contextWindow: 1048576, maxOutput: 131072 },
   },
   "commandcode": {
     // The generic commandcode fallback (1M/384k for every unlisted model) happened
@@ -368,6 +405,7 @@ export const PROVIDER_CAPABILITIES = {
 // Qoder CN serves the identical model catalog from the CN gateway, so it shares
 // the intl Qoder capability table verbatim (vision/reasoning/contextWindow).
 PROVIDER_CAPABILITIES["qoder-cn"] = PROVIDER_CAPABILITIES["qoder"];
+PROVIDER_CAPABILITIES.oc = PROVIDER_CAPABILITIES.opencode;
 PROVIDER_CAPABILITIES.cx = PROVIDER_CAPABILITIES.codex;
 PROVIDER_CAPABILITIES.dv = PROVIDER_CAPABILITIES["devin-cli"];
 PROVIDER_CAPABILITIES.devin = PROVIDER_CAPABILITIES["devin-cli"];
