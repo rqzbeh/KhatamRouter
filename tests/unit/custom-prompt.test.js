@@ -5,8 +5,46 @@ import { injectPonytail } from "../../open-sse/rtk/ponytail.js";
 import { FORMATS } from "../../open-sse/translator/formats.js";
 import { ROLE } from "../../open-sse/translator/schema/roles.js";
 
-const { executeMock } = vi.hoisted(() => ({
+const { executeMock, mockSettings } = vi.hoisted(() => ({
   executeMock: vi.fn(),
+  mockSettings: {
+    requireApiKey: false,
+    comboStrategy: "fallback",
+    customPromptEnabled: false,
+    customPrompt: "",
+  },
+}));
+
+vi.mock("@/lib/localDb", () => ({
+  getSettings: async () => mockSettings,
+  getModelAliases: async () => ({}),
+  getComboByName: async () => null,
+  getProviderNodes: async () => [],
+  getCombos: async () => [],
+  getProviderConnections: async () => [],
+  getProviderConnectionById: async () => null,
+  getCustomModels: async () => [],
+}));
+
+vi.mock("@/lib/disabledModelsDb", () => ({ getDisabledModels: async () => ({}) }));
+vi.mock("@/lib/db/repos/combosRepo.js", () => ({ getCombos: async () => [] }));
+vi.mock("@/lib/db/repos/apiKeysRepo.js", () => ({ getApiKeyByKey: async () => null }));
+vi.mock("@/sse/services/auth.js", () => ({
+  getProviderCredentials: vi.fn(async () => ({
+    apiKey: "test-key",
+    connectionId: "conn-1",
+    connectionName: "test-acc",
+    providerSpecificData: {},
+  })),
+  markAccountUnavailable: vi.fn(async () => ({ shouldFallback: false })),
+  clearAccountError: vi.fn(),
+  extractApiKey: () => null,
+  isValidApiKey: async () => true,
+}));
+
+vi.mock("@/sse/services/tokenRefresh.js", () => ({
+  checkAndRefreshToken: async (_p, c) => c,
+  updateProviderCredentials: vi.fn(),
 }));
 
 vi.mock("../../open-sse/executors/index.js", () => ({
@@ -34,6 +72,8 @@ vi.mock("@/lib/usageDb.js", () => ({
 }));
 
 const { handleChatCore } = await import("../../open-sse/handlers/chatCore.js");
+const { DEFAULT_SETTINGS, mergeWithDefaults } = await import("../../src/lib/db/repos/settingsRepo.js");
+const { handleChat } = await import("../../src/sse/handlers/chat.js");
 
 const SEP = "\n\n";
 
@@ -284,6 +324,168 @@ describe("handleChatCore with customPrompt wiring", () => {
 
     const lineCalls = log.line.mock.calls.map((c) => c.join(" "));
     expect(lineCalls.some((call) => call.includes("CAVEMAN:lite") && call.includes("CUSTOMPROMPT:23c"))).toBe(true);
+  });
+});
+
+describe("settingsRepo - custom prompt settings registration and defaults", () => {
+  it("registers customPromptEnabled and customPrompt with expected defaults in DEFAULT_SETTINGS", () => {
+    expect(DEFAULT_SETTINGS.customPromptEnabled).toBe(false);
+    expect(DEFAULT_SETTINGS.customPrompt).toBe("");
+  });
+
+  it("mergeWithDefaults fills in custom prompt defaults when omitted", () => {
+    const merged = mergeWithDefaults({});
+    expect(merged.customPromptEnabled).toBe(false);
+    expect(merged.customPrompt).toBe("");
+  });
+
+  it("mergeWithDefaults preserves configured customPrompt and customPromptEnabled=true", () => {
+    const merged = mergeWithDefaults({
+      customPromptEnabled: true,
+      customPrompt: "Always write TypeScript.",
+    });
+    expect(merged.customPromptEnabled).toBe(true);
+    expect(merged.customPrompt).toBe("Always write TypeScript.");
+  });
+
+  it("mergeWithDefaults preserves customPromptEnabled=false with draft customPrompt", () => {
+    const merged = mergeWithDefaults({
+      customPromptEnabled: false,
+      customPrompt: "Draft instructions",
+    });
+    expect(merged.customPromptEnabled).toBe(false);
+    expect(merged.customPrompt).toBe("Draft instructions");
+  });
+});
+
+describe("handleChat request path wiring (settings on/off)", () => {
+  function makePostRequest(body) {
+    return new Request("http://localhost:20128/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    executeMock.mockResolvedValue({
+      response: new Response(
+        JSON.stringify({
+          id: "chatcmpl-test",
+          object: "chat.completion",
+          choices: [
+            {
+              message: { role: "assistant", content: "ok" },
+              finish_reason: "stop",
+              index: 0,
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      ),
+      url: "https://api.openai.com/v1/chat/completions",
+      headers: {},
+      transformedBody: null,
+    });
+    // Reset mockSettings to default
+    mockSettings.customPromptEnabled = false;
+    mockSettings.customPrompt = "";
+    mockSettings.cavemanEnabled = false;
+    mockSettings.ponytailEnabled = false;
+  });
+
+  it("injects custom prompt through handleChat request path when setting is on", async () => {
+    mockSettings.customPromptEnabled = true;
+    mockSettings.customPrompt = "You are a specialized code reviewer.";
+
+    const req = makePostRequest({
+      model: "openai/gpt-4o",
+      stream: false,
+      messages: [{ role: "user", content: "review this diff" }],
+    });
+
+    const res = await handleChat(req);
+    expect(res.status).toBe(200);
+
+    expect(executeMock).toHaveBeenCalledTimes(1);
+    const dispatchedBody = executeMock.mock.calls[0][0].body;
+    expect(dispatchedBody.messages[0]).toEqual({
+      role: "system",
+      content: "You are a specialized code reviewer.",
+    });
+    expect(dispatchedBody.messages[1]).toEqual({
+      role: "user",
+      content: "review this diff",
+    });
+  });
+
+  it("does not inject custom prompt through handleChat when setting is off", async () => {
+    mockSettings.customPromptEnabled = false;
+    mockSettings.customPrompt = "You are a specialized code reviewer.";
+
+    const req = makePostRequest({
+      model: "openai/gpt-4o",
+      stream: false,
+      messages: [{ role: "user", content: "review this diff" }],
+    });
+
+    const res = await handleChat(req);
+    expect(res.status).toBe(200);
+
+    expect(executeMock).toHaveBeenCalledTimes(1);
+    const dispatchedBody = executeMock.mock.calls[0][0].body;
+    expect(dispatchedBody.messages).toEqual([
+      { role: "user", content: "review this diff" },
+    ]);
+  });
+
+  it("does not inject custom prompt through handleChat when prompt is blank even if enabled", async () => {
+    mockSettings.customPromptEnabled = true;
+    mockSettings.customPrompt = "   ";
+
+    const req = makePostRequest({
+      model: "openai/gpt-4o",
+      stream: false,
+      messages: [{ role: "user", content: "hello" }],
+    });
+
+    const res = await handleChat(req);
+    expect(res.status).toBe(200);
+
+    expect(executeMock).toHaveBeenCalledTimes(1);
+    const dispatchedBody = executeMock.mock.calls[0][0].body;
+    expect(dispatchedBody.messages).toEqual([
+      { role: "user", content: "hello" },
+    ]);
+  });
+
+  it("appends custom prompt to existing system prompt through handleChat", async () => {
+    mockSettings.customPromptEnabled = true;
+    mockSettings.customPrompt = "Additional instruction from settings.";
+
+    const req = makePostRequest({
+      model: "openai/gpt-4o",
+      stream: false,
+      messages: [
+        { role: "system", content: "Base system prompt from client." },
+        { role: "user", content: "hello" },
+      ],
+    });
+
+    const res = await handleChat(req);
+    expect(res.status).toBe(200);
+
+    expect(executeMock).toHaveBeenCalledTimes(1);
+    const dispatchedBody = executeMock.mock.calls[0][0].body;
+    expect(dispatchedBody.messages[0]).toEqual({
+      role: "system",
+      content: "Base system prompt from client.\n\nAdditional instruction from settings.",
+    });
+    expect(dispatchedBody.messages[1]).toEqual({
+      role: "user",
+      content: "hello",
+    });
   });
 });
 
