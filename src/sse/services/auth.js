@@ -4,6 +4,7 @@ import { formatRetryAfter, checkFallbackError, isModelLockActive, buildModelLock
 import { MAX_RATE_LIMIT_COOLDOWN_MS } from "open-sse/config/errorConfig.js";
 import { resolveProviderId, FREE_PROVIDERS } from "@/shared/constants/providers.js";
 import { getAntigravityQuotaCache, getAntigravityModelQuota } from "./antigravityQuota.js";
+import { authenticateApiKey } from "@/lib/auth/apiKeyCache.js";
 import * as log from "../utils/logger.js";
 
 // Mutex to prevent race conditions during account selection
@@ -368,5 +369,11 @@ export function extractApiKey(request) {
  */
 export async function isValidApiKey(apiKey) {
   if (!apiKey) return false;
+  // Advisory Redis cache: authenticates via cache when present, but the cache hit is
+  // re-verified against SQLite's isActive inside getCachedApiKey, so a revoked or
+  // banned key is never authorized by a stale entry. Falls back to SQLite on any
+  // Redis problem, and is a no-op when Redis is unset or caching is disabled.
+  const cachedRecord = await authenticateApiKey(apiKey);
+  if (cachedRecord) return true;
   return await validateApiKey(apiKey);
 }
