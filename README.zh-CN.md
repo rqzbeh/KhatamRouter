@@ -71,7 +71,15 @@
 
 ## ⚡ 快速开始
 
-**1. 全局安装：**
+**1. 全局安装或 Docker Compose 运行：**
+
+使用 Docker Compose（默认包含 `redis:8.2-alpine` 加速与健康检查）：
+
+```bash
+docker compose up -d
+```
+
+或者使用 CLI（要求系统 PATH 中已安装 `bun`）：
 
 ```bash
 npm install -g 9router
@@ -95,21 +103,21 @@ Claude Code/Codex/OpenClaw/Cursor/Cline 设置：
 
 **就这么简单！** 开始使用免费 AI 模型编程。
 
-**替代方案：从源码运行（本仓库）：**
+**替代方案：从源码运行（严格要求 Bun）：**
 
-本仓库的包是私有的（`9router-app`），所以源码/Docker 执行是预期的本地开发方式。
+本仓库严格要求 **Bun v1.4.3+** 运行时（不再支持 Node.js），基于原生 `bun:sqlite` WAL 模式引擎。
 
 ```bash
 cp .env.example .env
-npm install
-PORT=20128 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run dev
+bun install
+PORT=20128 NEXT_PUBLIC_BASE_URL=http://localhost:20128 bun run dev:bun
 ```
 
 生产模式：
 
 ```bash
-npm run build
-PORT=20128 HOSTNAME=0.0.0.0 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run start
+bun run build:bun
+PORT=20128 HOSTNAME=0.0.0.0 NEXT_PUBLIC_BASE_URL=http://localhost:20128 bun run start:bun
 ```
 
 默认 URL：
@@ -1018,14 +1026,14 @@ Model：cc/claude-opus-4-7
 <details>
 <summary><b>🚀 部署</b></summary>
 
-### VPS 部署
+### VPS 部署（需要 Bun）
 
 ```bash
-# 克隆并安装
-git clone https://github.com/decolua/9router.git
-cd 9router
-npm install
-npm run build
+# 克隆并安装（严格需要 Bun）
+git clone https://github.com/rqzbeh/KhatamRouter.git
+cd KhatamRouter
+bun install
+bun run build:bun
 
 # 配置
 export JWT_SECRET="your-secure-secret-change-this"
@@ -1035,29 +1043,31 @@ export PORT="20128"
 export HOSTNAME="0.0.0.0"
 export NODE_ENV="production"
 export NEXT_PUBLIC_BASE_URL="http://localhost:20128"
-export NEXT_PUBLIC_CLOUD_URL="https://9router.com"
 export API_KEY_SECRET="endpoint-proxy-api-key-secret"
 export MACHINE_ID_SALT="endpoint-proxy-salt"
+export REDIS_URL="redis://127.0.0.1:6379"
 
 # 启动
-npm run start
-
-# 或使用 PM2
-npm install -g pm2
-pm2 start npm --name 9router -- start
-pm2 save
-pm2 startup
+PORT=20128 HOSTNAME=0.0.0.0 bun run start:bun
 ```
 
-### Docker
+### Docker 与 Docker Compose
+
+推荐使用自带 `redis:8.2-alpine` 的 Docker Compose：
 
 ```bash
-# 构建镜像（从仓库根目录）
-docker build -t 9router .
+docker compose up -d
+```
 
-# 运行容器（当前设置使用的命令）
+或者使用 `Dockerfile.bun` 构建并运行独立容器：
+
+```bash
+# 构建镜像
+docker build -f Dockerfile.bun -t khatamrouter .
+
+# 运行容器
 docker run -d \
-  --name 9router \
+  --name khatamrouter \
   -p 20128:20128 \
   --env-file /root/dev/9router/.env \
   -v 9router-data:/app/data \
@@ -1228,10 +1238,11 @@ docker stop 9router && docker rm 9router
 
 ## 🛠️ 技术栈
 
-- **运行时**：Node.js 20+
-- **框架**：Next.js 16
+- **运行时**：严格要求 Bun v1.4.3+（不再支持 Node.js）
+- **框架**：Next.js 16（Webpack 打包）
 - **UI**：React 19 + Tailwind CSS 4
-- **数据库**：LowDB（基于 JSON 文件）
+- **数据库**：SQLite WAL 模式（严格基于 `bun:sqlite`）
+- **加速与缓存**：Redis（`redis:8.2-alpine` 默认栈），支持透明回退至 SQLite
 - **流式传输**：Server-Sent Events (SSE)
 - **认证**：OAuth 2.0 (PKCE) + JWT + API Keys
 

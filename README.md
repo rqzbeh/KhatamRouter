@@ -68,6 +68,7 @@ We value engineering honesty over hype. Here is the exact status of each archite
 | **Stealth & Anti-Ban Fingerprinting** | 🟢 Shipped | Wave 5: CLI client header/field ordering in `src/lib/stealth/cliFingerprints.js`, reverse-proxy header scrub, tool-name cloaking with RESTORE map, zero-width obfuscation, session stickiness |
 | **Dynamic Capability Discovery & Custom Models** | 🟢 Shipped | Wave 6: Live model discovery in `src/lib/models/discovery.js`, pure precedence cascade, self-healing context reconciler, and fail-closed combo routing |
 | **VansRouter Provider Parity** | 🟢 Shipped | Wave 7: 30 ported providers (`open-sse/providers/registry/`), stateless executors (`open-sse/executors/agentrouter.js`, `zcode.js`, `qwen.js`, `freebuff.js`, `muse-spark-web.js`), free-tier catalogue (`open-sse/providers/freeTiers.js`), and default-off LoopGuard (`open-sse/utils/loopGuard.js`) |
+| **Bun-Only Runtime & Redis-by-Default** | 🟡 In review | Wave 7.5: Bun-only server & CLI runtime, sole `bun:sqlite` engine, compose with `redis:8.2-alpine` default stack, lease semaphores, 4102 passing tests |
 | **Split-Plane Dual-Port Architecture** | 🟡 Roadmap | Phase 2: Dedicated Go gateway (`cmd/khatam-gateway`) on port 20129 (currently unified on port 20128) |
 
 The detailed per-wave plan, known limitations and non-goals are tracked in [ROADMAP.md](./ROADMAP.md); the table above remains the authoritative shipped-versus-planned summary.
@@ -131,9 +132,17 @@ Result: Never stop coding, minimal cost + 20-40% token savings via RTK
 
 ### 1. Start KhatamRouter
 
-#### 🐳 Option A: Docker (Recommended)
+#### 🐳 Option A: Docker Compose with Redis (Recommended)
 
-Run our official multi-arch container image (`linux/amd64` + `linux/arm64`):
+KhatamRouter runs with `redis:8.2-alpine` by default for high-speed coordination and distributed lease semaphores:
+
+```bash
+git clone https://github.com/rqzbeh/KhatamRouter.git
+cd KhatamRouter
+docker compose up -d
+```
+
+Or run standalone single container:
 
 ```bash
 docker run -d \
@@ -147,22 +156,20 @@ docker run -d \
 🎉 **Dashboard**: `http://localhost:20128`  
 🚀 **API Gateway**: `http://localhost:20128/v1`
 
-#### ⚡ Option B: Run From Source (Bun Native)
+#### ⚡ Option B: Run From Source (Bun Strictly Required)
 
-KhatamRouter runs natively on **Bun v1.4.3+** for ultra-fast startup and native `bun:sqlite` WAL operation (Node.js 20+ is also supported):
+KhatamRouter **strictly requires Bun v1.4.3+** (Node.js is not supported). The server standardizes exclusively on native `bun:sqlite` with WAL mode:
 
 ```bash
 git clone https://github.com/rqzbeh/KhatamRouter.git
 cd KhatamRouter
 cp .env.example .env
 
-# Native Bun execution (recommended):
+# Install dependencies with Bun
 bun install
-PORT=20128 NEXT_PUBLIC_BASE_URL=http://localhost:20128 bun run dev:bun
 
-# Or standard Node.js:
-npm install
-PORT=20128 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run dev
+# Start development server
+PORT=20128 NEXT_PUBLIC_BASE_URL=http://localhost:20128 bun run dev:bun
 ```
 
 Production build with Bun:
@@ -172,12 +179,7 @@ bun run build:bun
 PORT=20128 HOSTNAME=0.0.0.0 bun run start:bun
 ```
 
-Or with Node.js:
-
-```bash
-npm run build
-PORT=20128 HOSTNAME=0.0.0.0 npm run start
-```
+> **CLI launcher**: If using the published `9router` CLI launcher package, `bun` must be installed on your system PATH.
 
 Default URLs:
 
@@ -1321,14 +1323,14 @@ Model: cc/claude-opus-4-7
 <details>
 <summary><b>🚀 Deployment</b></summary>
 
-### VPS Deployment
+### VPS Deployment (Bun Required)
 
 ```bash
-# Clone and install
+# Clone and install (Bun strictly required)
 git clone https://github.com/rqzbeh/KhatamRouter.git
 cd KhatamRouter
-npm install
-npm run build
+bun install
+bun run build:bun
 
 # Configure
 export JWT_SECRET="your-secure-secret-change-this"
@@ -1343,20 +1345,27 @@ export NEXT_PUBLIC_BASE_URL="http://localhost:20128"
 export NEXT_PUBLIC_ENDPOINT_URL="http://localhost:20128"
 export API_KEY_SECRET="endpoint-proxy-api-key-secret"
 export MACHINE_ID_SALT="endpoint-proxy-salt"
+export REDIS_URL="redis://127.0.0.1:6379"
 
-# Start
-npm run start
-
-# Or use PM2
-npm install -g pm2
-pm2 start npm --name khatamrouter -- start
-pm2 save
-pm2 startup
+# Start with Bun
+PORT=20128 HOSTNAME=0.0.0.0 bun run start:bun
 ```
 
-### Docker
+### Docker Compose (Recommended Default Stack)
 
-Published image (multi-platform `linux/amd64` + `linux/arm64`), built from `Dockerfile` (with `Dockerfile.bun` available for native Bun container builds):
+KhatamRouter provides a default `docker-compose.yml` that builds from `Dockerfile.bun` and launches alongside `redis:8.2-alpine` with healthchecks and AOF persistence:
+
+```bash
+docker compose up -d
+```
+
+- **Redis**: Runs `redis:8.2-alpine` with AOF on volume `redis-data`, bound strictly to `127.0.0.1:6379`.
+- **Healthcheck**: Tested via `redis-cli ping` every 5 seconds.
+- **Disabling Redis**: Set `REDIS_URL` empty or comment out the `redis` service in `docker-compose.yml`. KhatamRouter will degrade cleanly to standalone `bun:sqlite` with in-memory coordination.
+
+### Docker Standalone
+
+Published image (multi-platform `linux/amd64` + `linux/arm64`), built from `Dockerfile.bun`:
 
 - GHCR: [`ghcr.io/rqzbeh/khatamrouter`](https://github.com/users/rqzbeh/packages)
 
@@ -1565,12 +1574,12 @@ Notes:
 
 ## 🛠️ Tech Stack
 
-- **Runtime**: Bun v1.4.3+ (native `bun:sqlite`) with Node.js 20+ fallback
+- **Runtime**: Bun v1.4.3+ strictly required (Node.js is not supported)
 - **Language**: JavaScript / TypeScript (`tsconfig.json`, `@/*` → `src/*`)
-- **Framework**: Next.js 16
+- **Framework**: Next.js 16 (Webpack bundler)
 - **UI**: React 19 + Tailwind CSS 4
-- **Database**: SQLite in WAL mode (`bun:sqlite` / `better-sqlite3` / `node:sqlite` / `sql.js` fallback)
-- **Acceleration**: Optional Redis (`ioredis`) under the `khatam:` namespace
+- **Database**: SQLite in WAL mode strictly via `bun:sqlite` (`$DATA_DIR/db/data.sqlite`)
+- **Acceleration & Cache**: Redis (`redis:8.2-alpine` by default in docker compose) under `khatam:` namespace, fail-safe degradation to SQLite
 - **Streaming**: Server-Sent Events (SSE)
 - **Auth**: OAuth 2.0 (PKCE) + JWT + API Keys
 

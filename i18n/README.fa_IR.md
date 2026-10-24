@@ -1354,10 +1354,10 @@ docker pull ghcr.io/rqzbeh/khatamrouter:latest   # به‌روزرسانی به 
 
 ## 🛠️ پشته فنی
 
-- **زمان اجرا**: Node.js 20+
+- **زمان اجرا**: Bun v1.4.3+ (محیط Node.js دیگر پشتیبانی نمی‌شود)
 - **فریم‌ورک**: Next.js 16
 - **UI**: React 19 + Tailwind CSS 4
-- **پایگاه داده**: SQLite (better-sqlite3 / node:sqlite / بازگشت sql.js)
+- **پایگاه داده**: SQLite در حالت WAL (منحصراً با `bun:sqlite`)
 - **پخش جریانی**: رویدادهای ارسال شده از سرور (SSE)
 - **احراز هویت**: OAuth 2.0 (PKCE) + JWT + کلیدهای API
 

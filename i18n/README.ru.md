@@ -1146,10 +1146,10 @@ docker stop 9router && docker rm 9router
 
 ## 🛠️ Tech Stack
 
-- **Runtime**: Node.js 20+
+- **Runtime**: Bun v1.4.3+ (Node.js больше не поддерживается)
 - **Framework**: Next.js 16
 - **UI**: React 19 + Tailwind 4
-- **Database**: LowDB (на основе JSON-файлов)
+- **Database**: SQLite в режиме WAL (исключительно через `bun:sqlite`)
 - **Streaming**: Server-Sent Events (SSE)
 - **Auth**: OAuth 2.0 (PKCE) + JWT + API Keys
 
