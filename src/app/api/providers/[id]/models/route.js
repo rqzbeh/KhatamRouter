@@ -95,6 +95,14 @@ const getStaticProviderModels = (providerId) =>
     name: model.name || model.id,
   }));
 
+// Every fetch a fetchFn performs must go through `timedFetch`: an unresponsive
+// provider endpoint would otherwise hold the route handler open indefinitely.
+// Same budget as the canonical fetchModelsFetcherIds helper. A timeout surfaces
+// as an AbortError and takes the existing fall-to-static path.
+const MODELS_FETCH_TIMEOUT_MS = 8000;
+const timedFetch = (url, options = {}) =>
+  fetch(url, { ...options, signal: options.signal || AbortSignal.timeout(MODELS_FETCH_TIMEOUT_MS) });
+
 // Generic custom resolver for OAuth providers that need refresh-on-401 + token persist.
 // Receives a `fetchFn(token)` and returns parsed models or throws.
 const buildOAuthResolver = ({ refreshFn, fetchFn, parseFn, errorLabel }) => async (connection) => {
@@ -207,7 +215,7 @@ const PROVIDER_MODELS_CONFIG = {
   codex: {
     customResolver: buildOAuthResolver({
       refreshFn: (conn) => refreshCodexToken(conn.refreshToken),
-      fetchFn: (token) => fetch(CODEX_MODELS_URL, {
+      fetchFn: (token) => timedFetch(CODEX_MODELS_URL, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -479,7 +487,7 @@ const PROVIDER_MODELS_CONFIG = {
       fetchFn: (token, conn) => {
         const projectId = conn.projectId || conn.providerSpecificData?.projectId;
         const body = projectId ? { project: projectId } : {};
-        return fetch(GEMINI_CLI_MODELS_URL, {
+        return timedFetch(GEMINI_CLI_MODELS_URL, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -526,7 +534,7 @@ const PROVIDER_MODELS_CONFIG = {
   "ollama-local": {
     customResolver: async (connection) => {
       const url = `${resolveOllamaLocalHost(connection)}/api/tags`;
-      const response = await fetch(url, {
+      const response = await timedFetch(url, {
         method: "GET",
         headers: { "Content-Type": "application/json" }
       });
@@ -559,7 +567,7 @@ export async function GET(request, { params }) {
         return NextResponse.json({ error: "No base URL configured for OpenAI compatible provider" }, { status: 400 });
       }
       const url = `${baseUrl.replace(/\/$/, "")}/models`;
-      const response = await fetch(url, {
+      const response = await timedFetch(url, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -598,7 +606,7 @@ export async function GET(request, { params }) {
       }
 
       const url = `${baseUrl}/models`;
-      const response = await fetch(url, {
+      const response = await timedFetch(url, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -677,7 +685,7 @@ export async function GET(request, { params }) {
       fetchOptions.body = JSON.stringify(config.body);
     }
 
-    const response = await fetch(url, fetchOptions);
+    const response = await timedFetch(url, fetchOptions);
 
     if (!response.ok) {
       const errorText = await response.text();
