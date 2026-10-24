@@ -362,13 +362,37 @@ function isTokenExpired(connection) {
   return shouldRefreshCredentials(connection.provider, connection);
 }
 
-async function testOAuthConnection(connection, effectiveProxy = null) {
+// tokenExists providers whose tokens are JWTs: an expired one still "exists",
+// so the token-exists strategy must inspect exp or an expired import reports as
+// connected. Cursor has no probe endpoint (protobuf API); CodeBuddy exposes only
+// /v2/chat/completions, which would spend quota.
+const JWT_TOKEN_EXPIRED_MESSAGE = {
+  cursor: "Cursor token expired. Please re-import token from Cursor IDE.",
+  "codebuddy-cn": "CodeBuddy access token expired. Please re-connect your CodeBuddy account.",
+  "codebuddy-intl": "CodeBuddy access token expired. Please re-connect your CodeBuddy account.",
+};
+
+export async function testOAuthConnection(connection, effectiveProxy = null) {
   const config = OAUTH_TEST_CONFIG[connection.provider];
   if (!config) return { valid: false, error: "Provider test not supported", refreshed: false };
   if (!connection.accessToken) return { valid: false, error: "No access token", refreshed: false };
 
   // Cursor uses protobuf API - can only verify token exists, not test endpoint
   if (config.tokenExists) {
+    if (JWT_TOKEN_EXPIRED_MESSAGE[connection.provider] && connection.accessToken) {
+      try {
+        const payload = JSON.parse(Buffer.from(String(connection.accessToken).split(".")[1], "base64url").toString("utf8"));
+        const exp = Number(payload?.exp);
+        if (Number.isFinite(exp)) {
+          const expMs = exp > 1e12 ? exp : exp * 1000;   // accept seconds and milliseconds
+          if (expMs <= Date.now()) {
+            return { valid: false, error: JWT_TOKEN_EXPIRED_MESSAGE[connection.provider] };
+          }
+        }
+      } catch {
+        // Non-JWT token (or malformed): fall through to standard tokenExists handling
+      }
+    }
     return { valid: true, error: null, refreshed: false, newTokens: null };
   }
 
