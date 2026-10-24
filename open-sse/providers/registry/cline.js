@@ -45,6 +45,15 @@ export default {
     { id: "google/gemini-3.1-flash-lite-preview", name: "Gemini 3.1 Flash Lite Preview" },
     { id: "kwaipilot/kat-coder-pro", name: "KAT Coder Pro" },
   ],
+  // Cline catalogue (462 models at time of writing) answers endpoint
+  // without any credentials, so fetcher needs no token. Ids are owner/model
+  // 8 static entries above stay fallback; passthroughModels keeps
+  // catalogue id usable before imported into picker.
+  modelsFetcher: {
+    url: "https://api.cline.bot/api/v1/models",
+    type: "openai",
+  },
+  passthroughModels: true,
   oauth: {
     appBaseUrl: "https://app.cline.bot",
     apiBaseUrl: "https://api.cline.bot",
