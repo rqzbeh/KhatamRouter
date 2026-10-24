@@ -25,14 +25,12 @@ CREATE TABLE IF NOT EXISTS ${MIGRATIONS_TABLE} (
 export interface MigrationDbAdapter {
   driver?: string;
   run(sql: string, params?: unknown[]): { changes: number; lastInsertRowid: number | bigint | null };
-  get<T = unknown>(sql: string, params?: unknown[]): T | undefined;
+  get<T = unknown>(sql: string, params?: unknown[]): T | null;
   all<T = unknown>(sql: string, params?: unknown[]): T[];
   exec(sql: string): void;
   transaction<T>(fn: () => T): T;
   checkpoint?: (mode?: string) => void;
-  raw?: {
-    export?: () => Uint8Array;
-  };
+  raw?: unknown;
 }
 
 export interface MigrationDescriptor {
@@ -138,21 +136,6 @@ export function backupDatabaseFile(db: MigrationDbAdapter, dbFile: string, versi
   if (!dbFile || dbFile === ":memory:") return null;
 
   checkpointBeforeSnapshot(db);
-
-  const exportBytes =
-    db && db.driver === "sql.js" && db.raw && typeof db.raw.export === "function" ? db.raw.export() : null;
-  if (exportBytes) {
-    const bakFile = `${dbFile}.bak-${version}`;
-    if (fs.existsSync(bakFile)) return bakFile;
-    try {
-      fs.writeFileSync(bakFile, Buffer.from(exportBytes), { flag: "wx" });
-      return bakFile;
-    } catch (e) {
-      const err = e as Error;
-      console.warn(`[DB][migrate] pre-migration snapshot failed (continuing): ${err?.message ?? err}`);
-      return null;
-    }
-  }
 
   if (!fs.existsSync(dbFile)) return null;
   const bakFile = `${dbFile}.bak-${version}`;

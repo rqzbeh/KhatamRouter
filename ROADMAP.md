@@ -37,11 +37,17 @@ The table below mirrors the shipped rows of the authoritative status table in [R
 | **Stealth & Anti-Ban Fingerprinting** | 🟢 Shipped | Wave 5: CLI client header/field ordering in `src/lib/stealth/cliFingerprints.js`, reverse-proxy header scrub, tool-name cloaking with RESTORE map, zero-width obfuscation, session stickiness |
 | **Dynamic Capability Discovery & Fail-Closed Routing** | 🟢 Shipped | Wave 6: Live `/v1/models` discovery in `src/lib/models/discovery.js`, 7-tier precedence cascade, self-healing context reconciler, fail-closed vision gating |
 | **VansRouter Provider Parity & Stateless Executors** | 🟢 Shipped | Wave 7: 30 new providers in `open-sse/providers/registry/`, specialized executors in `open-sse/executors/`, free-tier catalog in `open-sse/providers/freeTiers.js`, Ponytail prompts in `open-sse/rtk/ponytailPrompt.js`, and stateless `open-sse/utils/loopGuard.js` |
+| **Bun-Only Runtime & Redis-by-Default** | 🟡 In review | Wave 7.5: Sole `bun:sqlite` engine, complete Node.js removal, docker-compose with `redis:8.2-alpine`, lease semaphores, Webpack retained, 4102 passing tests (0 regressions) |
 
 ### Operational Baseline (Shipped)
 
 Only the following capabilities are shipped and operational today:
 
+- **Bun-only runtime & `bun:sqlite` engine**: Complete elimination of Node.js. Server strictly requires Bun v1.4.3+. Sole SQLite engine is native `bun:sqlite` with WAL mode (`busy_timeout = 5000`, `temp_store = MEMORY`), preflight integrity validation (`PRAGMA quick_check`), and zero legacy Node drivers. Published CLI launcher requires `bun` on PATH.
+- **Docker Compose with Redis by default (`redis:8.2-alpine`)**: Default stack running `redis:8.2-alpine` with Append-Only File on `redis-data`, `redis-cli ping` healthcheck, loopback-only binding (`127.0.0.1:6379`), and app `depends_on: { redis: { condition: service_healthy } }`. Disabling Redis is fully documented and degrades gracefully to SQLite.
+- **Distributed Redis primitives & lease semaphores**: All keys TTL-bounded and namespaced under `khatam:`, with secrets cryptographically hashed. Includes shared circuit-breaker trips (`khatam:cb:*`), dashboard login limiter, OAuth single-use refresh locks, advisory API-key auth caching, real-time Pub/Sub invalidation bus, prompt-cache stealth session pins, pricing/request-details invalidation, round-robin counters, lease-based distributed concurrency semaphores (`khatam:sem:*`), and opt-in chat idempotency keys.
+- **Hybrid quota resilience contract**: When `REDIS_URL` is omitted, non-consuming fail-open semantics operate locally. When Redis is configured but encounters an outage, quotas degrade safely to SQLite transaction-backed counters (`SqliteQuotaStore`) so configured spending and rate limits remain strictly enforced.
+- **Retained Webpack bundler**: Webpack retained (`--webpack`) following empirical Turbopack evaluation showing a 52% standalone size inflation regression and configuration disparity.
 - **Bun v1.4.3 + TypeScript runtime**: Native Bun execution via `bun run dev:bun` and `bun run start:bun`, `@/*` path mapping to `./src/*`, and multi-stage container builds via `Dockerfile.bun`.
 - **SQLite WAL engine + integrity preflight**: Native `bun:sqlite` adapter running Write-Ahead Logging (`PRAGMA journal_mode = WAL`), a 5000ms lock timeout (`PRAGMA busy_timeout = 5000`), in-memory temporary storage (`PRAGMA temp_store = MEMORY`), and mandatory startup integrity validation (`PRAGMA integrity_check`) refusing silent fallback over existing data.
 - **Redis client, pub/sub, hybrid quota store, and circuit breaker cache**: Connection management and Pub/Sub event bus under `src/lib/redis/` enforcing the `khatam:` namespace prefix for cluster-wide cache invalidation (`khatam:events:config_reload`), atomic sliding-window quota tracking via `RedisQuotaStore` (`khatam:quota:*`), and optional circuit breaker mirror caching (`khatam:cb:*` via `src/lib/resilience/circuitBreakerStore.js`), with automatic fail-safe fallback to in-memory/SQLite when `REDIS_URL` is omitted.
@@ -166,6 +172,34 @@ Wave 7 achieves full provider parity with the VansRouter ecosystem:
 
 ---
 
+## Wave 7.5 — Bun-Only Runtime & Redis by Default
+
+**Status**: 🟡 Draft PR #63 (not yet merged to master)
+
+Wave 7.5 establishes an uncompromised native Bun architecture and default Redis coordination stack:
+
+- **Strict Bun-Only Runtime**: The server strictly requires Bun v1.4.3+. Node.js is no longer supported (breaking change). Startup fails closed with an actionable message if Bun is missing.
+- **Sole `bun:sqlite` Engine**: Complete pruning of all legacy Node-runtime SQLite fallback drivers (`better-sqlite3`, `node:sqlite`, and `sql.js`) from source, `package.json`, `bun.lock`, and Next.js configuration. All database operations standardize on native `bun:sqlite` with WAL journal mode (`busy_timeout = 5000`, `temp_store = MEMORY`) and mandatory startup integrity validation (`PRAGMA quick_check`).
+- **CLI Bun Enforcement**: The published `9router` CLI launcher requires `bun` on system PATH and provides actionable install instructions when absent. The legacy fallback hook `cli/hooks/sqliteRuntime.js` is removed (runtime helpers relocated to `trayRuntime.js`).
+- **Docker Compose with Redis by Default**: `docker-compose.yml` builds directly from `Dockerfile.bun` and runs `redis:8.2-alpine` by default: Append-Only File (AOF) on volume `redis-data`, `redis-cli ping` healthcheck, loopback-only host binding (`127.0.0.1:6379`), and application dependency with `condition: service_healthy`. Disabling Redis is fully documented and degrades gracefully to SQLite.
+- **Distributed Redis Primitives Matrix**: All keys are TTL-bounded and namespaced under `REDIS_KEY_PREFIX` (`khatam:`), with secrets cryptographically hashed:
+  - Shared circuit-breaker trip records (`khatam:cb:*`)
+  - Dashboard brute-force login limiter (`khatam:auth:login:*`)
+  - OAuth single-use refresh lock (`khatam:oauth:refresh:*`) preventing concurrent refresh collisions
+  - Advisory API-key authentication cache (`khatam:auth:key:*`), with SQLite remaining authoritative
+  - Real-time Pub/Sub invalidation bus and console/usage log fan-out (`khatam:events:*`)
+  - Prompt-cache stealth session pins (`khatam:stealth:session:*`, opt-in)
+  - Pricing and request-details cache invalidation
+  - Combo and outbound proxy round-robin distribution counters
+  - Lease-based distributed concurrency semaphores (`khatam:sem:*`) with auto-releasing leases
+  - Opt-in Idempotency-Key cache on non-streaming chat completions (`khatam:idempotency:*`)
+- **Hybrid Quota Resilience Contract**: Unset `REDIS_URL` operates as non-consuming fail-open locally (Wave 2 contract). When Redis is configured but encounters transient connection failures or outages, quota tracking degrades safely to transaction-backed SQLite storage (`SqliteQuotaStore`) so configured spending and rate limits remain strictly enforced.
+- **Turbopack Evaluation (Retain Webpack)**: Webpack retained (`--webpack`) after empirical benchmarks in Spec 0075: the Turbopack standalone artifact is 52% larger, caused by dynamic filesystem tracing triggered through `open-sse/executors/devin-cli.js`, plus configuration disparities with the custom webpack resolve fallbacks and 27 compilation tracing warnings. Exact byte counts and methodology are in `specs/0075-bun-only-redis-default/turbopack-eval.md`.
+- **Waves 1–7 Defect Remediation**: Wave 3 ACL double-gate, connectionLimiter wiring, spend ledger, non-chat endpoint ACL; Wave 4 gate order + HALF_OPEN probe budget; Wave 5 passthrough decloak; Wave 6 discovery wiring; Wave 1 pub/sub publish client.
+- **Verified Test Posture & Evidence**: 4102 passing tests on this branch vs 3979 on master (+123 tests), 0 regressions, and `known-fails.txt` precisely calibrated against measured master failures. All 10 acceptance leaves (leaf-1.1 through leaf-1.10) verified with honest pass/fail reports.
+
+---
+
 ## Wave 8 — Dashboard and Tooling
 
 **Status**: 🔵 Planned
@@ -202,13 +236,13 @@ Phase 2 establishes a high-performance split-plane architecture:
 To ensure clear operational expectations, the following limitations exist in the current implementation:
 
 - **No Go gateway yet**: All inference traffic is handled entirely by the Bun/Next.js control plane on port 20128. The Phase 2 Go gateway (`cmd/khatam-gateway`) is not yet implemented.
-- **Redis is optional and distributed circuit state is cache-only**: Redis is completely optional—KhatamRouter operates fully without Redis using `bun:sqlite` transactions and in-process concurrency semaphores. When `REDIS_URL` is configured, Redis handles Pub/Sub cache invalidation, atomic sliding-window quota tracking (`RedisQuotaStore`), and a best-effort circuit breaker mirror cache (`khatam:cb:*`). SQLite `domain_circuit_breakers` remains authoritative: the Redis copy is never awaited on the request path and a Redis outage degrades silently back to SQLite.
+- **Redis defaults in Compose, optional elsewhere**: `docker-compose.yml` runs `redis:8.2-alpine` by default for cluster Pub/Sub invalidation, sliding-window quotas, distributed lease semaphores, and advisory auth caches. However, KhatamRouter operates fully without Redis using `bun:sqlite` transactions and in-process concurrency semaphores when `REDIS_URL` is omitted. If Redis is configured but encounters an outage, quotas degrade safely to SQLite transactions so limits remain enforced, while caching/events fail open.
 - **Circuit breaker is opt-in today**: The Wave 4 breaker, 429 classifier and pre-dispatch gates are implemented and tested, but the fallback-path integration is gated behind `KHATAM_RESILIENCE_CIRCUIT_BREAKER=1`. Left unset (the default), the account-fallback loop executes its pre-Wave-4 statements unchanged — no breaker reads, no gate evaluation.
 - **Stealth and anti-ban suite is opt-in today**: The Wave 5 fingerprinting, proxy scrubbing, tool cloaking, zero-width obfuscation, and session stickiness capabilities are implemented and tested, but are default-off. Operators opt in per provider (`CLI_COMPAT_<PROVIDER>=1`, e.g. `CLI_COMPAT_CLAUDE=1`), per capability (`STEALTH_FINGERPRINTS=1`, `STEALTH_HEADER_SCRUB=1`, `STEALTH_TOOL_CLOAK=1`, `STEALTH_ZERO_WIDTH=1`, `STEALTH_STICKINESS=1`), or globally (`STEALTH_ALL=1` or `CLI_COMPAT_ALL=1`). Left unset (the default), headers and request bodies are passed untouched. Protocol-level signatures (Cursor Jyh cipher, Copilot token exchange synthesis, and low-level TLS cipher fingerprinting) remain deferred roadmap items.
 - **Model capability guard is opt-in today**: Fail-closed combo capability gating is implemented in `src/domain/requestCapabilities.js` and wired into `open-sse/services/combo.js`, but is default-off behind `KHATAM_MODEL_CAPABILITY_GUARD=1` or explicit caller options. Left unset (the default), existing fallback behavior is preserved.
 - **LoopGuard is default-off**: Stateless agent loop detection in `open-sse/utils/loopGuard.js` is implemented and verified, but disabled by default via `loopGuardEnabled: false` in settings (`src/lib/db/repos/settingsRepo.js`). Operators opt in via settings or by passing `loopGuardEnabled: true`. Furthermore, `zcode` executor's automatic captcha-solving (`solveCaptcha`) requires optional `playwright-core` and browser binaries; without them it logs a warning and fails open to standard retries.
 - **20129 refuses connections**: While `ENDPOINT_PORT=20129` is documented and recognized in runtime configuration, no service is listening on port 20129 today.
-- **The full test suite is not green on a bare checkout**: `tests/__baseline__/known-fails.txt` catalogs exactly 24 known-failing test cases, and `CLAUDE.md` documents roughly 64 failing tests on a plain checkout. The CI verify gate (`.github/workflows/verify.yml`) cites a more conservative ~91 expected failures, counting the 24 catalogued cases plus `unit/embeddings.cloud.test.js` (targets the `cloud/` worker directory, which is not in this repo), `unit/xai-oauth-service.test.js` (times out without reachable discovery), and 13 `tests/**/*.real.test.js` live-provider files requiring credentials. Judge regressions with `tests/__baseline__/verify-no-regression.mjs`, not a raw run.
+- **The test suite posture**: 4102 passing tests on this branch vs 3979 on master (+123 tests), with 0 regressions. `tests/__baseline__/known-fails.txt` now directly mirrors measured master baseline failures. The CI verify gate (`.github/workflows/verify.yml`) asserts no regressions against this calibrated baseline.
 
 ---
 

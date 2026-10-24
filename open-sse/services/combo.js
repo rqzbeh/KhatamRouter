@@ -7,6 +7,7 @@ import { unavailableResponse } from "../utils/error.js";
 import { getCapabilitiesForModel } from "../providers/capabilities.js";
 import { extractTextContent } from "../translator/formats/gemini.js";
 import { deriveRequestRequirements, filterCompatibleComboTargets, isCapabilityGuardEnabled } from "@/domain/requestCapabilities.js";
+import { getRedisClient, isRedisConfigured, withRedisKey } from "@/lib/redis/client.js";
 
 // Hard capabilities = input modalities; missing one drops request data (e.g. image
 // stripped). Must be prioritized. Soft (e.g. search) only degrades a feature.
@@ -238,6 +239,60 @@ export function getRotatedModels(models, comboName, strategy, stickyLimit = 1) {
 }
 
 /**
+ * Perform atomic round-robin rotation of combo models using Redis INCR.
+ * Falls back to in-memory getRotatedModels when Redis is unavailable.
+ *
+ * @param {string[]} models - Array of model names in the combo
+ * @param {string} comboName - Name of the combo
+ * @param {string} [strategy] - Combo strategy ("fallback" or "round-robin"); undefined means no rotation
+ * @param {number|string} [stickyLimit=1] - Consecutive requests per model before switching
+ * @returns {Promise<string[]>} Rotated models array
+ */
+export async function getRotatedModelsAtomic(models, comboName, strategy, stickyLimit = 1) {
+  if (!models || models.length <= 1 || strategy !== "round-robin") {
+    return models;
+  }
+
+  if (isRedisConfigured()) {
+    try {
+      const client = getRedisClient();
+      if (client) {
+        const safeName = (comboName || "__default__").trim();
+        const key = withRedisKey(`counter:combo:${safeName}:index`);
+        const count = await client.incr(key);
+        const normalizedStickyLimit = normalizeStickyLimit(stickyLimit);
+        const currentIndex = Math.floor((count - 1) / normalizedStickyLimit) % models.length;
+        return rotateModelsFromIndex(models, currentIndex);
+      }
+    } catch {
+      // Fail-open
+    }
+  }
+
+  return getRotatedModels(models, comboName, strategy, stickyLimit);
+}
+
+/**
+ * Reset Redis counter for a given combo.
+ *
+ * @param {string} comboName
+ * @returns {Promise<boolean>}
+ */
+export async function resetComboCounter(comboName) {
+  if (!isRedisConfigured()) return false;
+  try {
+    const client = getRedisClient();
+    if (!client) return false;
+    const safeName = (comboName || "__default__").trim();
+    const key = withRedisKey(`counter:combo:${safeName}:index`);
+    await client.del(key);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Reset in-memory rotation state when combo/settings change
  * @param {string} [comboName] - Combo name to reset; omit to clear all
  */
@@ -319,8 +374,8 @@ export function isZeroContentResponse(data) {
  * @returns {Promise<Response>}
  */
 export async function handleComboChat({ body, models, handleSingleModel, log, comboName, comboStrategy, comboStickyLimit = 1, autoSwitch = true, capabilityGuard = null }) {
-  // Apply rotation strategy if enabled
-  let rotatedModels = getRotatedModels(models, comboName, comboStrategy, comboStickyLimit);
+  // Apply rotation strategy if enabled (atomic Redis counter when available)
+  let rotatedModels = await getRotatedModelsAtomic(models, comboName, comboStrategy, comboStickyLimit);
 
   // Auto-switch: float models that satisfy the request's required capabilities to the front.
   if (autoSwitch) {

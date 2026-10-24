@@ -14,34 +14,35 @@ The code lives in `src/` (Next.js app + dashboard/compat APIs), `open-sse/` (the
 
 ## Commands
 
-Dashboard/gateway (run from repo root):
+Dashboard/gateway (run from repo root — **server strictly REQUIRES Bun**; Node.js is no longer supported):
 ```bash
 cp .env.example .env
-npm install
-PORT=20128 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run dev   # dev (webpack, port 20127 by default via next dev)
-npm run build && PORT=20128 HOSTNAME=0.0.0.0 npm run start           # production
+bun install
+PORT=20128 NEXT_PUBLIC_BASE_URL=http://localhost:20128 bun run dev:bun   # dev (webpack, port 20127 by default via next dev)
+bun run build:bun && PORT=20128 HOSTNAME=0.0.0.0 bun run start:bun       # production
 ```
-- Bun variants: `npm run dev:bun` / `build:bun` / `start:bun`.
 - Default runtime port is **20128** (dashboard at `/dashboard`, API at `/v1`).
-- Lint: `npx eslint .` (config `eslint.config.mjs`, extends `eslint-config-next`).
+- Lint: `bun x eslint .` (config `eslint.config.mjs`, extends `eslint-config-next`).
+- Bundler: Webpack is retained (`--webpack`). Turbopack was formally evaluated and rejected (see Bundler note below).
 
 CLI package (`cli/`):
 ```bash
-npm run cli:pack       # build + npm pack from root
-cd cli && npm run dev  # nodemon watch
+bun run cli:pack       # build + pack from root
+cd cli && bun run dev  # dev mode
 ```
+> The published `9router` CLI requires `bun` on PATH and fails with an actionable install message otherwise. `cli/hooks/sqliteRuntime.js` has been removed (tray helpers live in `trayRuntime.js`).
 
 Tests (vitest, in `tests/`, an **independent** ESM package — not wired into root `npm test`):
 ```bash
-npm install                             # ROOT deps first — tests import from src/ which needs `open`, `undici`, etc.
-cd tests && npm install                 # then tests' own deps (vitest) → tests/node_modules (allowed by tests/.gitignore)
+bun install                             # ROOT deps first — tests import from src/ which needs `open`, `undici`, etc.
+cd tests && bun install                 # then tests' own deps (vitest) → tests/node_modules (allowed by tests/.gitignore)
 npx vitest run                          # all tests; auto-discovers tests/vitest.config.js
 npx vitest run unit/capabilities.test.js   # single file (path relative to tests/)
 ```
 > The committed `tests/package.json` `test` script hardcodes Unix paths (`NODE_PATH=/tmp/node_modules …`) — a shared-install workaround from upstream. On Windows (or anywhere), ignore it and use the `npx vitest` form above; `vitest.config.js` resolves the `open-sse`/`@/` aliases from the repo root regardless of where vitest lives.
 >
-> **The suite is NOT expected to be all-green on a plain checkout.** ~938 pass, ~64 fail. Judge regressions with `tests/__baseline__/verify-no-regression.mjs`, not a raw run. Expected red:
-> - 26 catalogued in `tests/__baseline__/known-fails.txt` (rtk, oauth-cursor-auto-import, translator-request-normalization, …).
+> **Test suite posture**: **4102 passing** on this branch vs 3979 on master, 0 regressions. `tests/__baseline__/known-fails.txt` now directly mirrors measured master failures. Expected red:
+> - Catalogued in `tests/__baseline__/known-fails.txt`.
 > - `unit/embeddings.cloud.test.js` imports `cloud/src/handlers/embeddings.js` — the `cloud/` worker dir is **not in this repo**, so it always fails here.
 > - `unit/xai-oauth-service.test.js` times out (5s) when the xAI endpoint-discovery fetch isn't reachable/mocked.
 > - `real/*.real.test.js` make live provider calls — need credentials, skip otherwise.
@@ -74,10 +75,17 @@ Two authoritative docs already exist — read them before working in these areas
 - Add a provider: copy `providers/REGISTRY_TEMPLATE.js`, add models to `config/providerModels.js`. Only add an executor for non-OpenAI-compatible upstreams.
 
 ### Persistence — IMPORTANT (ARCHITECTURE.md is stale here)
-State is **no longer `db.json`**. It's a SQLite layer under `src/lib/db/` with an adapter fallback chain (`driver.js`): `bun:sqlite` → `better-sqlite3` (optional native dep) → `node:sqlite` (Node ≥22.5) → `sql.js` (pure-JS fallback, always works). `better-sqlite3` is deliberately in `optionalDependencies` so install never fails without build tools.
+State is **no longer `db.json`**. It is a SQLite layer under `src/lib/db/` standardizing strictly on native `bun:sqlite` with WAL journal mode (`busy_timeout = 5000`, `temp_store = MEMORY`, preflight integrity check).
+- **Bun-only**: All Node-runtime fallback drivers (`better-sqlite3`, `node:sqlite`, `sql.js`) have been permanently removed from source, `package.json`, `bun.lock`, and `serverExternalPackages`. Startup fails closed with an actionable message if Bun is not running.
 - `src/lib/localDb.js` is a **backward-compat shim** re-exporting `src/lib/db/index.js`. New code should import from `@/lib/db/index.js`; per-entity logic lives in `src/lib/db/repos/*`. Schema/migrations in `src/lib/db/migrations/`.
 - DB file location resolves via `src/lib/db/paths.js` (`DATA_DIR`, else `~/.9router/`).
 - Usage/logs (`src/lib/usageDb.js`, `usage.json` + `log.txt`) still live under `~/.9router` and do **not** follow `DATA_DIR`.
+
+### Bundler Choice (Webpack vs Turbopack Finding)
+Turbopack was rigorously evaluated in Wave 7.5 per Spec 0075 and **REJECTED**: Webpack remains the production and development bundler (`--webpack`). Do not re-litigate Turbopack adoption without reviewing `specs/0075-bun-only-redis-default/turbopack-eval.md`:
+- Turbopack standalone build caused a **+52% output size inflation** (137 MB vs Webpack's 90 MB) due to dynamic filesystem access in `open-sse/executors/devin-cli.js` triggering unbounded project-wide tracing.
+- Turbopack ignored custom `webpack()` config callbacks in `next.config.mjs` (`fs: false`, `path: false`, inotify optimizations).
+- Turbopack emitted 27 compilation tracing warnings during static route generation.
 
 ### RTK token saver (`open-sse/rtk/`)
 Pre-translate hooks that compress `tool_result` content in-place to cut tokens. **Fail-open**: any error returns null and leaves the body untouched — never throw out of them. Skips `is_error`/`status:"error"` results to preserve traces.

@@ -20,8 +20,11 @@ Core capabilities:
 
 Primary runtime model:
 
+- The server strictly requires Bun (Bun v1.4.3+). Node.js is no longer supported.
+- Native `bun:sqlite` is the sole SQLite driver (all Node-runtime fallback drivers like better-sqlite3, node:sqlite, sql.js have been eliminated).
 - Next.js app routes under `src/app/api/*` implement both dashboard APIs and compatibility APIs
 - A shared SSE/routing core in `src/sse/*` + `open-sse/*` handles provider execution, translation, streaming, fallback, and usage
+- Redis (`redis:8.2-alpine`) runs by default in docker-compose.yml as a high-speed accelerator with transparent fail-safe degradation to SQLite
 
 ## Scope and Boundaries
 
@@ -52,12 +55,16 @@ flowchart LR
         BROWSER[Browser Dashboard]
     end
 
-    subgraph Router[9Router Local Process]
+    subgraph Router[KhatamRouter Bun Process]
         API[V1 Compatibility API\n/v1/*]
         DASH[Dashboard + Management API\n/api/*]
         CORE[SSE + Translation Core\nopen-sse + src/sse]
-        DB[(db.json)]
+        DB[(SQLite WAL\nbun:sqlite data.sqlite)]
         UDB[(usage.json + log.txt)]
+    end
+
+    subgraph StateAndCache[Acceleration Layer]
+        REDIS[(Redis 8.2-alpine\nLease Semaphores / Quotas / PubSub)]
     end
 
     subgraph Upstreams[Upstream Providers]
@@ -79,6 +86,7 @@ flowchart LR
     API --> CORE
     DASH --> DB
     CORE --> DB
+    CORE --> REDIS
     CORE --> UDB
 
     CORE --> P1
@@ -133,19 +141,51 @@ Main flow modules:
 - Stream transformations: `open-sse/utils/stream.js`, `open-sse/utils/streamHandler.js`
 - Usage extraction/normalization: `open-sse/utils/usageTracking.js`
 
-## 3) Persistence Layer
+## 3) Persistence and Acceleration Layer
+
+### SQLite Engine (`bun:sqlite`)
+
+The server strictly requires the Bun runtime. KhatamRouter standardizes exclusively on native `bun:sqlite` with Write-Ahead Logging (`PRAGMA journal_mode = WAL`), a 5000ms lock timeout (`PRAGMA busy_timeout = 5000`), in-memory temporary storage (`PRAGMA temp_store = MEMORY`), and mandatory preflight integrity verification (`PRAGMA quick_check`) on startup. All legacy Node.js fallback drivers (`better-sqlite3`, `node:sqlite`, and `sql.js`) have been permanently removed.
 
 Primary state DB:
 
-- `src/lib/localDb.js`
-- file: `${DATA_DIR}/db.json` (or `~/.9router/db.json` when `DATA_DIR` is unset)
-- entities: providerConnections, providerNodes, modelAliases, combos, apiKeys, settings, pricing
+- Entrypoint: `src/lib/db/index.js` (with `src/lib/localDb.js` maintained as a backward-compatibility shim)
+- File: `${DATA_DIR}/db/data.sqlite` (or `~/.9router/db/data.sqlite` when `DATA_DIR` is unset)
+- Auto-backups: `${DATA_DIR}/db/backups/` created before migrations
+- Versioned migrations: `src/lib/db/migrations/` tracked in `_khatam_migrations` table
+- Repositories: `src/lib/db/repos/*` for provider connections, keys, combos, aliases, settings, circuit breakers, quotas, and cost ledgers
 
 Usage DB:
 
 - `src/lib/usageDb.js`
-- files: `~/.9router/usage.json`, `~/.9router/log.txt`
-- note: currently independent from `DATA_DIR`
+- Files: `~/.9router/usage.json`, `~/.9router/log.txt`
+- Note: Usage aggregates and rolling text logs live in `~/.9router`
+
+### Redis Acceleration & Distributed Primitives (`redis:8.2-alpine`)
+
+In `docker-compose.yml`, KhatamRouter includes `redis:8.2-alpine` by default as an acceleration and distributed coordination layer:
+- **Topology**: Service `redis` with command `["redis-server", "--appendonly", "yes"]`, persistent volume `redis-data:/data`, and loopback-only host binding (`127.0.0.1:6379:6379`).
+- **Healthcheck**: Tested via `["CMD", "redis-cli", "ping"]` with 5s interval, 3s timeout, and 5 retries. The `9router` app container depends on Redis with `condition: service_healthy`.
+- **Environment**: Configured via `REDIS_URL=redis://redis:6379` with default namespace `REDIS_KEY_PREFIX="khatam:"`.
+
+All Redis keys are TTL-bounded, namespaced under `REDIS_KEY_PREFIX`, and secrets are cryptographically hashed before storage. Redis capabilities include:
+1. **Shared Circuit Breakers**: Distributed trip records (`khatam:cb:*`) shared across instances, mirroring the local 4-state machine.
+2. **Dashboard Login Limiter**: Rate-limiting brute-force login attempts (`khatam:auth:login:*`).
+3. **OAuth Single-Use Refresh Lock**: Distributed mutual exclusion (`khatam:oauth:refresh:*`) preventing concurrent token refresh collisions across parallel requests.
+4. **Advisory API-Key Auth Cache**: Fast read cache (`khatam:auth:key:*`) for validated API keys; SQLite remains authoritative.
+5. **Real-Time Pub/Sub**: Real-time invalidation bus (`khatam:events:config_reload`) for cluster-wide cache coherence, plus usage/console log fan-out.
+6. **Stealth Session Pins**: Prompt-cache session stickiness pinning (`khatam:stealth:session:*`, opt-in via `STEALTH_STICKINESS=1`).
+7. **Pricing & Request-Details Invalidation**: Cluster cache clearing when provider pricing or routing configs change.
+8. **Round-Robin Counters**: Atomic round-robin index distribution for combos and outbound proxy selections.
+9. **Lease-Based Concurrency Semaphores**: Distributed concurrency limits (`khatam:sem:*`) using TTL-guarded leases with automatic release on completion or timeout.
+10. **Idempotency-Key Cache**: Opt-in deduplication for non-streaming chat completions (`khatam:idempotency:*`).
+
+### Quota Contract & Outage Behavior
+
+The hybrid quota system enforces a strict contract:
+- **`REDIS_URL` Unset**: Transparent non-consuming fail-open behavior (Wave 2 contract). The router functions standalone without Redis, using local in-process sliding windows and SQLite counters.
+- **Redis Configured but Failing / Unreachable**: Gracefully degrades to SQLite transaction-backed counters (`SqliteQuotaStore`) so configured spending and rate limits remain strictly enforced rather than failing open.
+- **Disabling Redis**: To run without Redis, leave `REDIS_URL` unset or comment out the `redis` service and `depends_on` block in `docker-compose.yml`. All core proxy and routing features operate purely on `bun:sqlite`.
 
 ## 4) Auth + Security Surfaces
 
@@ -442,9 +482,12 @@ flowchart LR
 - Response translators: `open-sse/translator/response/*`
 - Format constants: `open-sse/translator/formats.js`
 
-### Persistence
+### Persistence & Acceleration
 
-- `src/lib/localDb.js`: persistent config/state
+- `src/lib/db/`: bun:sqlite WAL database (`data.sqlite`), repositories, and versioned migrations
+- `src/lib/localDb.js`: backward-compat shim exporting DB accessors
+- `src/lib/redis/`: Redis client and Pub/Sub connection managers
+- `src/lib/quota/`: hybrid Redis/SQLite quota tracking (`createQuotaStore`)
 - `src/lib/usageDb.js`: usage history and rolling request logs
 
 ## Provider Executor Coverage
@@ -532,26 +575,28 @@ Runtime visibility sources:
 
 Environment variables actively used by code:
 
-- App/auth: `JWT_SECRET`, `INITIAL_PASSWORD`
-- Storage: `DATA_DIR`
-- Security hashing: `API_KEY_SECRET`, `MACHINE_ID_SALT`
+- App/auth: `JWT_SECRET`, `INITIAL_PASSWORD`, `API_KEY_SECRET`, `MACHINE_ID_SALT`
+- Storage: `DATA_DIR` (defaults to `~/.9router`, in container `/app/data`)
+- Acceleration / Redis: `REDIS_URL` (default in docker compose: `redis://redis:6379`), `REDIS_KEY_PREFIX` (default: `khatam:`)
+- Ports / Binding: `PORT` (alias for `DASHBOARD_PORT`, default: `20128`), `DASHBOARD_PORT`, `ENDPOINT_PORT` (`20129`), `HOSTNAME` (default: `0.0.0.0`), `NODE_ENV`
 - Logging: `ENABLE_REQUEST_LOGS`
-- Sync/cloud URLing: `NEXT_PUBLIC_BASE_URL`, `NEXT_PUBLIC_CLOUD_URL`
+- Sync/cloud URLing: `BASE_URL`, `CLOUD_URL`, `NEXT_PUBLIC_BASE_URL`, `NEXT_PUBLIC_CLOUD_URL`
 - Outbound proxy: `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY` and lowercase variants
-- Platform/runtime helpers (not app-specific config): `APPDATA`, `NODE_ENV`, `PORT`, `HOSTNAME`
+- Resilience / Guards: `KHATAM_RESILIENCE_CIRCUIT_BREAKER`, `KHATAM_MODEL_CAPABILITY_GUARD`, `STEALTH_*`, `CLI_COMPAT_*`
 
 ## Known Architectural Notes
 
-1. `usageDb` currently stores under `~/.9router` and does not follow `DATA_DIR`.
-2. `/api/v1/route.js` returns a static model list and is not the main models source used by `/v1/models`.
-3. Request logger writes full headers/body when enabled; treat log directory as sensitive.
-4. Cloud behavior depends on correct `NEXT_PUBLIC_BASE_URL` and cloud endpoint reachability.
+1. Server strictly requires Bun runtime (Bun v1.4.3+). Node.js is no longer supported.
+2. `usageDb` currently stores under `~/.9router` and does not follow `DATA_DIR`.
+3. `/api/v1/route.js` returns a static model list and is not the main models source used by `/v1/models`.
+4. Request logger writes full headers/body when enabled; treat log directory as sensitive.
+5. Cloud behavior depends on correct `BASE_URL`/`NEXT_PUBLIC_BASE_URL` and cloud endpoint reachability.
 
 ## Operational Verification Checklist
 
-- Build from source: `cd /root/dev/9router && npm run build`
-- Build Docker image: `cd /root/dev/9router && docker build -t 9router .`
+- Build from source: `bun run build:bun`
+- Build Docker image: `docker build -f Dockerfile.bun -t khatamrouter .`
 - Start service and verify:
-- `GET /api/settings`
-- `GET /api/v1/models`
-- CLI target base URL should be `http://<host>:20128/v1` when `PORT=20128`
+  - `GET /api/settings`
+  - `GET /api/v1/models`
+  - CLI target base URL should be `http://<host>:20128/v1` when `PORT=20128`

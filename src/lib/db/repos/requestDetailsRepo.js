@@ -1,5 +1,9 @@
 import { getAdapter } from "../driver.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
+import {
+  subscribeKhatamEvent,
+  KHATAM_EVENTS,
+} from "../../redis/events.js";
 
 const DEFAULT_MAX_RECORDS = 200;
 const DEFAULT_BATCH_SIZE = 20;
@@ -9,6 +13,22 @@ const CONFIG_CACHE_TTL_MS = 5000;
 
 let cachedConfig = null;
 let cachedConfigTs = 0;
+
+export function invalidateObservabilityConfigCache() {
+  cachedConfig = null;
+  cachedConfigTs = 0;
+}
+
+// Invalidate observability config cache upon receiving cluster config_reload events
+try {
+  subscribeKhatamEvent(KHATAM_EVENTS.CONFIG_RELOAD, (payload) => {
+    if (!payload || payload.scope === "settings" || payload.scope === "all" || payload.scope === "observability") {
+      invalidateObservabilityConfigCache();
+    }
+  });
+} catch {
+  // Safe fail-open if events bus cannot hook
+}
 
 async function getObservabilityConfig() {
   if (cachedConfig && (Date.now() - cachedConfigTs) < CONFIG_CACHE_TTL_MS) return cachedConfig;

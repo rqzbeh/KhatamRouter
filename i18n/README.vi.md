@@ -1143,10 +1143,10 @@ Ghi chú:
 
 ## 🛠️ Tech Stack
 
-- **Runtime**: Node.js 20+
+- **Runtime**: Bun v1.4.3+ (không còn hỗ trợ Node.js)
 - **Framework**: Next.js 16
 - **UI**: React 19 + Tailwind 4
-- **Database**: LowDB (dựa trên tệp JSON)
+- **Database**: SQLite chế độ WAL (độc quyền qua `bun:sqlite`)
 - **Streaming**: Server-Sent Events (SSE)
 - **Auth**: OAuth 2.0 (PKCE) + JWT + API Keys
 

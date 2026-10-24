@@ -1,5 +1,22 @@
 import { EventEmitter } from "events";
 import { CONSOLE_LOG_CONFIG } from "@/shared/constants/config.js";
+import {
+  getRedisClient,
+  getRedisSubscriber,
+  isRedisConfigured,
+} from "@/lib/redis/client.js";
+
+export const CONSOLE_LOG_CHANNEL = "khatam:events:console_log";
+
+let logInstanceId = `log-inst-${process.pid}-${Math.random().toString(36).slice(2, 10)}`;
+
+export function getLogInstanceId() {
+  return logInstanceId;
+}
+
+export function setLogInstanceId(newId) {
+  logInstanceId = newId;
+}
 
 const consoleLevels = ["log", "info", "warn", "error", "debug"];
 
@@ -27,12 +44,118 @@ if (!state.flushTimer) state.flushTimer = null;
 const FLUSH_INTERVAL_MS = 100;
 const MAX_BATCH_LINES = 50;
 
+let isSubscribedToRedis = false;
+let redisMessageListener = null;
+
+function parseLogEnvelope(raw) {
+  if (typeof raw !== "string") return { source: null, payload: raw };
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && "source" in parsed) {
+      return { source: parsed.source, payload: parsed.payload ?? null };
+    }
+    return { source: null, payload: parsed };
+  } catch {
+    return { source: null, payload: raw };
+  }
+}
+
+export function initConsoleLogFanout() {
+  if (!isRedisConfigured() || isSubscribedToRedis) return;
+
+  const sub = getRedisSubscriber();
+  if (!sub) return;
+
+  redisMessageListener = (channel, raw) => {
+    if (channel !== CONSOLE_LOG_CHANNEL) return;
+
+    const envelope = parseLogEnvelope(raw);
+
+    // INVARIANT: Zero double-echo on origin instance
+    if (envelope.source === logInstanceId) return;
+
+    const payload = envelope.payload;
+    const remoteLines = Array.isArray(payload?.lines)
+      ? payload.lines
+      : (Array.isArray(payload) ? payload : (typeof payload?.line === "string" ? [payload.line] : []));
+
+    if (remoteLines.length) {
+      appendRemoteLines(remoteLines);
+    }
+  };
+
+  sub.on("message", redisMessageListener);
+
+  const subscribeIfReady = () => {
+    sub.subscribe(CONSOLE_LOG_CHANNEL).catch(() => {});
+  };
+
+  if (sub.status === "ready") {
+    subscribeIfReady();
+  } else {
+    sub.once("ready", subscribeIfReady);
+  }
+
+  isSubscribedToRedis = true;
+}
+
+export function closeConsoleLogFanout() {
+  if (isSubscribedToRedis) {
+    const sub = getRedisSubscriber();
+    if (sub && redisMessageListener) {
+      try {
+        sub.off("message", redisMessageListener);
+        if (sub.status === "ready") {
+          sub.unsubscribe(CONSOLE_LOG_CHANNEL).catch(() => {});
+        }
+      } catch {}
+    }
+    redisMessageListener = null;
+    isSubscribedToRedis = false;
+  }
+}
+
+export async function fanoutConsoleLines(lines) {
+  if (!Array.isArray(lines) || !lines.length || !isRedisConfigured()) return;
+  if (process.env.REDIS_LOG_FANOUT_DISABLED === "true") return;
+
+  try {
+    const client = getRedisClient();
+    if (!client) return;
+
+    const envelope = {
+      source: logInstanceId,
+      channel: CONSOLE_LOG_CHANNEL,
+      timestamp: Date.now(),
+      payload: { lines },
+    };
+
+    const pub = client.publish(CONSOLE_LOG_CHANNEL, JSON.stringify(envelope));
+    if (pub && typeof pub.catch === "function") {
+      pub.catch(() => {});
+    }
+  } catch {
+    // Fail-open
+  }
+}
+
+function appendRemoteLines(lines) {
+  const maxLines = CONSOLE_LOG_CONFIG.maxLines;
+  state.logs.push(...lines);
+  if (state.logs.length > maxLines) {
+    state.logs = state.logs.slice(-maxLines);
+  }
+  // Emit to local dashboard stream viewers without queuing for republish
+  state.emitter.emit("lines", lines);
+}
+
 function flushPendingLines() {
   state.flushTimer = null;
   if (!state.pendingLines.length) return;
 
   const lines = state.pendingLines.splice(0, state.pendingLines.length);
   state.emitter.emit("lines", lines);
+  fanoutConsoleLines(lines);
 }
 
 function scheduleFlush() {
@@ -81,6 +204,8 @@ function appendLine(line) {
 }
 
 export function initConsoleLogCapture() {
+  initConsoleLogFanout();
+
   if (state.patched) return;
 
   for (const level of consoleLevels) {

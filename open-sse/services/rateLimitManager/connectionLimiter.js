@@ -13,8 +13,17 @@
  */
 
 import { getQuotaStore } from "@/lib/quota/storeFactory.js";
+import { isRedisConfigured } from "@/lib/redis/client.js";
+import { globalRedisSemaphore } from "@/lib/resilience/redisSemaphore.js";
 import { sanitizeConnectionLimitOverrides } from "./overrides.js";
 import { globalConnectionSemaphore, globalModelSemaphore } from "./semaphore.js";
+
+function getActiveSemaphore(type) {
+  if (isRedisConfigured()) {
+    return globalRedisSemaphore;
+  }
+  return type === "model" ? globalModelSemaphore : globalConnectionSemaphore;
+}
 
 // Tracks timestamp of last dispatched request per connection key for minTime spacing
 const lastRequestTimeMap = new Map();
@@ -53,7 +62,11 @@ export async function checkConnectionLimits(params = {}) {
 
   const now = Number(rawNow) || Date.now();
   const connKey = buildConnectionKey(connection);
-  const overrides = sanitizeConnectionLimitOverrides(rawOverrides);
+  const rawCandidate = rawOverrides
+    ?? connection?.rate_limit_overrides_json
+    ?? connection?.rateLimitOverrides
+    ?? connection?.providerSpecificData?.rateLimitOverrides;
+  const overrides = sanitizeConnectionLimitOverrides(rawCandidate);
 
   // If no overrides or empty config, all limits are unrestricted
   if (!overrides || Object.keys(overrides).length === 0) {
@@ -62,15 +75,19 @@ export async function checkConnectionLimits(params = {}) {
 
   let connSlotAcquired = false;
   let modelSlotAcquired = false;
+  let connLeaseId = null;
+  let modelLeaseId = null;
   let degraded = false;
 
   const rollbackSlots = () => {
     if (connSlotAcquired) {
-      globalConnectionSemaphore.release(connKey);
+      const sem = getActiveSemaphore("conn");
+      sem.release(connKey, connLeaseId);
       connSlotAcquired = false;
     }
     if (modelSlotAcquired && model) {
-      globalModelSemaphore.release(`${connKey}:${model}`);
+      const sem = getActiveSemaphore("model");
+      sem.release(`${connKey}:${model}`, modelLeaseId);
       modelSlotAcquired = false;
     }
   };
@@ -93,7 +110,8 @@ export async function checkConnectionLimits(params = {}) {
     // 2. Enforce in-flight maxConcurrent semaphore
     if (overrides.maxConcurrent && overrides.maxConcurrent > 0) {
       const waitMs = overrides.maxWaitMs || 0;
-      const acqResult = await globalConnectionSemaphore.acquire(connKey, overrides.maxConcurrent, {
+      const sem = getActiveSemaphore("conn");
+      const acqResult = await sem.acquire(connKey, overrides.maxConcurrent, {
         maxWaitMs: waitMs,
         signal,
       });
@@ -106,6 +124,7 @@ export async function checkConnectionLimits(params = {}) {
         };
       }
       connSlotAcquired = true;
+      connLeaseId = acqResult.leaseId;
     }
 
     // 3. Enforce modelConcurrency if configured for this model
@@ -118,7 +137,8 @@ export async function checkConnectionLimits(params = {}) {
       const modelKey = `${connKey}:${model}`;
       const modelMax = overrides.modelConcurrency[model];
       const waitMs = overrides.maxWaitMs || 0;
-      const modelAcq = await globalModelSemaphore.acquire(modelKey, modelMax, {
+      const sem = getActiveSemaphore("model");
+      const modelAcq = await sem.acquire(modelKey, modelMax, {
         maxWaitMs: waitMs,
         signal,
       });
@@ -132,6 +152,7 @@ export async function checkConnectionLimits(params = {}) {
         };
       }
       modelSlotAcquired = true;
+      modelLeaseId = modelAcq.leaseId;
     }
 
     // 4. Enforce quota store dimensions: rpm, rpd, tpm, tpd
@@ -188,6 +209,8 @@ export async function checkConnectionLimits(params = {}) {
       slotsHeld: {
         connection: connSlotAcquired,
         model: modelSlotAcquired,
+        leaseId: connLeaseId,
+        modelLeaseId,
       },
     };
   } catch (err) {
@@ -205,12 +228,17 @@ export async function checkConnectionLimits(params = {}) {
  * Release connection and model concurrency slots upon request completion or abort.
  */
 export function releaseConnectionSlot(params = {}) {
-  const { connection, overrides: rawOverrides, model } = params;
+  const { connection, overrides: rawOverrides, model, leaseId, modelLeaseId } = params;
   const connKey = buildConnectionKey(connection);
-  const overrides = sanitizeConnectionLimitOverrides(rawOverrides);
+  const rawCandidate = rawOverrides
+    ?? connection?.rate_limit_overrides_json
+    ?? connection?.rateLimitOverrides
+    ?? connection?.providerSpecificData?.rateLimitOverrides;
+  const overrides = sanitizeConnectionLimitOverrides(rawCandidate);
 
   if (overrides?.maxConcurrent && overrides.maxConcurrent > 0) {
-    globalConnectionSemaphore.release(connKey);
+    const sem = getActiveSemaphore("conn");
+    sem.release(connKey, leaseId);
   }
 
   if (
@@ -219,7 +247,8 @@ export function releaseConnectionSlot(params = {}) {
     typeof overrides.modelConcurrency[model] === "number" &&
     overrides.modelConcurrency[model] > 0
   ) {
-    globalModelSemaphore.release(`${connKey}:${model}`);
+    const sem = getActiveSemaphore("model");
+    sem.release(`${connKey}:${model}`, modelLeaseId);
   }
 }
 
@@ -230,4 +259,7 @@ export function resetConnectionLimiter() {
   lastRequestTimeMap.clear();
   globalConnectionSemaphore.reset();
   globalModelSemaphore.reset();
+  try {
+    globalRedisSemaphore.reset();
+  } catch {}
 }

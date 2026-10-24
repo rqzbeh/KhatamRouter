@@ -1356,10 +1356,10 @@ Remarques :
 
 ## 🛠️ Pile technologique
 
-- **Runtime** : Node.js 20+
+- **Runtime** : Bun v1.4.3+ (Node.js n'est plus pris en charge)
 - **Framework** : Next.js 16
 - **UI** : React 19 + Tailwind CSS 4
-- **Base de données** : SQLite (better-sqlite3 / node:sqlite / sql.js en secours)
+- **Base de données** : SQLite en mode WAL (exclusivement via `bun:sqlite`)
 - **Streaming** : Server-Sent Events (SSE)
 - **Authentification** : OAuth 2.0 (PKCE) + JWT + clés API
 

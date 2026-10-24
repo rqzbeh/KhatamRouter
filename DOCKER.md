@@ -6,7 +6,101 @@ Run KhatamRouter in a container. Published image: [`ghcr.io/rqzbeh/khatamrouter`
 
 # 👤 For Users
 
-## Quick start
+## Docker Compose (Recommended Default Stack)
+
+The repo provides a production-ready `docker-compose.yml` that boots KhatamRouter built via `Dockerfile.bun` with a local `redis:8.2-alpine` instance and the Headroom token compression sidecar:
+
+```yaml
+services:
+  9router:
+    build:
+      context: .
+      dockerfile: Dockerfile.bun
+    container_name: 9router
+    restart: always
+    ports:
+      - "20128:20128"
+    volumes:
+      - 9router-data:/app/data
+    environment:
+      DATA_DIR: /app/data
+      PORT: "20128"
+      DASHBOARD_PORT: "20128"
+      HOSTNAME: "0.0.0.0"
+      NODE_ENV: production
+      REDIS_URL: redis://redis:6379
+      REDIS_KEY_PREFIX: "khatam:"
+      HEADROOM_URL: http://headroom:8787
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:8.2-alpine
+    container_name: 9router-redis
+    restart: always
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 2s
+
+  headroom:
+    image: ghcr.io/chopratejas/headroom:latest
+    container_name: headroom
+    restart: always
+    ports:
+      - "8787:8787"
+
+volumes:
+  9router-data:
+    name: 9router-data
+  redis-data:
+    name: redis-data
+```
+
+Start the stack:
+
+```bash
+docker compose up -d
+```
+
+### Redis Defaults & Healthchecks
+
+- **Image & Persistence**: Standardizes on `redis:8.2-alpine` with Append-Only File (`--appendonly yes`) on a dedicated named volume `redis-data`.
+- **Security**: The host port mapping `127.0.0.1:6379:6379` binds exclusively to the host loopback interface, preventing external network exposure.
+- **Healthcheck**: Uses `redis-cli ping` running every 5 seconds. The app container waits for healthy status via `depends_on: { redis: { condition: service_healthy } }`.
+
+### Redis Role & Outage Behavior
+
+Redis acts as a high-speed accelerator and distributed coordination plane:
+- Lease-based concurrency semaphores (`khatam:sem:*`)
+- Real-time Pub/Sub invalidation bus (`khatam:events:config_reload`)
+- Sliding-window quota counters (`khatam:quota:*`)
+- Advisory API-key cache and shared circuit-breaker state
+
+**Outage Degradation**:
+- If `REDIS_URL` is omitted, KhatamRouter operates standalone with fail-open in-memory semantics.
+- If `REDIS_URL` is configured but Redis goes offline during operation, the quota system automatically degrades to transaction-backed SQLite storage (`SqliteQuotaStore`) so configured spending and rate limits remain strictly enforced. Caching and Pub/Sub fail open without breaking in-flight requests.
+
+### Disabling Redis
+
+If you want to run KhatamRouter completely standalone without Redis:
+1. In `docker-compose.yml`, remove or comment out the `redis` service block.
+2. Remove `REDIS_URL` from the `environment` section and remove the `depends_on: redis` block.
+3. Start the stack: `docker compose up -d`. All state is stored solely in `bun:sqlite` (`$DATA_DIR/db/data.sqlite`).
+
+---
+
+## Standalone Quick Start (Single Container)
+
+Run our official multi-platform container image (`linux/amd64` + `linux/arm64`):
 
 ```bash
 docker run -d \

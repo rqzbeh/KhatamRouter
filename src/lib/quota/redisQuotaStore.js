@@ -32,6 +32,7 @@ import {
   isRedisConfigured,
   withRedisKey,
 } from "../redis/client.js";
+import { SqliteQuotaStore } from "./sqliteQuotaStore.js";
 
 /**
  * Hash a raw API key or token to a SHA-256 hex string so cleartext secrets
@@ -84,11 +85,12 @@ end
 export class RedisQuotaStore {
   constructor(options = {}) {
     this.driver = "redis";
-    this.customClient = options.client || null;
+    this.customClient = options.client !== undefined ? options.client : undefined;
+    this.fallbackStore = options.fallbackStore || options.fallback || new SqliteQuotaStore(options.sqliteOptions);
   }
 
   getClient() {
-    if (this.customClient) return this.customClient;
+    if (this.customClient !== undefined) return this.customClient;
     if (!isRedisConfigured()) return null;
     return getRedisClient();
   }
@@ -124,6 +126,32 @@ export class RedisQuotaStore {
 
     const client = this.getClient();
     if (!client) {
+      // Redis is not configured at all: this is the documented Wave 2 contract —
+      // do not consume anything, report a degraded allow. The SQLite degradation
+      // below applies only when Redis IS configured but the connection/command
+      // fails (an outage), so limits keep being enforced in that case.
+      if (!isRedisConfigured()) {
+        return {
+          allowed: true,
+          degraded: true,
+          current: 0,
+          limit,
+          remaining: limit,
+          resetAtMs,
+          resetMs,
+        };
+      }
+      if (this.fallbackStore) {
+        try {
+          const fallbackRes = await this.fallbackStore.consume(params);
+          return {
+            ...fallbackRes,
+            degraded: true,
+          };
+        } catch {
+          // Fall through to fail-open
+        }
+      }
       return {
         allowed: true,
         degraded: true,
@@ -206,6 +234,17 @@ export class RedisQuotaStore {
       }
     } catch (error) {
       warnRedisError(error, "consume");
+      if (this.fallbackStore) {
+        try {
+          const fallbackRes = await this.fallbackStore.consume(params);
+          return {
+            ...fallbackRes,
+            degraded: true,
+          };
+        } catch {
+          // Fall through to fail-open
+        }
+      }
       return {
         allowed: true,
         degraded: true,
@@ -247,7 +286,29 @@ export class RedisQuotaStore {
     const resetMs = Math.max(0, resetAtMs - now);
 
     const client = this.getClient();
+      // Unset REDIS_URL keeps the documented fail-open contract (no consumption);
+      // only a configured-but-failing Redis degrades to the SQLite store.
+      if (!isRedisConfigured()) {
+        return {
+          allowed: true,
+          degraded: true,
+          current: 0,
+          limit,
+          remaining: limit,
+          resetAtMs,
+          resetMs,
+        };
+      }
     if (!client) {
+      if (this.fallbackStore) {
+        try {
+          const fallbackRes = await this.fallbackStore.peek(params);
+          return {
+            ...fallbackRes,
+            degraded: true,
+          };
+        } catch {}
+      }
       return {
         allowed: true,
         degraded: true,
@@ -283,6 +344,15 @@ export class RedisQuotaStore {
       };
     } catch (error) {
       warnRedisError(error, "peek");
+      if (this.fallbackStore) {
+        try {
+          const fallbackRes = await this.fallbackStore.peek(params);
+          return {
+            ...fallbackRes,
+            degraded: true,
+          };
+        } catch {}
+      }
       return {
         allowed: true,
         degraded: true,

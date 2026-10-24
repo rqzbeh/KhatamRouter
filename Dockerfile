@@ -1,84 +1,108 @@
-# syntax=docker/dockerfile:1.7
-ARG NODE_IMAGE=node:22-alpine
-ARG ALPINE_MIRROR=dl-cdn.alpinelinux.org
-ARG NPM_REGISTRY=https://registry.npmjs.org/
-ARG APP_VERSION=unknown
-
-FROM ${NODE_IMAGE} AS base
-ARG ALPINE_MIRROR
+# ── Multi-stage Dockerfile for Native Bun Runtime (KhatamRouter) ─────────────
+# Wave 7.5 (spec/0075-bun-only-redis-default): this file is the single maintained
+# application Dockerfile. `Dockerfile.bun` is kept as a byte-identical alias for
+# compatibility with older build scripts and CapRover configs; a unit test
+# (tests/unit/wave75-docker-compose.test.js) fails if the two ever diverge.
+#
+# Pinned to oven/bun:1.4.3-slim per Constitution Principle II & Wave 1 spec.
+FROM oven/bun:1.4.3-slim AS base
 WORKDIR /app
 
-# Use the official Alpine mirror by default. A repository variable/build arg can
-# override it for environments that require a regional mirror.
-RUN if [ "$ALPINE_MIRROR" != "dl-cdn.alpinelinux.org" ]; then \
-      sed -i "s|dl-cdn.alpinelinux.org|${ALPINE_MIRROR}|g" /etc/apk/repositories; \
-    fi
+RUN apt-get update \
+  && apt-get upgrade -y \
+  && apt-get install -y --no-install-recommends \
+     build-essential \
+     python3 \
+     python-is-python3 \
+     make \
+     g++ \
+     libsecret-1-0 \
+     ca-certificates \
+     curl \
+     sqlite3 \
+  && rm -rf /var/lib/apt/lists/*
 
+# ── Builder stage (100% Bun Native Install & Build) ─────────────────────────
 FROM base AS builder
-ARG NPM_REGISTRY
-
-RUN apk add --no-cache python3 make g++ linux-headers
-
-COPY package.json ./
-RUN --mount=type=cache,target=/root/.npm \
-    npm install \
-      --registry="${NPM_REGISTRY}" \
-      --fetch-retries=5 \
-      --fetch-retry-factor=2 \
-      --fetch-retry-mintimeout=10000 \
-      --fetch-retry-maxtimeout=120000 \
-      --fetch-timeout=300000
-
-COPY . ./
-ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build
-
-FROM ${NODE_IMAGE} AS runner
-ARG ALPINE_MIRROR
-ARG APP_VERSION
 WORKDIR /app
 
-RUN if [ "$ALPINE_MIRROR" != "dl-cdn.alpinelinux.org" ]; then \
-      sed -i "s|dl-cdn.alpinelinux.org|${ALPINE_MIRROR}|g" /etc/apk/repositories; \
-    fi
+# Cache dependency layer. The lockfile is optional for the first build, so the
+# build context provides it only when present (.dockerignore keeps it otherwise).
+COPY package.json ./
+COPY bun.lock* ./
 
-LABEL org.opencontainers.image.title="9router" \
-      org.opencontainers.image.version="${APP_VERSION}"
+# Fast Bun native package install
+RUN bun install --include=optional --quiet
+
+# Smoke check native database driver used by Bun (bun:sqlite)
+RUN bun -e "import { Database } from 'bun:sqlite'; const db = new Database(':memory:'); db.query('SELECT 1 AS ok').get(); db.close(); console.log('bun:sqlite smoke: OK');"
+
+COPY . .
+
+# Build-time resource caps. ARGs must be declared to be consumed at all —
+# otherwise `--build-arg NEXT_BUILD_CPUS/NODE_OPTIONS` is silently dropped by
+# BuildKit. Exporting them via ENV (not just ARG) puts them in the environment
+# of the build command below, so `next build` actually sees them.
+ARG NEXT_BUILD_CPUS=2
+ARG NODE_OPTIONS
+ENV NEXT_BUILD_CPUS=${NEXT_BUILD_CPUS}
+ENV NODE_OPTIONS=${NODE_OPTIONS}
+
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=production
+
+# Build-local throwaway path so build-time operations never touch /root/.9router or leak into the image
+ENV DATA_DIR=/tmp/khatam-build-data
+ENV DATA_DIR_ALLOW_TEMP=1
+
+# Next.js build execution under Bun
+RUN bun run build
+
+# ── Runner stage (100% Bun Native Production Runtime) ───────────────────────
+FROM oven/bun:1.4.3-slim AS runner
+
+LABEL org.opencontainers.image.title="khatamrouter" \
+  org.opencontainers.image.description="KhatamRouter — dual-runtime AI gateway & control plane (Bun Native)" \
+  org.opencontainers.image.licenses="MIT"
+
+WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+     ca-certificates \
+     curl \
+     sqlite3 \
+  && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production
+# Dual-port architecture:
+#   DASHBOARD_PORT (20128) - Bun Next.js control plane
+#   ENDPOINT_PORT  (20129) - Go data plane gateway
 ENV PORT=20128
+ENV DASHBOARD_PORT=20128
+ENV ENDPOINT_PORT=20129
 ENV HOSTNAME=0.0.0.0
-ENV NEXT_TELEMETRY_DISABLED=1
 ENV DATA_DIR=/app/data
 
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/static ./.next/static
+RUN mkdir -p /app/data
+
+# Standalone output artifacts from builder
 COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
 COPY --from=builder /app/custom-server.js ./custom-server.js
-COPY --from=builder /app/open-sse ./open-sse
-# Next file tracing can omit sibling files; MITM runs server.js as a separate process.
-COPY --from=builder /app/src/mitm ./src/mitm
-# Standalone node_modules may omit deps only required by the MITM child process.
-COPY --from=builder /app/node_modules/node-forge ./node_modules/node-forge
-# Ensure `next` is available at runtime in case tracing did not include it.
-COPY --from=builder /app/node_modules/next ./node_modules/next
-# sql.js loads dist/sql-wasm.wasm by path at runtime; tracing only follows JS imports,
-# so the last-resort DB driver would abort with ENOENT on the missing binary.
-COPY --from=builder /app/node_modules/sql.js ./node_modules/sql.js
-# node-machine-id is createRequire-loaded at runtime; tracing omits it.
-COPY --from=builder /app/node_modules/node-machine-id ./node_modules/node-machine-id
+COPY --from=builder /app/runtime-secrets.cjs ./runtime-secrets.cjs
 
-RUN mkdir -p /app/data && chown -R node:node /app && \
-  mkdir -p /app/data-home && chown node:node /app/data-home && \
-  ln -sf /app/data-home /root/.9router 2>/dev/null || true
+# Wave 7.5 / SC-009: bun:sqlite is built into the Bun binary, so the image must
+# ship no Node-only SQLite addon. If output tracing ever drags one in, fail the
+# build here instead of shipping it.
+RUN test -z "$(find /app -type f -name 'better_sqlite3.node' -print -quit 2>/dev/null || true)"
 
-# Avoid a full distribution upgrade in the runtime image. It makes builds less
-# reproducible and is unrelated to installing the runtime entrypoint helper.
-RUN apk add --no-cache su-exec && \
-  printf '#!/bin/sh\nchown -R node:node /app/data /app/data-home 2>/dev/null\nexec su-exec node "$@"\n' > /entrypoint.sh && \
-  chmod +x /entrypoint.sh
+RUN chown -R bun:bun /app /app/data
 
-EXPOSE 20128
+USER bun
 
-ENTRYPOINT ["/entrypoint.sh"]
-CMD ["node", "custom-server.js"]
+# Expose both the control plane dashboard and the data plane endpoint gateway
+EXPOSE 20128 20129
+
+ENTRYPOINT ["bun", "custom-server.js"]

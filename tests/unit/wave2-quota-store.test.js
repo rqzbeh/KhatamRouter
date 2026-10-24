@@ -242,33 +242,52 @@ describe("RedisQuotaStore — fail-open contract", () => {
     expect(peeked).toMatchObject({ allowed: true, degraded: true, remaining: 10 });
   });
 
-  it("fails open (and warns once) when Redis commands throw", async () => {
+  // Wave 7.5 / FR-014 changed this contract on purpose: when Redis IS configured but
+  // failing (an outage), limits must keep being enforced by degrading to the SQLite
+  // store. The unset case above still returns the original non-consuming fail-open.
+  it("degrades to SQLite and keeps enforcing limits (warns once) when Redis commands throw", async () => {
     process.env.REDIS_URL = "redis://127.0.0.1:6399";
+    // Isolate the SQLite fallback: the degrade path writes real counters.
+    const prevDataDir = process.env.DATA_DIR;
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "w75-quota-outage-"));
+    process.env.DATA_DIR = tempDir;
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { RedisQuotaStore, resetRedisQuotaWarning } = await import("@/lib/quota/redisQuotaStore.js");
     resetRedisQuotaWarning();
+    // Isolated fallback: the degrade path writes real counters, so keep it off the
+    // host data dir. A fresh in-memory table per test also prevents cross-test leakage.
     const store = new RedisQuotaStore({ client: new FakeRedis({ failOn: ["get"] }) });
 
     const first = await store.consume({ key: "boom", limit: 10, windowMs: WINDOW_MS });
     const second = await store.consume({ key: "boom", limit: 10, windowMs: WINDOW_MS });
     const peeked = await store.peek({ key: "boom", limit: 10, windowMs: WINDOW_MS });
 
-    expect(first).toMatchObject({ allowed: true, degraded: true, remaining: 10 });
-    expect(second).toMatchObject({ allowed: true, degraded: true, remaining: 10 });
-    expect(peeked).toMatchObject({ allowed: true, degraded: true, remaining: 10 });
+    // Degraded but STILL ENFORCING: consumption is accounted by the SQLite fallback.
+    expect(first).toMatchObject({ allowed: true, degraded: true });
+    expect(second).toMatchObject({ allowed: true, degraded: true });
+    expect(first.remaining).toBe(9);
+    expect(second.remaining).toBe(8);
+    expect(peeked).toMatchObject({ allowed: true, degraded: true });
+    expect(peeked.remaining).toBe(8);
 
     // Single non-fatal warning across all failures.
     const quotaWarnings = warn.mock.calls.filter((c) => String(c[0]).includes("[quota:redis]"));
     expect(quotaWarnings).toHaveLength(1);
     // And it never leaks an API key into the log line.
     expect(quotaWarnings[0].join(" ")).not.toContain("sk-live");
+    if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
+    fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("fails open when INCRBYFLOAT itself throws", async () => {
+  it("degrades to SQLite when INCRBYFLOAT itself throws", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { RedisQuotaStore, resetRedisQuotaWarning } = await import("@/lib/quota/redisQuotaStore.js");
     resetRedisQuotaWarning();
-    const store = new RedisQuotaStore({ client: new FakeRedis({ failOn: ["incrbyfloat"] }) });
+    // Isolated fallback table: the degrade path writes real counters.
+    const store = new RedisQuotaStore({
+      client: new FakeRedis({ failOn: ["incrbyfloat"] }),
+      sqliteOptions: { tableName: "w75_outage_incr" },
+    });
     const res = await store.consume({ key: "boom2", limit: 10, windowMs: WINDOW_MS, now: NOW });
     expect(res).toMatchObject({ allowed: true, degraded: true });
     warn.mockRestore();

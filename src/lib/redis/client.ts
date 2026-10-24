@@ -96,6 +96,14 @@ async function closeInstance(instance: RedisClientType | null): Promise<void> {
   try { instance.removeAllListeners(); } catch {}
 }
 
+export function setRedisClient(newClient: RedisClientType | null): void {
+  client = newClient;
+}
+
+export function setRedisSubscriber(newSubscriber: RedisClientType | null): void {
+  subscriber = newSubscriber;
+}
+
 export async function closeRedisClient(): Promise<void> {
   const activeSubscriber = subscriber;
   const activeClient = client;

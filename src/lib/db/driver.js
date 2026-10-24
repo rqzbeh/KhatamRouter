@@ -1,5 +1,11 @@
 // NOTE: driver.js → migrate.js → metaStore.js → driver.js forms a static import cycle,
 // but all cross-module references use dynamic `await import()` which breaks the cycle at runtime.
+//
+// In Wave 7.5, KhatamRouter standardizes exclusively on bun:sqlite with WAL journal mode.
+// No Node-runtime SQLite fallback drivers remain — this is the only adapter.
+//
+// MIGRATED_MARKER: The legacy JSON migration marker in src/lib/db/migrate.js is preserved
+// per US7 Acceptance Scenario 14 to prevent duplicate migration passes if legacy JSON files exist.
 import fs from "node:fs";
 import { ensureDirs, DATA_FILE } from "./paths.js";
 
@@ -10,35 +16,16 @@ function getState() {
 }
 
 /**
- * Open an existing database read-only, without treating driver failures as
- * corruption. Ported from VansRouter: the integrity preflight must run on a
- * connection that cannot write, so a corrupt file is never "repaired" into
- * existence by the check itself.
+ * Open an existing database read-only using bun:sqlite, without treating driver
+ * failures as corruption. The integrity preflight must run on a connection that
+ * cannot write, so a corrupt file is never "repaired" into existence by the check itself.
  */
 async function openIntegrityDatabase(file) {
-  if (process.versions.bun) {
-    const { Database } = await import("bun:sqlite");
-    return new Database(file, { readonly: true });
+  if (!process.versions.bun) {
+    throw new Error("[DB] KhatamRouter requires the Bun runtime (bun:sqlite). Please run with 'bun'.");
   }
-
-  const errors = [];
-  try {
-    const Database = (await import("better-sqlite3")).default;
-    return new Database(file, { readonly: true, fileMustExist: true });
-  } catch (error) {
-    // Native bindings can fail to load at construction rather than import time.
-    errors.push(error);
-  }
-  try {
-    const { DatabaseSync } = await import("node:sqlite");
-    return new DatabaseSync(file, { readOnly: true });
-  } catch (error) {
-    errors.push(error);
-  }
-  throw new AggregateError(
-    errors,
-    `[DB] Cannot open ${file} for a read-only integrity check. Database files were left in place.`
-  );
+  const { Database } = await import("bun:sqlite");
+  return new Database(file, { readonly: true });
 }
 
 /**
@@ -71,79 +58,19 @@ export async function verifyDatabaseIntegrity(file) {
   return true;
 }
 
-async function tryBunSqlite(errors) {
-  // Bun runtime only — built-in, no install needed
-  if (!process.versions.bun) return null;
-  try {
-    const { createBunSqliteAdapter } = await import("./adapters/bunSqliteAdapter.js");
-    return await createBunSqliteAdapter(DATA_FILE);
-  } catch (e) {
-    errors?.push(e);
-    console.warn(`[DB] bun:sqlite unavailable: ${e.message}`);
-    return null;
-  }
-}
-
-async function tryBetterSqlite(errors) {
-  // Skip on Bun — better-sqlite3 native bindings unsupported
-  if (process.versions.bun) return null;
-  try {
-    const { createBetterSqliteAdapter } = await import("./adapters/betterSqliteAdapter.js");
-    return createBetterSqliteAdapter(DATA_FILE);
-  } catch (e) {
-    errors?.push(e);
-    console.warn(`[DB] better-sqlite3 unavailable: ${e.message}`);
-    return null;
-  }
-}
-
-async function tryNodeSqlite(errors) {
-  // Built-in since Node 22.5.0 — no install needed. Skip under Bun (no node:sqlite).
-  if (process.versions.bun) return null;
-  const [maj, min] = process.versions.node.split(".").map(Number);
-  if (maj < 22 || (maj === 22 && min < 5)) return null;
-  try {
-    const { createNodeSqliteAdapter } = await import("./adapters/nodeSqliteAdapter.js");
-    return await createNodeSqliteAdapter(DATA_FILE);
-  } catch (e) {
-    errors?.push(e);
-    console.warn(`[DB] node:sqlite unavailable: ${e.message}`);
-    return null;
-  }
-}
-
-async function trySqlJs() {
-  try {
-    const { createSqlJsAdapter } = await import("./adapters/sqljsAdapter.js");
-    return await createSqlJsAdapter(DATA_FILE);
-  } catch (e) {
-    console.warn(`[DB] sql.js unavailable: ${e.message}`);
-    return null;
-  }
-}
-
 async function initAdapter() {
-  ensureDirs();
-  // Preflight before any driver opens the file for writing: a corrupt database
-  // must stop the boot, not be silently replaced by an empty one.
-  const existingDatabase = await verifyDatabaseIntegrity(DATA_FILE);
-  // Native drivers understand WAL; sql.js may only initialize a new database.
-  const errors = [];
-  // Order per runtime:
-  //   Bun:  bun:sqlite → sql.js
-  //   Node: better-sqlite3 → node:sqlite (≥22.5) → sql.js
-  let adapter = await tryBunSqlite(errors);
-  if (!adapter) adapter = await tryBetterSqlite(errors);
-  if (!adapter) adapter = await tryNodeSqlite(errors);
-  if (!adapter && existingDatabase) {
-    throw new AggregateError(
-      errors,
-      `[DB] No native SQLite driver could initialize ${DATA_FILE}. Refusing sql.js fallback ` +
-        `for an existing database because it cannot read SQLite WAL files.`
-    );
+  if (!process.versions.bun) {
+    throw new Error("[DB] KhatamRouter requires the Bun runtime (bun:sqlite). Please run with 'bun'.");
   }
-  if (!adapter) adapter = await trySqlJs();
-  if (!adapter) throw new Error("[DB] No SQLite driver available (bun/better/node/sql.js all failed)");
+
+  ensureDirs();
+
+  // Preflight before driver opens the file for writing: a corrupt database
+  // must stop the boot, not be silently replaced by an empty one.
+  await verifyDatabaseIntegrity(DATA_FILE);
+
+  const { createBunSqliteAdapter } = await import("./adapters/bunSqliteAdapter.js");
+  const adapter = await createBunSqliteAdapter(DATA_FILE);
 
   const state = getState();
   if (!state.logged) {

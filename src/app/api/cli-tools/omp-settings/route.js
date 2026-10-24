@@ -122,29 +122,32 @@ export async function POST(request) {
 
     await fs.writeFile(getOmpModelsYmlPath(), ymlContent, "utf-8");
 
-    // Best-effort update to agent.db if better-sqlite3 or node:sqlite is present
+    // Best-effort update to agent.db via bun:sqlite (built-in runtime driver)
     try {
       let Database;
       try {
-        const mod = await import("better-sqlite3");
-        Database = mod.default || mod;
+        const mod = await import("bun:sqlite");
+        Database = mod.Database || mod.default;
       } catch {
-        // fallback ignored
+        // bun:sqlite unavailable — models.yml remains the source of truth
       }
       if (Database) {
         const dbPath = getOmpDbPath();
         const db = new Database(dbPath);
-        db.prepare("DELETE FROM auth_credentials WHERE provider = ?").run(PROVIDER_ID);
-        db.prepare(
-          "INSERT INTO auth_credentials (provider, credential_type, data, disabled_cause, identity_key, created_at, updated_at) VALUES (?, ?, ?, NULL, NULL, ?, ?)"
-        ).run(
-          PROVIDER_ID,
-          "api_key",
-          JSON.stringify({ apiKey: resolvedKey, baseUrl }),
-          Math.floor(Date.now() / 1000),
-          Math.floor(Date.now() / 1000)
-        );
-        db.close();
+        try {
+          db.query("DELETE FROM auth_credentials WHERE provider = ?").run(PROVIDER_ID);
+          db.query(
+            "INSERT INTO auth_credentials (provider, credential_type, data, disabled_cause, identity_key, created_at, updated_at) VALUES (?, ?, ?, NULL, NULL, ?, ?)"
+          ).run(
+            PROVIDER_ID,
+            "api_key",
+            JSON.stringify({ apiKey: resolvedKey, baseUrl }),
+            Math.floor(Date.now() / 1000),
+            Math.floor(Date.now() / 1000)
+          );
+        } finally {
+          db.close();
+        }
       }
     } catch {
       // Non-critical: models.yml is primary

@@ -26,11 +26,11 @@ export interface BunSqliteAdapter {
   raw: BunSqliteDatabaseLike;
   prepare: (sql: string) => BunSqliteStatement;
   run: (sql: string, ...params: unknown[]) => { changes: number; lastInsertRowid: number };
-  get: <T = unknown>(sql: string, ...params: unknown[]) => T | undefined;
+  get: <T = unknown>(sql: string, ...params: unknown[]) => T | null;
   all: <T = unknown>(sql: string, ...params: unknown[]) => T[];
   exec: (sql: string) => void;
   pragma: (pragmaStr: string, options?: { simple?: boolean }) => unknown;
-  transaction: <T>(fn: (...args: unknown[]) => T) => (...args: unknown[]) => T;
+  transaction: <T>(fn: (...args: unknown[]) => T) => T;
   immediate: (fn: () => void) => void;
   backup: (destination: string) => Promise<void>;
   checkpoint: (mode?: "PASSIVE" | "FULL" | "RESTART" | "TRUNCATE") => void;
@@ -159,10 +159,10 @@ export async function createBunSqliteAdapter(filePath: string): Promise<BunSqlit
       return { changes: Number(result.changes ?? 0), lastInsertRowid: Number(result.lastInsertRowid ?? 0) };
     },
 
-    get<T = unknown>(sql: string, ...params: unknown[]): T | undefined {
+    get<T = unknown>(sql: string, ...params: unknown[]): T | null {
       const statement = this.prepare(sql);
-      // bun:sqlite returns null when no row matches; contract call sites written to.
-      return (statement.get(...params) ?? undefined) as T | undefined;
+      const row = statement.get(...params);
+      return (row ?? null) as T | null;
     },
 
     all<T = unknown>(sql: string, ...params: unknown[]): T[] {
@@ -182,8 +182,9 @@ export async function createBunSqliteAdapter(filePath: string): Promise<BunSqlit
       return statement.all();
     },
 
-    transaction<T>(fn: (...args: unknown[]) => T): (...args: unknown[]) => T {
-      return db.transaction(fn) as (...args: unknown[]) => T;
+    transaction<T>(fn: (...args: unknown[]) => T): T {
+      const tx = db.transaction(fn);
+      return tx() as T;
     },
 
     immediate(fn: () => void): void {
