@@ -1,9 +1,6 @@
 // Versioned migration runner — the single authority for applying schema
-// migrations against the shared SQLite database (Constitution Principle III:
-// WAL + busy_timeout; the same file is opened by the Bun control-plane and the
-// Go data-plane process).
-//
-// TypeScript twin of `migrationRunner.ts`. Keep both in sync.
+// migrations against the SQLite database (Constitution Principle III:
+// WAL + busy_timeout driven by bun:sqlite).
 //
 // Contracts (Wave 2 spec / FR-001..FR-007):
 // - Bookkeeping lives in `_khatam_migrations (version PK, name, applied_at)`.
@@ -60,10 +57,10 @@ export async function discoverMigrations(dir = null) {
   const discovered = [];
   for (const entry of entries) {
     if (!entry.isFile()) continue;
-    if (entry.name === "index.js" || !/^[\d][\w-]*\.(js|ts|mjs)$/.test(entry.name)) continue;
+    if (entry.name === "index.js" || entry.name.endsWith(".d.ts") || !/^[\d][\w-]*\.(js|ts|mjs)$/.test(entry.name)) continue;
     const mod = await import(pathToFileURL(path.join(migrationsDir, entry.name)).href);
     const migration = mod.default || mod;
-    if (migration && Number.isFinite(Number(migration.version))) {
+    if (migration && Number.isFinite(Number(migration.version)) && typeof migration.up === "function") {
       discovered.push({ version: Number(migration.version), name: String(migration.name || entry.name), up: migration.up });
     }
   }

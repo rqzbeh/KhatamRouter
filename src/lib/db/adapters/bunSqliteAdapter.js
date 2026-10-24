@@ -4,10 +4,9 @@ import { PRAGMA_SQL } from "../schema.js";
 
 const CHECKPOINT_INTERVAL_MS = 60 * 1000;
 
-// Opening contract for every connection (Constitution Principle III: the file is
-// shared with a second runtime process). busy_timeout comes first so the WAL
-// switch below waits for concurrent writers instead of failing SQLITE_BUSY.
-// Keep these literals in sync with src/lib/db/adapters/bunSqliteAdapter.ts.
+// Opening contract for every connection (Constitution Principle III).
+// busy_timeout comes first so the WAL switch below waits for concurrent
+// writers instead of failing SQLITE_BUSY.
 export const OPEN_PRAGMAS = `
 PRAGMA busy_timeout = 5000;
 PRAGMA journal_mode = WAL;

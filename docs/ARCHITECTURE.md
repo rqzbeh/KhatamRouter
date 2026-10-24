@@ -578,7 +578,7 @@ Environment variables actively used by code:
 - App/auth: `JWT_SECRET`, `INITIAL_PASSWORD`, `API_KEY_SECRET`, `MACHINE_ID_SALT`
 - Storage: `DATA_DIR` (defaults to `~/.9router`, in container `/app/data`)
 - Acceleration / Redis: `REDIS_URL` (default in docker compose: `redis://redis:6379`), `REDIS_KEY_PREFIX` (default: `khatam:`)
-- Ports / Binding: `PORT` (alias for `DASHBOARD_PORT`, default: `20128`), `DASHBOARD_PORT`, `ENDPOINT_PORT` (`20129`), `HOSTNAME` (default: `0.0.0.0`), `NODE_ENV`
+- Ports / Binding: `PORT` (alias for `DASHBOARD_PORT`, default: `20128`), `DASHBOARD_PORT`, `HOSTNAME` (default: `0.0.0.0`), `NODE_ENV`
 - Logging: `ENABLE_REQUEST_LOGS`
 - Sync/cloud URLing: `BASE_URL`, `CLOUD_URL`, `NEXT_PUBLIC_BASE_URL`, `NEXT_PUBLIC_CLOUD_URL`
 - Outbound proxy: `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY` and lowercase variants

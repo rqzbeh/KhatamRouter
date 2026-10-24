@@ -157,11 +157,10 @@ describe("Wave 1 configuration contracts", () => {
     expect(tsconfig.compilerOptions.paths["@/*"]).toEqual(["./src/*"]);
   });
 
-  it(".env.example declares the dual-port split and the khatam: Redis prefix", () => {
+  it(".env.example declares the port configuration and the khatam: Redis prefix", () => {
     const env = fs.readFileSync(path.join(REPO_ROOT, ".env.example"), "utf8");
 
     expect(env).toMatch(/^DASHBOARD_PORT=20128$/m);
-    expect(env).toMatch(/^ENDPOINT_PORT=20129$/m);
     expect(env).toMatch(/^REDIS_KEY_PREFIX=khatam:$/m);
     expect(env).toMatch(/^REDIS_URL=/m);
   });

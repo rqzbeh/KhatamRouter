@@ -2,8 +2,7 @@
  * KhatamRouter custom server — TypeScript entry (Bun-native).
  *
  * Behavioural mirror of ./custom-server.js. Both files must stay in sync:
- *  - Dual-port contract: Dashboard (control plane) on DASHBOARD_PORT || PORT ||
- *    20128, endpoint gateway (data plane) on ENDPOINT_PORT || 20129.
+ *  - Port contract: Server on PORT || DASHBOARD_PORT || 20128.
  *  - VansRouter-derived h2c hardening: chunked body parser with a 64 MiB cap,
  *    CRLF validation and Content-Length + Transfer-Encoding smuggling refusal.
  *  - Peer trust stamping: x-9r-real-ip / x-9r-peer-token are set from the real
@@ -29,9 +28,9 @@ const { assertProductionSecrets } = require("./runtime-secrets.cjs") as {
 
 assertProductionSecrets();
 
-// ── Dual-port resolution (Constitution Principle II) ────────────────────────
-const DEFAULT_DASHBOARD_PORT = 20128;
-const DEFAULT_ENDPOINT_PORT = 20129;
+// ── Port resolution ─────────────────────────────────────────────────────────
+const DEFAULT_PORT = 20128;
+const DEFAULT_DASHBOARD_PORT = DEFAULT_PORT;
 
 const portArgIndex = process.argv.indexOf("--port");
 function normalizePort(value: string | undefined, fallback: number): number {
@@ -45,21 +44,19 @@ function normalizeOptionalPort(value: string | undefined): number | null {
 }
 
 // Legacy callers pass `--port` (e.g. `npm start` -> `custom-server.js --port 20127`).
-// When present it names the dashboard listener and outranks the environment,
+// When present it names the listener port and outranks the environment,
 // matching Next's own precedence (`argv --port` before `process.env.PORT`).
 const cliPort = portArgIndex === -1 ? null : normalizeOptionalPort(process.argv[portArgIndex + 1]);
 
-// The dashboard listener resolves --port -> DASHBOARD_PORT -> PORT -> 20128.
-export const DASHBOARD_PORT =
-  cliPort ?? normalizePort(process.env.DASHBOARD_PORT || process.env.PORT, DEFAULT_DASHBOARD_PORT);
-export const ENDPOINT_PORT = normalizePort(process.env.ENDPOINT_PORT, DEFAULT_ENDPOINT_PORT);
+// The listener resolves --port -> PORT -> DASHBOARD_PORT -> 20128.
+export const PORT =
+  cliPort ?? normalizePort(process.env.PORT || process.env.DASHBOARD_PORT, DEFAULT_PORT);
+export const DASHBOARD_PORT = PORT;
 
 // Expose the resolved contract to the process tree. Next's standalone server.js
-// binds process.env.PORT, so pin it to the dashboard port; the Go gateway reads
-// ENDPOINT_PORT directly.
-process.env.DASHBOARD_PORT = String(DASHBOARD_PORT);
-process.env.ENDPOINT_PORT = String(ENDPOINT_PORT);
-process.env.PORT = String(DASHBOARD_PORT);
+// binds process.env.PORT. Keep DASHBOARD_PORT as backward-compatible alias.
+process.env.PORT = String(PORT);
+process.env.DASHBOARD_PORT = String(PORT);
 
 const origCreate = http.createServer.bind(http) as typeof http.createServer;
 

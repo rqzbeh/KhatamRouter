@@ -75,12 +75,8 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production
-# Dual-port architecture:
-#   DASHBOARD_PORT (20128) - Bun Next.js control plane
-#   ENDPOINT_PORT  (20129) - Go data plane gateway
 ENV PORT=20128
 ENV DASHBOARD_PORT=20128
-ENV ENDPOINT_PORT=20129
 ENV HOSTNAME=0.0.0.0
 ENV DATA_DIR=/app/data
 
@@ -102,7 +98,7 @@ RUN chown -R bun:bun /app /app/data
 
 USER bun
 
-# Expose both the control plane dashboard and the data plane endpoint gateway
-EXPOSE 20128 20129
+# Expose control plane and gateway port
+EXPOSE 20128
 
 ENTRYPOINT ["bun", "custom-server.js"]

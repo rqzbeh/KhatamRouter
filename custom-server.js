@@ -7,12 +7,11 @@ const { assertProductionSecrets } = require("./runtime-secrets.cjs");
 
 assertProductionSecrets();
 
-// ── Dual-port resolution (Constitution Principle II) ────────────────────────
-// Control plane (dashboard/Next.js) listens on DASHBOARD_PORT, defaulting to
-// PORT for legacy deployments, defaulting again to 20128.
-// Data plane (Go gateway) exposes ENDPOINT_PORT, default 20129.
-const DEFAULT_DASHBOARD_PORT = 20128;
-const DEFAULT_ENDPOINT_PORT = 20129;
+// ── Port resolution ─────────────────────────────────────────────────────────
+// Server listens on PORT (defaulting to 20128). DASHBOARD_PORT is kept as a
+// backward-compatible alias.
+const DEFAULT_PORT = 20128;
+const DEFAULT_DASHBOARD_PORT = DEFAULT_PORT;
 
 function normalizePort(value, fallback) {
   const parsed = Number.parseInt(value, 10);
@@ -20,22 +19,20 @@ function normalizePort(value, fallback) {
 }
 
 // Legacy callers pass `--port` (e.g. `npm start` -> `custom-server.js --port 20127`).
-// When present it names the dashboard listener and outranks the environment,
+// When present it names the listener port and outranks the environment,
 // matching Next's own precedence (`argv --port` before `process.env.PORT`).
 const portArgIndex = process.argv.indexOf("--port");
 const cliPort = portArgIndex === -1 ? null : normalizePort(process.argv[portArgIndex + 1], null);
 
-// The dashboard listener resolves --port -> DASHBOARD_PORT -> PORT -> 20128.
-const DASHBOARD_PORT =
-  cliPort ?? normalizePort(process.env.DASHBOARD_PORT || process.env.PORT, DEFAULT_DASHBOARD_PORT);
-const ENDPOINT_PORT = normalizePort(process.env.ENDPOINT_PORT, DEFAULT_ENDPOINT_PORT);
+// The listener resolves --port -> PORT -> DASHBOARD_PORT -> 20128.
+const PORT =
+  cliPort ?? normalizePort(process.env.PORT || process.env.DASHBOARD_PORT, DEFAULT_PORT);
+const DASHBOARD_PORT = PORT;
 
 // Expose the resolved contract to the process tree. Next's standalone server.js
-// binds process.env.PORT, so pin it to the dashboard port; the Go gateway reads
-// ENDPOINT_PORT directly.
-process.env.DASHBOARD_PORT = String(DASHBOARD_PORT);
-process.env.ENDPOINT_PORT = String(ENDPOINT_PORT);
-process.env.PORT = String(DASHBOARD_PORT);
+// binds process.env.PORT. Keep DASHBOARD_PORT as backward-compatible alias.
+process.env.PORT = String(PORT);
+process.env.DASHBOARD_PORT = String(PORT);
 
 const origCreate = http.createServer.bind(http);
 
@@ -286,8 +283,8 @@ if (require.main === module) {
 }
 
 module.exports = {
+  PORT,
   DASHBOARD_PORT,
-  ENDPOINT_PORT,
   PEER_TOKEN,
   MAX_H2C_BODY_BYTES,
   parseChunkedBody,

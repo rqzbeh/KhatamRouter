@@ -29,7 +29,7 @@
 - ❌ Expensive APIs ($20-50/month per provider)
 - ❌ Manual switching between providers
 
-**KhatamRouter solves this with a hardened dual-runtime stack:**
+**KhatamRouter solves this with a hardened Bun runtime stack:**
 
 #### 🟢 Shipped Core Capabilities
 
@@ -45,10 +45,6 @@
 - 🤝 **VansRouter provider parity & stateless executors** — Full provider parity porting 30 upstream providers (164 total in `open-sse/providers/registry/`), specialized executors (`open-sse/executors/agentrouter.js`, `qwen.js`, `zcode.js`, `freebuff.js`, `muse-spark-web.js`) with strictly stateless `buildHeaders` contracts, deterministic free-tier catalog derivation (`open-sse/providers/freeTiers.js`), multi-intensity Ponytail (`open-sse/rtk/ponytailPrompt.js`) with 2026 skepticism rules, and stateless anti-loop detection (`open-sse/utils/loopGuard.js`) behind default-off settings.
 - ✂️ **Multi-layer token savers** — Token-reducing 10 MiB RTK tool compression (intentionally truncates verbose diffs, logs, and build outputs), Caveman terseness prompts, and YAGNI-first Ponytail (Lite/Full/Ultra) modes saving an upstream-claimed 20-40% input and up to 65% output tokens.
 - 🔄 **Unified API gateway & Next.js dashboard (port 20128)** — Single lightweight endpoint serving both web dashboard and OpenAI-compatible `/v1/*` proxy routing across 40+ providers.
-
-#### 🟡 Upcoming Roadmap Capabilities
-
-- 🔀 **Split-plane architecture (Phase 2)** — High-throughput Go gateway data plane on port 20129 (`ENDPOINT_PORT`) dedicated to heavy inference streams while port 20128 (`DASHBOARD_PORT`) serves the control plane.
 
 ### 📋 Feature Implementation Status
 
@@ -69,7 +65,6 @@ We value engineering honesty over hype. Here is the exact status of each archite
 | **Dynamic Capability Discovery & Custom Models** | 🟢 Shipped | Wave 6: Live model discovery in `src/lib/models/discovery.js`, pure precedence cascade, self-healing context reconciler, and fail-closed combo routing |
 | **VansRouter Provider Parity** | 🟢 Shipped | Wave 7: 30 ported providers (`open-sse/providers/registry/`), stateless executors (`open-sse/executors/agentrouter.js`, `zcode.js`, `qwen.js`, `freebuff.js`, `muse-spark-web.js`), free-tier catalogue (`open-sse/providers/freeTiers.js`), and default-off LoopGuard (`open-sse/utils/loopGuard.js`) |
 | **Bun-Only Runtime & Redis-by-Default** | 🟢 Shipped | Wave 7.5: Bun-only server & CLI runtime, sole `bun:sqlite` engine, compose with `redis:8.2-alpine` default stack, lease semaphores, 4102 passing tests |
-| **Split-Plane Dual-Port Architecture** | 🟡 Roadmap | Phase 2: Dedicated Go gateway (`cmd/khatam-gateway`) on port 20129 (currently unified on port 20128) |
 
 The detailed per-wave plan, known limitations and non-goals are tracked in [ROADMAP.md](./ROADMAP.md); the table above remains the authoritative shipped-versus-planned summary.
 
@@ -112,9 +107,6 @@ We actively build for the former, but we keep the latter in mind as a healthy re
 │  [Shared State & Acceleration Layer]                        │
 │   • SQLite WAL ($DATA_DIR/db/data.sqlite, busy_timeout=5s)  │
 │   • Optional Redis Accelerator (khatam:* namespace)         │
-│                                                             │
-│  [Phase 2 Roadmap: Split-Plane Data Plane]                  │
-│   • Dedicated Go 1.27.2 Gateway on port 20129               │
 └──────────────────────────────┬──────────────────────────────┘
                                │
        ├─→ [Tier 1: SUBSCRIPTION] Claude Code, Codex, GitHub Copilot
@@ -1337,12 +1329,10 @@ export JWT_SECRET="your-secure-secret-change-this"
 export INITIAL_PASSWORD="your-password"
 export DATA_DIR="/var/lib/khatamrouter"
 export DASHBOARD_PORT="20128"
-export ENDPOINT_PORT="20129"
 export PORT="20128"
 export HOSTNAME="0.0.0.0"
 export NODE_ENV="production"
 export NEXT_PUBLIC_BASE_URL="http://localhost:20128"
-export NEXT_PUBLIC_ENDPOINT_URL="http://localhost:20128"
 export API_KEY_SECRET="endpoint-proxy-api-key-secret"
 export MACHINE_ID_SALT="endpoint-proxy-salt"
 export REDIS_URL="redis://127.0.0.1:6379"
@@ -1397,7 +1387,6 @@ docker run -d --name khatamrouter -p 20128:20128 \
 **Container defaults:**
 
 - `DASHBOARD_PORT=20128` (control plane / dashboard and `/v1` gateway)
-- `ENDPOINT_PORT=20129` (reserved for Phase 2 Go gateway data plane)
 - `HOSTNAME=0.0.0.0`
 
 **Useful commands:**
@@ -1419,7 +1408,6 @@ docker pull ghcr.io/rqzbeh/khatamrouter:latest   # update to latest
 | `INITIAL_PASSWORD`                                   | `123456`                                 | First login password when no saved hash exists                                      |
 | `DATA_DIR`                                           | `~/.9router`                             | Main app data location (SQLite at `$DATA_DIR/db/data.sqlite`)                       |
 | `DASHBOARD_PORT`                                     | `20128`                                  | Control-plane dashboard and API gateway port (Bun + Next.js)                        |
-| `ENDPOINT_PORT`                                      | `20129`                                  | Reserved port for Phase 2 dedicated Go gateway data plane                          |
 | `PORT`                                               | framework default                        | Backward-compatible alias for `DASHBOARD_PORT` (`20128` in examples)                |
 | `HOSTNAME`                                           | framework default                        | Bind host (Docker defaults to `0.0.0.0`)                                            |
 | `NODE_ENV`                                           | runtime default                          | Set `production` for deploy                                                         |
@@ -1428,7 +1416,6 @@ docker pull ghcr.io/rqzbeh/khatamrouter:latest   # update to latest
 | `BASE_URL`                                           | `http://localhost:20128`                 | Server-side internal base URL used by cloud sync jobs                               |
 | `CLOUD_URL`                                          | optional                                 | Server-side cloud sync endpoint base URL (set if using cloud sync server)           |
 | `NEXT_PUBLIC_BASE_URL`                               | `http://localhost:20128`                 | Backward-compatible/public base URL (prefer `BASE_URL` for server runtime)          |
-| `NEXT_PUBLIC_ENDPOINT_URL`                           | `http://localhost:20128`                 | Public URL of the API gateway shown to clients                                      |
 | `NEXT_PUBLIC_CLOUD_URL`                              | optional                                 | Backward-compatible/public cloud URL (prefer `CLOUD_URL` for server runtime)        |
 | `API_KEY_SECRET`                                     | `endpoint-proxy-api-key-secret`          | HMAC secret for generated API keys                                                  |
 | `MACHINE_ID_SALT`                                    | `endpoint-proxy-salt`                    | Salt for stable machine ID hashing                                                  |
@@ -1602,8 +1589,6 @@ Content-Type: application/json
   "stream": true
 }
 ```
-
-> In the current Bun/Next.js runtime, `/v1` endpoints are served on port 20128 (with port 20129 reserved for the upcoming Phase 2 Go gateway).
 
 ### List Models
 
