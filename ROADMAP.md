@@ -38,11 +38,13 @@ The table below mirrors the shipped rows of the authoritative status table in [R
 | **Dynamic Capability Discovery & Fail-Closed Routing** | 🟢 Shipped | Wave 6: Live `/v1/models` discovery in `src/lib/models/discovery.js`, 7-tier precedence cascade, self-healing context reconciler, fail-closed vision gating |
 | **VansRouter Provider Parity & Stateless Executors** | 🟢 Shipped | Wave 7: 30 new providers in `open-sse/providers/registry/`, specialized executors in `open-sse/executors/`, free-tier catalog in `open-sse/providers/freeTiers.js`, Ponytail prompts in `open-sse/rtk/ponytailPrompt.js`, and stateless `open-sse/utils/loopGuard.js` |
 | **Bun-Only Runtime & Redis-by-Default** | 🟢 Shipped | Wave 7.5: Sole `bun:sqlite` engine, complete Node.js removal, docker-compose with `redis:8.2-alpine`, lease semaphores, Webpack retained, 4102 passing tests (0 regressions) |
+| **Upstream Ports & Security Hardening** | 🟢 Shipped | Wave 9: 44 candidates ported (VansRouter 0.91.81 / 9router 0.5.109), undici 7.30.1, Monaco 0.57.0 pinned, Gemini prototype defenses, SSRF-safe reference images, Redis Smart Router |
 
 ### Operational Baseline (Shipped)
 
 Only the following capabilities are shipped and operational today:
 
+- **Upstream ports & security hardening (Wave 9)**: 44 audit-confirmed upstream candidates ported across 19 commits from VansRouter `v0.91.61`→`v0.91.81` and 9router `v0.5.104`→`v0.5.109`. Core hardening includes `undici` 7.30.1 with loopback-only headroom binding (`127.0.0.1:8787:8787`), pinned Monaco 0.57.0 CDN loader (`src/shared/constants/monaco.js`), Gemini prototype pollution (`Object.defineProperty`) and method shadowing (`Object.create(null)`) defenses, 8-second models discovery timeout guards, SSRF-safe Gemini reference image inputs, and distributed Redis-backed Smart Router session stickiness (`khatam:smartrouter:session:*`). Full audit ledger in [`docs/UPSTREAM-PORTS.md`](./docs/UPSTREAM-PORTS.md).
 - **Bun-only runtime & `bun:sqlite` engine**: Complete elimination of Node.js. Server strictly requires Bun v1.4.3+. Sole SQLite engine is native `bun:sqlite` with WAL mode (`busy_timeout = 5000`, `temp_store = MEMORY`), preflight integrity validation (`PRAGMA quick_check`), and zero legacy Node drivers. Published CLI launcher requires `bun` on PATH.
 - **Docker Compose with Redis by default (`redis:8.2-alpine`)**: Default stack running `redis:8.2-alpine` with Append-Only File on `redis-data`, `redis-cli ping` healthcheck, loopback-only binding (`127.0.0.1:6379`), and app `depends_on: { redis: { condition: service_healthy } }`. Disabling Redis is fully documented and degrades gracefully to SQLite.
 - **Distributed Redis primitives & lease semaphores**: All keys TTL-bounded and namespaced under `khatam:`, with secrets cryptographically hashed. Includes shared circuit-breaker trips (`khatam:cb:*`), dashboard login limiter, OAuth single-use refresh locks, advisory API-key auth caching, real-time Pub/Sub invalidation bus, prompt-cache stealth session pins, pricing/request-details invalidation, round-robin counters, lease-based distributed concurrency semaphores (`khatam:sem:*`), and opt-in chat idempotency keys.
@@ -200,6 +202,45 @@ Wave 7.5 establishes an uncompromised native Bun architecture and default Redis 
 
 ---
 
+## Wave 9 — Upstream Parity & Security Hardening
+
+**Status**: 🟢 Shipped (Branch `spec/009-upstream-port`, 44 candidates landed across 19 commits)
+
+Wave 9 completes the audit and synchronization of upstream improvements across VansRouter (`v0.91.61`→`v0.91.81`, 94 commits reviewed, 11 landed, 83 skipped) and 9router (`v0.5.104`→`v0.5.109`, 39 commits reviewed, 33 landed, 6 skipped). All 44 audit-confirmed candidates have landed and were verified via targeted test gates.
+
+- **Security & Crash Blockers (User Story 1)**:
+  - **`undici` 7.30.1 & loopback headroom** (`eaf244f1`, upstream `08ef047f`): Closes CVEs in undici (DoS on content encodings, TLS bypass). Binds headroom microservice strictly to `127.0.0.1:8787:8787` in `docker-compose.yml`.
+  - **Monaco 0.57.0 loader pinned** (`c6711901`, upstream `5883110b`): Pins dashboard Monaco editor loader in `src/shared/constants/monaco.js` to 0.57.0 (DOMPurify 3.4.15), eliminating unpinned CDN loads of vulnerable versions.
+  - **Gemini prototype defenses** (`15c7648a`, `61db0251`, `720cbcdb`, upstream `a06ec5d8`, `13441197`, `1ea22bfa`): Closes `__proto__` prototype pollution using `Object.defineProperty`/`Object.hasOwn`, prevents prototype-method shadowing (`toString`, `valueOf`, `constructor`) using `Object.create(null)`, strips invalid `items` from non-array schemas, and adds 8-second `timedFetch` timeout guards on discovery routes.
+  - **CodeBuddy auth & 401 refresh** (`0936b5ac`, upstream `2063f090`): Validates JWT expiration in `testUtils.js` and wires 401 refresh recovery in `DefaultExecutor`.
+  - **Pi-settings crash fix** (`5cb3e649`, upstream `342ecb0d`): Declares `existingProvider` before use in POST route, resolving fatal 500 errors.
+
+- **Correctness & Resilience Bug Fixes (User Story 2)**:
+  - **Combo resilience** (`b6048073`, upstream `b82f5c4a`, `5cdcddf5`, `ca7b5401`): Advances to next model on credit exhaustion, advances past request-scoped 4xx errors without cooling accounts, and falls through on empty-content streaming responses via `emptyFailover.js`.
+  - **OpenCode real timestamps** (`e5549485`, upstream `01f1a1fe`): Encodes real monotonic 48-bit millisecond timestamps into `ses_` and `msg_` IDs, preventing session collisions and eviction churn.
+  - **Antigravity discovery & Argon tiers** (`95451d6b`, upstream `39730d88`, `f172c3c4`, `82aeb907`): Repairs discovery by querying production endpoint, updates User-Agent to `hub/2.24.0`, monitors Gemini 4 Argon tiers, and resolves model tiers from client reasoning effort.
+  - **Grok 4.7 500k context window** (`ff292a12`, upstream `b0655314`): Explicitly registers 500,000 token context window, preventing premature 80% (204k) context truncation.
+  - **Stream tool-call restoration** (`5cb3e649`, upstream `95c9d03e`): Synthesizes missing tool-call IDs on fragments and restores renamed tool names on passthrough.
+  - **Correctness singletons** (`5cb3e649`): Node-scoped model disabling and row purge on delete (`34c66988`), regex `lastIndex` state reset (`5853a88a`), `max_tokens` → `max_completion_tokens` parameter renaming (`7c42d8f8`), Kiro Anthropic model alias normalization (`3ce2b828`), Headroom tool compression for native Gemini/Responses/CommandCode (`a440ef43`), and Ollama `prompt_eval_count` number guard (`d56f8f18`).
+  - **Provider stability fixes** (`273dff23`): Qoder `10605` queue capacity retry handling (`2720cd2a`), Ollama `/api/balance` cloud quota tracking (`31b8439b`), CommandCode quota display formatting (`4a76b8de`), and Codex image skip for ChatGPT Free accounts (`b08f12d5`).
+
+- **Enhancements, Features & Providers (User Story 3)**:
+  - **Smart Router with Redis session stickiness** (`84dffab9`, `902dc3aa`, upstream `f3f86fdd`): Dynamically evaluates request complexity via System One decision models, adapting upstream in-memory Map into distributed **Redis-backed session stickiness** (`khatam:smartrouter:session:*`) with 15-minute TTL, multi-instance concurrency safety, and fail-open degradation.
+  - **RTK custom system prompt** (`d28d628f`, `bd03b835`, upstream `8a842043`): User-authored custom system prompt injection with Token Saver dashboard UI controls, length-only trace logging, and fail-open guarantees.
+  - **Codex OAuth transcription provider (`cx/transcribe`)** (`ccb8dc84`, upstream `421f2262`): Audio transcription reusing Codex OAuth credentials with ffmpeg audio conversion and strict SSRF defenses on fetched audio URLs.
+  - **SenseNova provider** (`273dff23`, upstream `351b04cb`): Registration of `sensenova-6.8-flash-lite` and U1.5 image models with parameter extensions.
+  - **Gemini reference image inputs & MITM directory** (`3c0ba50b`, upstream `161e3493`): In-memory base64 reference image input support with strict SSRF defenses (forbids remote URL fetching), size limits, and safe MITM directory initialization.
+  - **Ollama System One models** (`273dff23`, upstream `bc4a3cc7`): Registers `clef` and `clef-flash` decision models for Ollama Cloud and Local.
+  - **Copilot & Cline catalogs** (`273dff23`, `95451d6b`, upstream `dbdbb648`, `cc0c2311`): Refreshes GitHub Copilot model catalog and enables auto-discovery of public Cline models.
+  - **Combos search UI** (`b6048073`, upstream `9b4ea9eb`): Interactive search box filtering models and combos by name.
+
+- **Boundary Invariants & Non-Goals**:
+  - **GitHub repository identity migration**: Explicitly **OUT OF SCOPE** and has **NOT** occurred. The repository retains its current identity (`rqzbeh/KhatamRouter`), remotes, and branch protections.
+  - **Skipped upstream commits**: 83 VansRouter commits (release chores, pnpm/containerd tooling, pre-ported Wave 7 features, desktop code) and 6 9router commits (release tags, lockfile churn) were reviewed and intentionally excluded. Documented in [`docs/UPSTREAM-PORTS.md`](./docs/UPSTREAM-PORTS.md).
+  - **Test suite posture**: All ported changes passed targeted unit test gates during implementation. Full regression test suite execution against `tests/__baseline__/known-fails.txt` is an independent release closeout task (`T049`) and is not claimed green by this documentation task.
+
+---
+
 ## Wave 8 — Dashboard and Tooling
 
 **Status**: 🔵 Planned
@@ -222,7 +263,8 @@ To ensure clear operational expectations, the following limitations exist in the
 - **Stealth and anti-ban suite is opt-in today**: The Wave 5 fingerprinting, proxy scrubbing, tool cloaking, zero-width obfuscation, and session stickiness capabilities are implemented and tested, but are default-off. Operators opt in per provider (`CLI_COMPAT_<PROVIDER>=1`, e.g. `CLI_COMPAT_CLAUDE=1`), per capability (`STEALTH_FINGERPRINTS=1`, `STEALTH_HEADER_SCRUB=1`, `STEALTH_TOOL_CLOAK=1`, `STEALTH_ZERO_WIDTH=1`, `STEALTH_STICKINESS=1`), or globally (`STEALTH_ALL=1` or `CLI_COMPAT_ALL=1`). Left unset (the default), headers and request bodies are passed untouched. Protocol-level signatures (Cursor Jyh cipher, Copilot token exchange synthesis, and low-level TLS cipher fingerprinting) remain deferred roadmap items.
 - **Model capability guard is opt-in today**: Fail-closed combo capability gating is implemented in `src/domain/requestCapabilities.js` and wired into `open-sse/services/combo.js`, but is default-off behind `KHATAM_MODEL_CAPABILITY_GUARD=1` or explicit caller options. Left unset (the default), existing fallback behavior is preserved.
 - **LoopGuard is default-off**: Stateless agent loop detection in `open-sse/utils/loopGuard.js` is implemented and verified, but disabled by default via `loopGuardEnabled: false` in settings (`src/lib/db/repos/settingsRepo.js`). Operators opt in via settings or by passing `loopGuardEnabled: true`. Furthermore, `zcode` executor's automatic captcha-solving (`solveCaptcha`) requires optional `playwright-core` and browser binaries; without them it logs a warning and fails open to standard retries.
-- **The test suite posture**: 4102 passing tests on this branch vs 3979 on master (+123 tests), with 0 regressions. `tests/__baseline__/known-fails.txt` now directly mirrors measured master baseline failures. The CI verify gate (`.github/workflows/verify.yml`) asserts no regressions against this calibrated baseline.
+- **Smart Router Redis dependency for multi-replica stickiness**: Smart Router adaptive combo routing uses Redis (`khatam:smartrouter:session:*`) to maintain session stickiness across multiple gateway replicas. When `REDIS_URL` is omitted, it falls back gracefully to local in-process state with fail-open semantics.
+- **The test suite posture**: All Wave 9 ported candidate changes were verified via targeted unit test gates during implementation. Full regression test suite execution against `tests/__baseline__/known-fails.txt` is an independent release closeout task (`T049`) and is not claimed all-green prior to that full run.
 
 ---
 
@@ -230,6 +272,7 @@ To ensure clear operational expectations, the following limitations exist in the
 
 The following areas are explicitly out of scope for KhatamRouter:
 
+- **GitHub repository identity migration**: Live repository migration, renaming, transfer, or remote changes are strictly out of scope and have not occurred. The repository retains its current identity and remotes.
 - **Replacing the Next.js dashboard with a separate framework**: Next.js App Router provides an effective foundation for the control plane. We will migrate dashboard components to TypeScript (`TS`/`TSX`) rather than replacing the framework.
 - **Operating as a multi-tenant public SaaS**: KhatamRouter is engineered for local development, self-hosted private servers, and single-tenant infrastructure. Multi-tenant public billing systems and hosted user authentication platforms are non-goals.
 - **Reverse-engineering private enterprise protocols or bypassing provider ToS**: KhatamRouter implements standard API protocols, documented provider integrations, and client fingerprinting. We do not develop exploits or attempt to bypass vendor Terms of Service.
@@ -238,7 +281,9 @@ The following areas are explicitly out of scope for KhatamRouter:
 
 ## Upstream Compatibility
 
-KhatamRouter is maintained as a content fork of [`decolua/9router`](https://github.com/decolua/9router) (initialized from `v0.5.104`). We preserve ongoing compatibility with upstream updates through the following mechanisms:
+KhatamRouter is maintained as a content fork of [`decolua/9router`](https://github.com/decolua/9router) (initialized from `v0.5.104`) and actively ports audited improvements from both `decolua/9router` and [`Vanszs/VansRouter`](https://github.com/Vanszs/VansRouter). Full details of all 44 candidates ported in Wave 9, security hardening, and rationales for skipped commits are documented in [`docs/UPSTREAM-PORTS.md`](./docs/UPSTREAM-PORTS.md).
+
+We preserve ongoing compatibility with upstream updates through the following mechanisms:
 
 - **Automated daily sync**: A scheduled GitHub Actions workflow (`.github/workflows/upstream-sync.yml`) runs daily at 03:17 UTC, fetching new commits from `decolua/9router` and merging them with `--allow-unrelated-histories`.
 - **Deterministic override resolution**: Conflicting files listed in [`.github/upstream-sync-overrides.txt`](./.github/upstream-sync-overrides.txt) (governance specifications, sanitized OAuth credentials, branding, and CI pipelines) deterministically retain our version (`--ours`).

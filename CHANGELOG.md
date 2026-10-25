@@ -1,3 +1,57 @@
+# v0.5.109 (2026-10-25) — Wave 9: Upstream Port & Security Hardening
+
+## Security
+- **Dependencies**: bump `undici` to 7.30.1 (`eaf244f1`, upstream `08ef047f`) addressing content-encoding DoS and TLS bypass advisories; bind headroom microservice strictly to loopback (`127.0.0.1:8787:8787` in `docker-compose.yml`)
+- **Monaco Editor**: upgrade Monaco to 0.57.0 and pin CDN loader copy (`c6711901`, upstream `5883110b`) in `src/shared/constants/monaco.js`, preventing unpinned CDN script execution of vulnerable bundles (DOMPurify 3.4.15)
+- **Gemini Translator**: prevent `__proto__` prototype pollution (`15c7648a`, upstream `a06ec5d8`) via `Object.defineProperty` and `Object.hasOwn` in sanitizer; guard tool response caches against prototype-method shadowing (`720cbcdb`, upstream `1ea22bfa`) via `Object.create(null)` for `tcID2Name` and cursor caches; normalize schemas by stripping `items` from non-array nodes (`61db0251`, upstream `13441197`)
+- **Models Discovery**: add 8-second `timedFetch` timeout guards (`15c7648a`) to models discovery routes to prevent hanging upstream probes
+- **Gemini Reference Images**: support reference image inputs for Gemini generation with strict SSRF defense (`3c0ba50b`, upstream `161e3493`) — validates base64 data URIs only, forbids fetching remote URLs, caps payload sizes, and ensures safe MITM directory initialization
+- **CodeBuddy**: validate JWT `exp` in `testUtils.js` and wire 401 refresh credential recovery (`0936b5ac`, upstream `2063f090`); back off blocked international connections (`3b137aa6`)
+
+## Features
+- **Combos**: add Smart Router with System One adaptive routing (`84dffab9`, `902dc3aa`, upstream `f3f86fdd`), adapted to **strictly Redis-backed session stickiness** (`khatam:smartrouter:session:*`) with 15-minute TTL, multi-instance safety, and fail-open degradation
+- **RTK**: add user-authored custom system prompt injection (`d28d628f`, `bd03b835`, upstream `8a842043`) with Token Saver dashboard UI controls, length-only trace logging, and fail-open guarantees
+- **STT**: port Codex OAuth transcription provider `cx/transcribe` (`ccb8dc84`, upstream `421f2262`) with ffmpeg 24 kHz PCM16 WAV conversion and SSRF guards on fetched audio URLs
+- **Providers**: add SenseNova provider (`sensenova-6.8-flash-lite`, U1.5 image models) (`273dff23`, upstream `351b04cb`)
+- **Providers**: add Ollama System One decision models `clef` and `clef-flash` (`273dff23`, upstream `bc4a3cc7`) for Cloud and Local
+- **Antigravity**: add Gemini 4 Argon medium and low tiers to quota monitoring and update User-Agent to `hub/2.24.0` (`95451d6b`, upstream `f172c3c4`)
+- **Antigravity**: dynamically resolve tiered Antigravity model variants from client reasoning effort / thinking budget (`95451d6b`, upstream `82aeb907`)
+- **Cline**: auto-fetch public Cline model catalogue via `modelsFetcher` upon connection (`95451d6b`, upstream `cc0c2311`)
+- **Copilot**: refresh GitHub Copilot fallback model catalog with current GPT, Claude, Gemini, and Kimi models (`273dff23`, upstream `dbdbb648`)
+- **Combos UI**: add interactive search box for combo list filtering by name and model IDs (`b6048073`, upstream `9b4ea9eb`)
+- **OpenCode**: pin free catalogue, client fingerprint, and egress retry handling (`e5549485`, upstream `356f3f5c`)
+
+## Fixes
+- **Combos**: advance to next model on credit exhaustion (`b6048073`, upstream `b82f5c4a`)
+- **Combos**: advance past request-scoped 4xx rejections without cooling accounts (`b6048073`, upstream `5cdcddf5`)
+- **Combos**: fall through on empty-content streaming responses via `emptyFailover.js` (`b6048073`, upstream `ca7b5401`)
+- **OpenCode**: encode real monotonic 48-bit millisecond timestamps into `ses_` and `msg_` IDs (`e5549485`, upstream `01f1a1fe`)
+- **OpenCode**: send `reasoning_effort` for `glm-5.3-flash-free` (`e5549485`, upstream `32c5f30a`) and full reasoning support for `oc/mimo-v2.6-flash-free` and `deepseek-v4.1-flash-free` (`b8331283`)
+- **Thinking**: let transports declare thinking format; nest reasoning on OpenCode Go `/responses` (`e5549485`, upstream `d07e5bc3`)
+- **Claude**: preserve reasoning blocks on Claude non-streaming execution path (`b6048073`, upstream `e76a32a0`)
+- **Antigravity**: repair models discovery by switching to production endpoint; stop dropping real models backed by `MODEL_PLACEHOLDER_*` (`95451d6b`, upstream `39730d88`)
+- **Capabilities**: give Grok 4.7 its explicit 500,000 token context window (`ff292a12`, upstream `b0655314`), preventing premature 80% (204k) context truncation
+- **Streaming**: synthesize missing tool-call IDs on fragments and restore renamed tool names on passthrough (`5cb3e649`, upstream `95c9d03e`)
+- **Core**: purge `disabledModels` in kv table on deleteProviderNode (`5cb3e649`, upstream `34c66988`)
+- **Pi-Settings**: declare `existingProvider` before use in POST route, preventing fatal 500 error (`5cb3e649`, upstream `342ecb0d`)
+- **Search**: reset stateful regex `lastIndex = 0` between model matches in `modelSearchFilter.js` (`5cb3e649`, upstream `5853a88a`)
+- **Parameters**: rename `max_tokens` to `max_completion_tokens` for OpenAI-compatible providers (`5cb3e649`, upstream `7c42d8f8`)
+- **Kiro**: normalize Anthropic model IDs onto Kiro upstream aliases in `resolveKiroModel` (`5cb3e649`, upstream `3ce2b828`)
+- **Headroom**: compress native Gemini, Responses, and CommandCode tool outputs fail-open in Headroom (`5cb3e649`, upstream `a440ef43`)
+- **Usage**: enforce strict `typeof number` guard on Ollama `prompt_eval_count` in `requestDetail.js` (`5cb3e649`, upstream `d56f8f18`)
+- **Codex Image**: skip ChatGPT Free accounts and route to Go-compatible main model (`273dff23`, upstream `b08f12d5`)
+- **Qoder**: handle `10605` queue capacity signals with transient retry; route Sonus/Cantus models (`273dff23`, upstream `2720cd2a`)
+- **Usage**: support `/api/balance` endpoint for Ollama cloud quota and credit tracking (`273dff23`, upstream `31b8439b`)
+- **CommandCode**: correct quota display formatting and connection test parsing (`273dff23`, upstream `4a76b8de`)
+- **Media Providers**: preserve provider connection card on non-STT OAuth media pages (`273dff23`, upstream `00dd3dfc`)
+- **Dashboard**: correct API key visibility guidance copy in Endpoint modal (`273dff23`, upstream `a3ca2f9b`)
+
+## Upstream Synchronization & Scope Notes
+- **Candidates Ported**: 44 audit-confirmed candidates landed across 19 commits on branch `spec/009-upstream-port` (11 from VansRouter `v0.91.61`→`v0.91.81`, 33 from 9router `v0.5.104`→`v0.5.109`). Full commit ledger in [`docs/UPSTREAM-PORTS.md`](./docs/UPSTREAM-PORTS.md).
+- **Candidates Skipped**: 83 VansRouter commits (release chores, pnpm/containerd tooling, pre-ported Wave 7 parity, desktop packaging) and 6 9router commits (release tag bumps, lockfile churn) reviewed and excluded.
+- **Repository Boundary**: GitHub repository identity migration is strictly **OUT OF SCOPE** and has **NOT** occurred.
+- **Test Posture**: Candidate changes passed targeted unit test gates; full test suite execution against `tests/__baseline__/known-fails.txt` is an independent release closeout task and is not claimed green here.
+
 # v0.5.104 (2026-10-15)
 
 ## Features
