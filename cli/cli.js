@@ -151,9 +151,9 @@ function findBunExecutable() {
 function ensureBun() {
   const bunPath = findBunExecutable();
   if (!bunPath) {
-    console.error("\x1b[31m%s\x1b[0m", "❌ Error: Bun runtime is required to run 9Router.");
+    console.error("\x1b[31m%s\x1b[0m", "❌ Error: Bun runtime is required to run KhatamRouter.");
     console.error("");
-    console.error("Starting with Wave 7.5, 9Router runs exclusively on Bun (bun:sqlite)");
+    console.error("Starting with Wave 7.5, KhatamRouter runs exclusively on Bun (bun:sqlite)");
     console.error("and no longer supports Node-only execution.");
     console.error("");
     console.error("Please install Bun from https://bun.sh:");
@@ -168,8 +168,23 @@ function ensureBun() {
 }
 
 // Configuration constants
-const APP_NAME = pkg.name; // Use from package.json
-const INSTALL_CMD_LATEST = `npm i -g ${APP_NAME}@latest --prefer-online`;
+const APP_NAME = "khatamrouter";
+
+function getUpdateGuidance() {
+  if (process.env.KHATAM_DOCKER === "1" || process.env.DATA_DIR === "/app/data" || fs.existsSync("/.dockerenv")) {
+    return "docker compose pull && docker compose up -d";
+  }
+  let curr = process.cwd();
+  for (let i = 0; i < 4; i++) {
+    if (fs.existsSync(path.join(curr, ".git"))) {
+      return "git pull && bun install && bun run build:bun && bun run start:bun";
+    }
+    const parent = path.dirname(curr);
+    if (parent === curr) break;
+    curr = parent;
+  }
+  return "https://github.com/rqzbeh/KhatamRouter/releases/latest";
+}
 
 const DEFAULT_PORT = 20128;
 const DEFAULT_HOST = "0.0.0.0";
@@ -189,9 +204,10 @@ function getDisplayHost() {
   return host === DEFAULT_HOST ? "localhost" : host;
 }
 const MAX_PORT_ATTEMPTS = 10;
-// Identifiers for killAllAppProcesses - only kill 9router specifically
+// Identifiers for killAllAppProcesses - matches both khatamrouter and legacy 9router
 const PROCESS_IDENTIFIERS = [
-  '9router'  // Only package name - avoid killing other apps
+  'khatamrouter',
+  '9router'
 ];
 
 // Parse arguments
@@ -357,11 +373,11 @@ function killAllAppProcesses(appPort) {
           });
           const lines = output.split("\n").slice(1).filter(l => l.trim());
           lines.forEach(line => {
-            // Whitelist: real node/bun process running 9router/cli.js or app server, or next-server.
+            // Whitelist: real node/bun process running 9router/khatamrouter/cli.js or app server, or next-server.
             // Avoids killing editors/grep/strace/cursor that just have "9router" in cmdline.
             const cmd = line.toLowerCase();
             const isAppProcess =
-              ((cmd.includes("node") || cmd.includes("bun")) && cmd.includes("9router") && (cmd.includes("cli.js") || cmd.includes("\\9router") || cmd.includes("/9router")))
+              ((cmd.includes("node") || cmd.includes("bun")) && (cmd.includes("9router") || cmd.includes("khatamrouter")) && (cmd.includes("cli.js") || cmd.includes("\\9router") || cmd.includes("/9router") || cmd.includes("\\khatamrouter") || cmd.includes("/khatamrouter")))
               || cmd.includes("next-server");
             if (isAppProcess) {
               const match = line.match(/^"(\d+)"/);
@@ -383,11 +399,11 @@ function killAllAppProcesses(appPort) {
           const lines = output.split('\n');
 
           lines.forEach(line => {
-            // Whitelist: real node/bun process running 9router/cli.js or app server, or next-server.
+            // Whitelist: real node/bun process running 9router/khatamrouter/cli.js or app server, or next-server.
             // Avoids killing grep/strace/editors/cursor that incidentally match "9router".
             const cmd = line.toLowerCase();
             const isAppProcess =
-              ((cmd.includes("node") || cmd.includes("bun")) && cmd.includes("9router") && (cmd.includes("cli.js") || cmd.includes("/9router")))
+              ((cmd.includes("node") || cmd.includes("bun")) && (cmd.includes("9router") || cmd.includes("khatamrouter")) && (cmd.includes("cli.js") || cmd.includes("/9router") || cmd.includes("/khatamrouter")))
               || cmd.includes("next-server");
             if (isAppProcess) {
               const parts = line.trim().split(/\s+/);
@@ -539,10 +555,10 @@ function isRestrictedEnvironment() {
   return null;
 }
 
-// Check if new version available, return latest version or null
+// Check if new version available from GitHub releases, return latest version or null
 function checkForUpdate() {
   return new Promise((resolve) => {
-    if (skipUpdate) {
+    if (skipUpdate || process.env.KHATAM_UPDATE_CHECK === "0") {
       resolve(null);
       return;
     }
@@ -556,7 +572,7 @@ function checkForUpdate() {
         spinner.stop();
         resolve(null);
       }
-    }, 8000);
+    }, 4000);
 
     const done = (version) => {
       if (resolved) return;
@@ -566,17 +582,40 @@ function checkForUpdate() {
       resolve(version);
     };
 
-    const req = https.get(`https://registry.npmjs.org/${pkg.name}/latest`, { timeout: 3000 }, (res) => {
+    const repo = (process.env.KHATAM_UPDATE_REPO && /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(process.env.KHATAM_UPDATE_REPO))
+      ? process.env.KHATAM_UPDATE_REPO
+      : "rqzbeh/KhatamRouter";
+
+    const options = {
+      hostname: "api.github.com",
+      port: 443,
+      path: `/repos/${repo}/releases/latest`,
+      method: "GET",
+      headers: {
+        "User-Agent": "KhatamRouter-UpdateCheck",
+        "Accept": "application/vnd.github.v3+json",
+      },
+      timeout: 4000,
+    };
+
+    const req = https.get(options, (res) => {
+      if (res.statusCode !== 200) {
+        res.resume();
+        return done(null);
+      }
       let data = "";
       res.on("data", chunk => data += chunk);
       res.on("end", () => {
         try {
-          const latest = JSON.parse(data);
-          if (latest.version && compareVersions(latest.version, pkg.version) > 0) {
-            done(latest.version);
-          } else {
-            done(null);
+          const release = JSON.parse(data);
+          const rawVersion = release?.tag_name || release?.name;
+          if (rawVersion) {
+            const cleaned = rawVersion.trim().replace(/^v/, "");
+            if (compareVersions(cleaned, pkg.version) > 0) {
+              return done(cleaned);
+            }
           }
+          done(null);
         } catch (e) {
           done(null);
         }
@@ -804,12 +843,12 @@ function startServer(updatePromise) {
     process.removeAllListeners("SIGHUP");
     process.on("SIGHUP", () => {});
 
-    console.log(`\n🚀 ${pkg.name} v${pkg.version}`);
+    console.log(`\n🚀 KhatamRouter v${pkg.version}`);
     console.log(`Server: http://${displayHost}:${port}`);
 
     waitServerReady(port).then(() => {
       initTrayIcon();
-      console.log("\n💡 Router is now running in system tray. Close this terminal if you want.");
+      console.log("\n💡 KhatamRouter is now running in system tray. Close this terminal if you want.");
       console.log("   Right-click tray icon to open dashboard or quit.\n");
     });
 
@@ -832,8 +871,8 @@ function startServer(updatePromise) {
           const { clearScreen } = require("./src/cli/utils/display");
           clearScreen();
           console.log(`\n⬆  Update v${pkg.version} → v${latestVersion}\n`);
-          console.log(`Run this after exit:\n`);
-          console.log(`   \x1b[33m${INSTALL_CMD_LATEST}\x1b[0m\n`);
+          console.log(`Update guidance:\n`);
+          console.log(`   \x1b[33m${getUpdateGuidance()}\x1b[0m\n`);
           cleanup();
           await killAllAppProcesses(port);
           await killProcessOnPort(port);
@@ -866,7 +905,7 @@ function startServer(updatePromise) {
             process.on("SIGHUP", () => {});
 
             console.log(`\n⏳ Switching to tray mode... (icon already visible in menu bar)`);
-            console.log(`🔔 9Router is running in tray (PID: ${process.pid})`);
+            console.log(`🔔 KhatamRouter is running in tray (PID: ${process.pid})`);
             console.log(`   Server: http://${displayHost}:${port}`);
             console.log(`\n💡 You can close this terminal. Right-click tray icon to quit.\n`);
 
@@ -885,7 +924,7 @@ function startServer(updatePromise) {
           });
           bgProcess.unref();
 
-          console.log(`🔔 9Router is now running in background (PID: ${bgProcess.pid})`);
+          console.log(`🔔 KhatamRouter is now running in background (PID: ${bgProcess.pid})`);
           console.log(`   Server: http://${displayHost}:${port}`);
           console.log(`\n💡 You can close this terminal. Right-click tray icon to quit.\n`);
 
