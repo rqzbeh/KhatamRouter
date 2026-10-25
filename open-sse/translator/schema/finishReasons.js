@@ -19,6 +19,18 @@ export const CLAUDE_STOP = {
   REFUSAL: "refusal",
 };
 
+// OpenAI Responses API terminal statuses and response.incomplete_details.reason values.
+export const RESPONSES_STATUS = {
+  COMPLETED: "completed",
+  INCOMPLETE: "incomplete",
+  FAILED: "failed",
+};
+
+export const RESPONSES_INCOMPLETE_REASON = {
+  MAX_OUTPUT_TOKENS: "max_output_tokens",
+  CONTENT_FILTER: "content_filter",
+};
+
 // Gemini finishReason values.
 export const GEMINI_FINISH = {
   STOP: "STOP",
@@ -27,4 +39,22 @@ export const GEMINI_FINISH = {
   RECITATION: "RECITATION",
   BLOCKLIST: "BLOCKLIST",
   PROHIBITED_CONTENT: "PROHIBITED_CONTENT",
+  // Abort reasons Google returns with HTTP 200 and empty/partial content. These
+  // are NOT mapped to a distinct client finish_reason (that would break OpenAI-format clients);
+  // empty-content failover keys on the absence of content, not on these names. Listed so
+  // the set below can classify and logs can name them.
+  MALFORMED_FUNCTION_CALL: "MALFORMED_FUNCTION_CALL",
+  UNEXPECTED_TOOL_CALL: "UNEXPECTED_TOOL_CALL",
+  OTHER: "OTHER",
 };
+
+// Client-format (post-translation) finish_reasons for empty output that must
+// NOT be retried: they reflect content moderation, recitation suppression or
+// server policy that would reject on every candidate. Matches lowercase.
+export const NO_RETRY_EMPTY_FINISH = new Set([
+  OPENAI_FINISH.CONTENT_FILTER,
+  "safety",
+  "recitation",
+  "blocklist",
+  "prohibited_content",
+]);

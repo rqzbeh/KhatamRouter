@@ -455,6 +455,16 @@ export function GenericExampleCard({ providerId, kind }) {
                 onChange={(e) => setExtraValues((s) => ({ ...s, [f.key]: e.target.value }))}
                 className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
               />
+            ) : f.type === "boolean" ? (
+              <label className="inline-flex items-center gap-2 text-sm text-text-main">
+                <input
+                  type="checkbox"
+                  checked={extraValues[f.key] === true}
+                  onChange={(e) => setExtraValues((s) => ({ ...s, [f.key]: e.target.checked }))}
+                  className="size-4 accent-primary"
+                />
+                {extraValues[f.key] ? "Enabled" : "Disabled"}
+              </label>
             ) : (
               <input
                 type="number"

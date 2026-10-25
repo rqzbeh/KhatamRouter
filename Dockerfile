@@ -20,6 +20,7 @@ RUN apt-get update \
      ca-certificates \
      curl \
      sqlite3 \
+     ffmpeg \
   && rm -rf /var/lib/apt/lists/*
 
 # ── Builder stage (100% Bun Native Install & Build) ─────────────────────────
@@ -72,7 +73,8 @@ RUN apt-get update \
      ca-certificates \
      curl \
      sqlite3 \
-  && rm -rf /var/lib/apt/lists/*
+     ffmpeg \
+  && rm -rf /var/lib/apt/lists/* /usr/share/mime/*
 
 ENV NODE_ENV=production
 ENV PORT=20128

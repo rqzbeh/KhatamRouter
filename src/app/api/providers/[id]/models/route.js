@@ -14,9 +14,13 @@ import { resolveCursorModels } from "open-sse/services/cursorModels.js";
 import { resolveZedModels } from "open-sse/shared/zedAuth.js";
 import { resolveClineModels, resolveClinepassModels } from "open-sse/services/clinepassModels.js";
 import { NOUS_MODELS_URL, normalizeNousModels } from "open-sse/services/nous.js";
+import { ANTIGRAVITY_OAUTH_CLIENT } from "open-sse/providers/shared.js";
 import codexProvider from "open-sse/providers/registry/codex.js";
+import clineProvider from "open-sse/providers/registry/cline.js";
+import antigravityProvider from "open-sse/providers/registry/antigravity.js";
 
 const GEMINI_CLI_MODELS_URL = "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels";
+const ANTIGRAVITY_MODELS_URL = "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels";
 
 // Model discovery must identify as the same Codex CLI version as inference.
 const CODEX_MODELS_URL = `https://chatgpt.com/backend-api/codex/models?client_version=${codexProvider.transport.cliVersion}`;
@@ -48,6 +52,11 @@ const parseGeminiCliModels = (data) => {
 
   return [];
 };
+
+// Filter out inline tab-completion slots while keeping all real models
+// (including those backed by MODEL_PLACEHOLDER_* upstream slots).
+const parseAntigravityModels = (data) =>
+  parseGeminiCliModels(data).filter((model) => !model.id.startsWith("tab_"));
 
 const appendCodexReviewModels = (models) => models.flatMap((model) => {
   const id = model?.id || model?.slug || model?.model || model?.name;
@@ -94,6 +103,14 @@ const getStaticProviderModels = (providerId) =>
     id: model.id,
     name: model.name || model.id,
   }));
+
+// Every fetch a fetchFn performs must go through `timedFetch`: an unresponsive
+// provider endpoint would otherwise hold the route handler open indefinitely.
+// Same budget as the canonical fetchModelsFetcherIds helper. A timeout surfaces
+// as an AbortError and takes the existing fall-to-static path.
+const MODELS_FETCH_TIMEOUT_MS = 8000;
+const timedFetch = (url, options = {}) =>
+  fetch(url, { ...options, signal: options.signal || AbortSignal.timeout(MODELS_FETCH_TIMEOUT_MS) });
 
 // Generic custom resolver for OAuth providers that need refresh-on-401 + token persist.
 // Receives a `fetchFn(token)` and returns parsed models or throws.
@@ -207,7 +224,7 @@ const PROVIDER_MODELS_CONFIG = {
   codex: {
     customResolver: buildOAuthResolver({
       refreshFn: (conn) => refreshCodexToken(conn.refreshToken),
-      fetchFn: (token) => fetch(CODEX_MODELS_URL, {
+      fetchFn: (token) => timedFetch(CODEX_MODELS_URL, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -221,13 +238,27 @@ const PROVIDER_MODELS_CONFIG = {
     })
   },
   antigravity: {
-    url: "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:models",
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    authHeader: "Authorization",
-    authPrefix: "Bearer ",
-    body: {},
-    parseResponse: (data) => data.models || []
+    customResolver: buildOAuthResolver({
+      refreshFn: (conn) => refreshGoogleToken(
+        conn.refreshToken,
+        antigravityProvider.transport.clientId || ANTIGRAVITY_OAUTH_CLIENT.clientId,
+        antigravityProvider.transport.clientSecret || ANTIGRAVITY_OAUTH_CLIENT.clientSecret
+      ),
+      fetchFn: (token, conn) => {
+        const projectId = conn.projectId || conn.providerSpecificData?.projectId;
+        return timedFetch(ANTIGRAVITY_MODELS_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`,
+            "User-Agent": antigravityProvider.transport.headers["User-Agent"]
+          },
+          body: JSON.stringify(projectId ? { project: projectId } : {})
+        });
+      },
+      parseFn: parseAntigravityModels,
+      errorLabel: "Failed to fetch Antigravity models"
+    })
   },
   github: {
     url: "https://api.githubcopilot.com/models",
@@ -395,20 +426,28 @@ const PROVIDER_MODELS_CONFIG = {
     },
   },
 
-  // Cline/ClinePass share api.cline.bot/api/v1/models. The service layer already
-  // handles Bearer-vs-`workos:` auth and swallows failures into null, so these follow
-  // the cursor direct pattern (no refreshFn) and only differ in filtering:
-  // cline returns the whole catalog verbatim, clinepass keeps cline-pass/* only.
+  // Cline's catalogue is public, so the resolver never needs a connection
+  // token and cannot spend quota. The owner/model ids are served verbatim.
   cline: {
-    customResolver: async (connection) => {
-      const result = await resolveClineModels({
-        accessToken: connection.accessToken,
-        apiKey: connection.apiKey,
-      });
-      if (result?.models?.length) return { models: result.models };
+    customResolver: async () => {
+      try {
+        const response = await timedFetch(clineProvider.modelsFetcher.url, {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const models = parseOpenAIStyleModels(data)
+            .filter((m) => typeof m?.id === "string" && m.id !== "")
+            .map((m) => ({ id: m.id, name: m.name || m.id }));
+          if (models.length > 0) return { models };
+        }
+      } catch (error) {
+        console.log("Failed to fetch Cline models dynamically, falling back to static:", error.message);
+      }
       return {
-        models: getStaticProviderModels("cline"),
-        warning: "Cline returned no live models; falling back to static catalog.",
+        models: getStaticProviderModels(clineProvider.alias),
+        warning: "Failed to fetch Cline models; falling back to static catalog.",
       };
     },
   },
@@ -479,7 +518,7 @@ const PROVIDER_MODELS_CONFIG = {
       fetchFn: (token, conn) => {
         const projectId = conn.projectId || conn.providerSpecificData?.projectId;
         const body = projectId ? { project: projectId } : {};
-        return fetch(GEMINI_CLI_MODELS_URL, {
+        return timedFetch(GEMINI_CLI_MODELS_URL, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -526,7 +565,7 @@ const PROVIDER_MODELS_CONFIG = {
   "ollama-local": {
     customResolver: async (connection) => {
       const url = `${resolveOllamaLocalHost(connection)}/api/tags`;
-      const response = await fetch(url, {
+      const response = await timedFetch(url, {
         method: "GET",
         headers: { "Content-Type": "application/json" }
       });
@@ -559,7 +598,7 @@ export async function GET(request, { params }) {
         return NextResponse.json({ error: "No base URL configured for OpenAI compatible provider" }, { status: 400 });
       }
       const url = `${baseUrl.replace(/\/$/, "")}/models`;
-      const response = await fetch(url, {
+      const response = await timedFetch(url, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -598,7 +637,7 @@ export async function GET(request, { params }) {
       }
 
       const url = `${baseUrl}/models`;
-      const response = await fetch(url, {
+      const response = await timedFetch(url, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -677,7 +716,7 @@ export async function GET(request, { params }) {
       fetchOptions.body = JSON.stringify(config.body);
     }
 
-    const response = await fetch(url, fetchOptions);
+    const response = await timedFetch(url, fetchOptions);
 
     if (!response.ok) {
       const errorText = await response.text();

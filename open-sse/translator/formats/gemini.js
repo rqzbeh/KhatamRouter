@@ -353,6 +353,15 @@ function ensureArrayItems(obj) {
   if (obj.type === "array" && !obj.items) {
     obj.items = { type: "string" };
   }
+  // `items` describes the element shape of an array. Gemini rejects a node
+  // that carries it without being an array — "field predicate failed: $type ==
+  // Type.ARRAY" (issue #163). A node with no type and no properties is an
+  // array that lost its type; anything else is an object that must not have
+  // `items` at all.
+  if (obj.items && obj.type !== "array") {
+    if (obj.type === undefined && !obj.properties) obj.type = "array";
+    else delete obj.items;
+  }
   for (const v of Object.values(obj)) if (v && typeof v === "object") ensureArrayItems(v);
 }
 
@@ -454,13 +463,34 @@ export function cleanJSONSchemaForAntigravity(schema) {
 // JSON Schema / OpenAPI document (webfetch, read, MCP) hit this, so rename the key.
 export const GEMINI_RESERVED_RESPONSE_KEYS = { "$ref": "_ref" };
 
-// Recursively rename reserved keys in a tool-result payload (arrays/objects only)
+const hasReservedKey = (value) =>
+  Object.keys(value).some((key) => Object.hasOwn(GEMINI_RESERVED_RESPONSE_KEYS, key));
+
+// Recursively rename reserved keys in tool-result payload (arrays/objects only).
+// map is read with Object.hasOwn: payload key named "constructor" must stay
+// "constructor", not be rewritten to Object.prototype's function source via `??`
+// on an inherited hit.
 export function sanitizeFunctionResponsePayload(value) {
   if (Array.isArray(value)) return value.map(sanitizeFunctionResponsePayload);
   if (!value || typeof value !== "object") return value;
+  // Untouched payloads (the overwhelming majority) return by reference: no clone.
+  if (!hasReservedKey(value) && !Object.values(value).some((v) => v && typeof v === "object")) {
+    return value;
+  }
   const out = {};
   for (const [key, val] of Object.entries(value)) {
-    out[GEMINI_RESERVED_RESPONSE_KEYS[key] ?? key] = sanitizeFunctionResponsePayload(val);
+    const mapped = Object.hasOwn(GEMINI_RESERVED_RESPONSE_KEYS, key)
+      ? GEMINI_RESERVED_RESPONSE_KEYS[key]
+      : key;
+    // defineProperty, not `out[mapped] =`: a client-supplied "__proto__" key would
+    // otherwise hit the prototype setter, silently dropping the key and giving the
+    // output a non-standard prototype. defineProperty always makes an own property.
+    Object.defineProperty(out, mapped, {
+      value: sanitizeFunctionResponsePayload(val),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
   }
   return out;
 }
