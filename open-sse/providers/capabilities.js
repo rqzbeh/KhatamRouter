@@ -275,8 +275,13 @@ export const PROVIDER_CAPABILITIES = {
   // overlay, so models.dev's free-lane listing (200000/32000) has to be applied
   // here if a probe ever pins the lane's real window (a 200k `max_tokens` is
   // accepted, so the 32k figure is not enforced at request validation).
+  // deepseek-v4.1-flash-free: the backend rejects requests above ~330k prompt
+  // tokens (issue #5097). Upstream capped at 330000 (PR #5179); KhatamRouter
+  // retains the safe 200000/32000 baseline so clients compact comfortably below
+  // the backend limit without advertising more than what our tree already safe-listed.
   "opencode": {
     "mimo-v2.6-flash-free": { vision: true, audioInput: true, videoInput: true, reasoning: true, thinkingFormat: "openai", thinkingCanDisable: true, contextWindow: 1048576, maxOutput: 131072 },
+    "deepseek-v4.1-flash-free": { vision: true, reasoning: true, thinkingFormat: "deepseek", contextWindow: 200000, maxOutput: 32000 },
   },
   "commandcode": {
     // The generic commandcode fallback (1M/384k for every unlisted model) happened
