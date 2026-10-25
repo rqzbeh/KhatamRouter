@@ -342,7 +342,7 @@ export async function DELETE(request) {
       profile: home.name,
       removed,
       kept,
-      message: `${PROVIDER_NAME} model blocks removed${scope}`,
+      message: `KhatamRouter model blocks removed${scope}`,
     });
   } catch (error) {
     console.log("Error resetting hermes settings:", error);
