@@ -137,3 +137,77 @@ All ported code conforms to KhatamRouter's architectural contract:
 - **Fail-Open Quota & Rate Limiting**: Limit evaluation degrades safely under infrastructure outages without dropping valid user traffic.
 - **Retained Webpack Bundler**: Webpack retained (`--webpack`) following the formal rejection of Turbopack (Spec 0075) to prevent bundle bloat and dynamic tracing regressions.
 - **Security-First Ingestion**: Request bodies bounded to 128 MiB JSON / 64 MiB h2c; strict CRLF enforcement; immediate rejection of HTTP smuggling attempts combining Content-Length and Transfer-Encoding.
+
+---
+
+# Upstream Ports & Audit Ledger: Pre-Wave-8 Decolua PR Batch
+
+This section records the upstream porting and synchronization audit for the 5 requested `decolua/9router` pull requests (`#4988`, `#5222`, `#5150`, `#5179`, `#5193`) ported prior to Wave 8.
+
+## 1. Summary & Ported PRs Matrix
+
+| PR | Landed Commit | Upstream PR Title / Summary | Subsystem / Files Changed | Security Hardening / Deviations |
+|---|---|---|---|---|
+| [`#5150`](https://github.com/decolua/9router/pull/5150) | `e3e324bf` | `fix(translator): downgrade deepseek json_schema to json_object` | `open-sse/translator/concerns/paramSupport.js`<br>`tests/unit/param-support.test.js` | Added defensive null/primitive checks and optional chaining (`response_format?.type`) to prevent gateway runtime crashes on malformed inputs. |
+| [`#5179`](https://github.com/decolua/9router/pull/5179) | `a8c3f780` | `fix(capabilities): cap oc/deepseek-v4.1-flash-free context window` | `open-sse/providers/capabilities.js`<br>`tests/unit/capabilities.test.js` | Capped `opencode/deepseek-v4.1-flash-free` at 200,000 / 32,000 (preserving `<= 330,000` cap) rather than raising to 330,000, avoiding advertising higher token limits than safe models.dev baseline. |
+| [`#5193`](https://github.com/decolua/9router/pull/5193) | `73de8878` | `fix(providers): avoid network probe on opencode free tier connection test` | `src/app/api/providers/[id]/test/testUtils.js`<br>`tests/unit/opencode-test-no-probe.test.js` | Omitted unauthenticated network probe to `zen/v1/models` on free tier connection test; returns `valid: true` directly to eliminate unneeded egress and prevent IP flagging. |
+| [`#5222`](https://github.com/decolua/9router/pull/5222) | `1235db41` | `feat(opencode): port session timestamps and CLI fingerprint (#5222)` | `open-sse/executors/opencode.js`<br>`open-sse/utils/opencodeFingerprint.js`<br>`tests/unit/opencode-fingerprint.test.js`<br>`tests/unit/opencode-session.test.js` | Host reconnaissance defense: replaced upstream `process.cwd()` and `os.tmpdir()` leaks with fixed neutral constants (`/home/user/project`, `/var/cache/opencode`, `'linux'`); retained backward-compatible constants and ID pools. |
+| [`#4988`](https://github.com/decolua/9router/pull/4988) | `1b8869d2` | `feat(proxy): replay proxied 403 FreeTierError once on direct egress` | `open-sse/utils/proxyFetch.js`<br>`tests/unit/opencode-freetier-direct-replay.test.js` | Strict host allowlist (OpenCode origins only), strictProxy contract enforcement, 64 KiB body buffering ceiling (DoS prevention), single direct replay attempt, safe header handling, and query param/credential log redaction. |
+
+## 2. Detailed Upstream PR Breakdown & Security Audit
+
+### PR #5150: DeepSeek Response Format json_schema Downgrade
+- **Upstream PR**: [decolua/9router#5150](https://github.com/decolua/9router/pull/5150)
+- **Landed Commit**: `e3e324bf`
+- **What Was Ported**:
+  DeepSeek API documentation specifies support only for `response_format: { type: "json_object" }`; passing `{ type: "json_schema" }` results in HTTP 400 rejection with message `"This response_format type is unavailable now"`. In `open-sse/translator/concerns/paramSupport.js`, `json_schema` is safely downgraded to `json_object` when targeting DeepSeek providers and models, allowing structured JSON requests to proceed.
+- **Security Audit & Deviations**:
+  - Upstream checked `body.response_format.type === 'json_schema'` directly, which throws a TypeError if `response_format` is null, boolean, or primitive.
+  - KhatamRouter applied defensive programming using optional chaining (`body.response_format?.type === 'json_schema'`) and guarded against non-object payloads.
+  - Added unit test coverage verifying that null, non-object, and missing `response_format` fields pass through safely without runtime exceptions.
+
+### PR #5179: OpenCode deepseek-v4.1-flash-free Context Window Cap
+- **Upstream PR**: [decolua/9router#5179](https://github.com/decolua/9router/pull/5179)
+- **Landed Commit**: `a8c3f780`
+- **What Was Ported**:
+  Upstream OpenCode backend enforces a ~330,000 prompt token limit on `deepseek-v4.1-flash-free` (upstream issue #5097), rejecting requests that exceed this limit with HTTP 400 errors.
+- **Security Audit & Deviations**:
+  - Upstream 9router previously matched a generic 1M pattern and clamped it down to 330,000.
+  - In KhatamRouter, `MODEL_CAPABILITIES` already listed this model safely at 200,000 contextWindow and 32,000 maxOutput based on verified models.dev free-lane specifications.
+  - Rather than increasing the advertised context window to 330,000 (which could encourage prompt sizes that hit latency or soft-rate limits), KhatamRouter explicitly set `PROVIDER_CAPABILITIES.opencode` for `deepseek-v4.1-flash-free` to `contextWindow: 200000, maxOutput: 32000`. This strictly honors the `<= 330,000` cap and satisfies regression checks without inflating client expectations beyond verified limits.
+
+### PR #5193: Avoid Network Probe on OpenCode Free Tier Connection Test
+- **Upstream PR**: [decolua/9router#5193](https://github.com/decolua/9router/pull/5193)
+- **Landed Commit**: `73de8878`
+- **What Was Ported**:
+  The dashboard connection test button for `opencode` free tier previously dispatched an HTTP GET to `https://opencode.ai/zen/v1/models`. Because the free lane requires no secret or user credentials ("Bearer public") and the legacy probe user-agent was rejected with 403 FreeTierError, the probe caused spurious test failures. In `src/app/api/providers/[id]/test/testUtils.js`, `testConnection` for `opencode` now returns `{ valid: true }` directly.
+- **Security Audit & Deviations**:
+  - Eliminates unnecessary network egress from the gateway host on connection tests for an unauthenticated public tier.
+  - Prevents the gateway IP from being flagged or rate-limited by upstream Zen endpoints during manual dashboard test clicks.
+  - Preserves the authenticated live chat probe for `opencode-go` without modification.
+
+### PR #5222: OpenCode Session Timestamps and CLI Fingerprint
+- **Upstream PR**: [decolua/9router#5222](https://github.com/decolua/9router/pull/5222)
+- **Landed Commit**: `1235db41`
+- **What Was Ported**:
+  - Real monotonic 48-bit millisecond timestamps (`Date.now()`) encoded in `ses_` translated session IDs, memoized by `(clientTool, sessionId)` with bounded cache and TTL cleanup.
+  - Default User-Agent bumped to `opencode/latest/2.1.4/cli`.
+  - Accept shell tool description platform wordings (`linux`, `darwin`, `win32`) in tool definitions.
+  - Idempotent and fail-open injection of `<env>` environment marker block across Chat Completions, Responses, and Claude message shapes.
+  - Claude-shaped body fingerprint placement for messages models (such as `union-alpha`) via top-level `system` field.
+- **Security Audit & Deviations**:
+  - **Host Reconnaissance Vulnerability in Upstream**: Upstream 9router generated the `<env>` fingerprint block by reading `process.cwd()` and `path.join(os.tmpdir(), 'opencode')`. In a gateway/proxy deployment, this leaks the server's internal filesystem hierarchy, directory names, OS usernames, and environment paths to external upstreams on every OpenCode request.
+  - **KhatamRouter Hardening**: Replaced dynamic host path evaluation with fixed, neutral constants (`/home/user/project`, `/var/cache/opencode`, `'linux'`). This completely satisfies upstream fingerprint parsing while strictly preventing host layout disclosure.
+  - **Backward Compatibility**: Maintained KhatamRouter exports (`OPENCODE_UA`, `OPENCODE_CLIENT`, `translatedIdStores`, `MAX_TRANSLATED_IDS`) and isolated request ID stores to ensure zero breakage of existing integrations.
+
+### PR #4988: OpenCode Free Tier 403 Replay on Direct Egress
+- **Upstream PR**: [decolua/9router#4988](https://github.com/decolua/9router/pull/4988)
+- **Landed Commit**: `1b8869d2`
+- **What Was Ported**:
+  When an OpenCode free-tier request routed through an outbound proxy receives an HTTP 403 `FreeTierError` (indicating upstream has flagged the proxy IP), `proxyFetch` safely inspects the response and attempts a single direct replay.
+- **Security Audit & Deviations**:
+  - **Strict Host Restricting**: Direct replay is strictly gated to OpenCode origins (`opencode.ai` and subdomains via `isOpenCodeHost`). Other providers never trigger 403 body inspection or direct replay, eliminating any accidental IP leakage for non-OpenCode traffic.
+  - **Strict Proxy Contract Preservation**: Replay is strictly forbidden if `proxyOptions.strictProxy === true` or if direct fallback is disabled, ensuring strict proxy isolation is never bypassed.
+  - **Memory Exhaustion (DoS) Defense**: Response body inspection for 403 responses is strictly bounded to 64 KiB (`MAX_FREE_TIER_BODY_BYTES`) with Content-Length pre-checks and stream chunk limits with reader cancellation. This prevents malicious upstreams from consuming unbounded server memory.
+  - **Single Replay & Privacy-Preserving Logging**: At most one direct replay is performed with unmodified method, headers, and body. Log output redacts URL paths, queries, and credentials, logging only the parsed host name.
+  - **Stream / Consumed Body Safety**: If the request body stream is locked or consumed, replay is bypassed and a reconstructed response from buffered text is returned safely.

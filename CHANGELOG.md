@@ -1,3 +1,20 @@
+# v0.5.110 (Unreleased) — Pre-Wave 8 Decolua 9router Ports
+
+## Security
+- **OpenCode Free Tier Direct Replay**: port `decolua/9router#4988` with security hardening: strictly allowlist OpenCode hostnames, honor `strictProxy`, cap body buffering at 64 KiB to prevent DoS, replay at most once, and strip sensitive URL data from logs
+- **OpenCode CLI Fingerprint Privacy**: port `decolua/9router#5222` with host reconnaissance hardening: replace upstream `process.cwd()` and `os.tmpdir()` leaks with fixed neutral dummy constants (`/home/user/project`, `/var/cache/opencode`, `'linux'`), preventing host filesystem and username disclosure
+- **OpenCode Free Connection Test**: port `decolua/9router#5193` avoiding external unauthenticated network probe to `https://opencode.ai/zen/v1/models` which triggered 403 FreeTierError
+- **DeepSeek Parameter Support**: port `decolua/9router#5150` with defensive type checks to safely downgrade `json_schema` to `json_object` without throwing on malformed/primitive values
+
+## Features
+- **OpenCode**: port session timestamps and CLI fingerprint (`decolua/9router#5222`), minting monotonic timestamps in translated session IDs and adding environment marker `<env>` to OpenCode prompts
+- **Proxy**: retry 403 `FreeTierError` once via direct egress for OpenCode free tier requests when proxy IP is flagged (`decolua/9router#4988`)
+
+## Fixes
+- **Translator**: downgrade DeepSeek `json_schema` response_format to `json_object` to avoid HTTP 400 errors (`decolua/9router#5150`)
+- **Capabilities**: explicitly cap `opencode/deepseek-v4.1-flash-free` context window at 200k / 32k (`<= 330k` limit) to prevent 400 rejection on large prompts (`decolua/9router#5179`)
+- **Providers**: avoid network probe on OpenCode free tier connection test in dashboard (`decolua/9router#5193`)
+
 # v0.5.109 (2026-10-25) — Wave 9: Upstream Port & Security Hardening
 
 ## Security
