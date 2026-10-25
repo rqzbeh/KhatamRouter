@@ -6,12 +6,20 @@ import EventEmitter from "events";
 import {
   GET as versionGet,
   parseSemver,
+  reconstructSemver,
   compareVersions,
+  fetchGitHubJson,
+  fetchLatestReleaseVersion,
   detectRuntime,
   getInstallGuidance,
   getUpdateRepo,
   versionCache,
 } from "../../src/app/api/version/route.js";
+import {
+  parseSemver as cliParseSemver,
+  reconstructSemver as cliReconstructSemver,
+  compareVersions as cliCompareVersions,
+} from "../../cli/src/cli/utils/semver.js";
 import { POST as updatePost } from "../../src/app/api/version/update/route.js";
 import { spawnUpdaterAndExit, collectAppPids } from "../../src/lib/appUpdater.js";
 import { APP_CONFIG, UPDATER_CONFIG } from "../../src/shared/constants/config.js";
@@ -44,6 +52,30 @@ describe("T1: Update-Check API, Runtime Guidance & Updater Neutralization", () =
       expect(parseSemver(null)).toBeNull();
       expect(parseSemver("invalid")).toBeNull();
       expect(parseSemver("1.2")).toBeNull();
+    });
+
+    it("rejects unanchored strings with command injection or extra text (A2 defect)", () => {
+      expect(parseSemver("1.0.0; rm -rf /")).toBeNull();
+      expect(parseSemver("1.0.0\nmalicious")).toBeNull();
+      expect(parseSemver("1.0.0-rc.1; echo pwn")).toBeNull();
+      expect(parseSemver("1.0.0$(whoami)")).toBeNull();
+      expect(parseSemver("1.0.0`id`")).toBeNull();
+    });
+
+    it("rejects ANSI escape sequences and control characters (A3 defect)", () => {
+      expect(parseSemver("999.0.0\x1b[2J")).toBeNull();
+      expect(parseSemver("1.0.0\x00")).toBeNull();
+      expect(parseSemver("1.0.0\x7F")).toBeNull();
+      expect(parseSemver("1.0.0\r\nevil")).toBeNull();
+    });
+
+    it("reconstructs clean semver string strictly from parsed numbers (A2)", () => {
+      expect(reconstructSemver("v1.2.3")).toBe("1.2.3");
+      expect(reconstructSemver("1.2.3")).toBe("1.2.3");
+      expect(reconstructSemver("  v0.5.105  ")).toBe("0.5.105");
+      expect(reconstructSemver("0.5.104-alpha.1")).toBe("0.5.104");
+      expect(reconstructSemver("1.0.0; rm -rf /")).toBeNull();
+      expect(reconstructSemver("999.0.0\x1b[2J")).toBeNull();
     });
 
     it("correctly compares semver versions", () => {
@@ -106,11 +138,12 @@ describe("T1: Update-Check API, Runtime Guidance & Updater Neutralization", () =
   });
 
   describe("GET /api/version route", () => {
-    function mockHttpsResponse(statusCode, data) {
+    function mockHttpsResponse(statusCode, data, headers = { "content-type": "application/json" }) {
       vi.spyOn(https, "get").mockImplementation((url, options, cb) => {
         const callback = typeof options === "function" ? options : cb;
         const res = new EventEmitter();
         res.statusCode = statusCode;
+        res.headers = headers;
         res.resume = vi.fn();
         process.nextTick(() => {
           if (callback) callback(res);
@@ -170,6 +203,8 @@ describe("T1: Update-Check API, Runtime Guidance & Updater Neutralization", () =
         const callback = typeof options === "function" ? options : cb;
         const res = new EventEmitter();
         res.statusCode = 200;
+        res.headers = { "content-type": "application/json" };
+        res.resume = vi.fn();
         process.nextTick(() => {
           callback(res);
           res.emit("data", JSON.stringify({ tag_name: "v99.0.0" }));
@@ -226,6 +261,221 @@ describe("T1: Update-Check API, Runtime Guidance & Updater Neutralization", () =
       expect(UPDATER_CONFIG.npmPackageName).toBeUndefined();
       expect(UPDATER_CONFIG.installCmd).toBeUndefined();
       expect(UPDATER_CONFIG.installCmdLatest).not.toContain("npm i -g 9router");
+    });
+  });
+
+  describe("Part A Security Hardening: Semver Validation, Capping & Hostile Input Fuzzing", () => {
+    const HOSTILE_STRINGS = [
+      "1.0.0; rm -rf /",
+      "999.0.0\x1b[2J",
+      "1.0.0\nmalicious",
+      "1.0.0\r\nevil",
+      "1.0.0\x00",
+      "1.0.0\x7F",
+      "١.٢.٣",
+      "1.0.0-" + "a".repeat(10000),
+      "1234567890.1.2",
+      "1.1234567890.2",
+      "1.2.1234567890",
+      null,
+      undefined,
+      123,
+      { tag: "1.0.0" },
+      ["1.0.0"],
+      "",
+      "   ",
+      "1.0.0$(whoami)",
+      "1.0.0`id`",
+      "1.0.0|cat /etc/passwd",
+      "1.0.0 && touch /tmp/pwn",
+      "1.0.0 > /dev/null",
+      "1.0.0<script>alert(1)</script>",
+      "v1.0.0-rc.1; echo pwned",
+      "1.0.0+build.1\x1b[31m",
+      "1.0",
+      "v.1.2.3",
+    ];
+
+    it("verifies server and CLI semver implementations agree on 32 diverse inputs", () => {
+      const inputs = [
+        "0.0.1",
+        "v0.0.1",
+        "1.0.0",
+        "v1.2.3",
+        "  1.2.3  ",
+        "  v0.5.105  ",
+        "0.5.104-alpha.1",
+        "v1.0.0-beta+exp.sha.5114f85",
+        "2.1.0-rc.1",
+        "10.20.30",
+        "999999999.999999999.999999999",
+        "",
+        "   ",
+        null,
+        undefined,
+        "1",
+        "1.2",
+        "1.2.3.4",
+        "invalid",
+        "v",
+        "1.0.0; rm -rf /",
+        "999.0.0\x1b[2J",
+        "1.0.0\nmalicious",
+        "1.0.0\r\nevil",
+        "1.0.0\x00",
+        "١.٢.٣",
+        "1234567890.1.2",
+        "1.0.0-" + "a".repeat(10000),
+        "v1.0.0$(whoami)",
+        "1.0.0`id`",
+        "1.0.0 && touch /tmp/pwn",
+        "1.0.0|cat /etc/passwd",
+      ];
+      expect(inputs.length).toBeGreaterThanOrEqual(30);
+
+      for (const input of inputs) {
+        expect(parseSemver(input)).toEqual(cliParseSemver(input));
+        expect(reconstructSemver(input)).toEqual(cliReconstructSemver(input));
+      }
+
+      // Comparison agreement
+      expect(compareVersions("1.2.3", "1.2.2")).toBe(cliCompareVersions("1.2.3", "1.2.2"));
+      expect(compareVersions("1.2.2", "1.2.3")).toBe(cliCompareVersions("1.2.2", "1.2.3"));
+      expect(compareVersions("1.2.3", "1.2.3")).toBe(cliCompareVersions("1.2.3", "1.2.3"));
+    });
+
+    it("fuzzes both implementations with at least 25 hostile strings and asserts all are rejected", () => {
+      expect(HOSTILE_STRINGS.length).toBeGreaterThanOrEqual(25);
+
+      for (const hostile of HOSTILE_STRINGS) {
+        expect(parseSemver(hostile), `Server parseSemver failed to reject: ${hostile}`).toBeNull();
+        expect(reconstructSemver(hostile), `Server reconstructSemver failed to reject: ${hostile}`).toBeNull();
+        expect(cliParseSemver(hostile), `CLI parseSemver failed to reject: ${hostile}`).toBeNull();
+        expect(cliReconstructSemver(hostile), `CLI reconstructSemver failed to reject: ${hostile}`).toBeNull();
+      }
+    });
+
+    it("enforces JSON content-type and rejects text/html or missing content-type", async () => {
+      const mockGet = (contentType) => {
+        return vi.spyOn(https, "get").mockImplementation((url, options, cb) => {
+          const callback = typeof options === "function" ? options : cb;
+          const res = new EventEmitter();
+          res.statusCode = 200;
+          res.headers = contentType ? { "content-type": contentType } : {};
+          res.resume = vi.fn();
+          process.nextTick(() => {
+            if (callback) callback(res);
+            res.emit("data", JSON.stringify({ tag_name: "v99.0.0" }));
+            res.emit("end");
+          });
+          const req = new EventEmitter();
+          req.destroy = vi.fn();
+          return req;
+        });
+      };
+
+      // Non-JSON content-type: rejected
+      const htmlSpy = mockGet("text/html");
+      const resultHtml = await fetchGitHubJson("/repos/rqzbeh/KhatamRouter/releases/latest");
+      expect(resultHtml).toBeNull();
+      htmlSpy.mockRestore();
+
+      // Missing content-type: rejected
+      const noneSpy = mockGet(undefined);
+      const resultNone = await fetchGitHubJson("/repos/rqzbeh/KhatamRouter/releases/latest");
+      expect(resultNone).toBeNull();
+      noneSpy.mockRestore();
+    });
+
+    it("fails open and returns null when GitHub response exceeds 512 KiB", async () => {
+      let destroyCalled = false;
+      const bigSpy = vi.spyOn(https, "get").mockImplementation((url, options, cb) => {
+        const callback = typeof options === "function" ? options : cb;
+        const res = new EventEmitter();
+        res.statusCode = 200;
+        res.headers = { "content-type": "application/json" };
+        res.resume = vi.fn();
+        const req = new EventEmitter();
+        req.destroy = vi.fn(() => { destroyCalled = true; });
+
+        process.nextTick(() => {
+          if (callback) callback(res);
+          // Emit a chunk larger than 512 KiB
+          res.emit("data", "x".repeat(513 * 1024));
+          res.emit("end");
+        });
+        return req;
+      });
+
+      const result = await fetchGitHubJson("/repos/rqzbeh/KhatamRouter/releases/latest");
+      expect(result).toBeNull();
+      expect(destroyCalled).toBe(true);
+      bigSpy.mockRestore();
+    });
+
+    it("rejects non-200 responses including redirects (no redirects followed)", async () => {
+      const redirectSpy = vi.spyOn(https, "get").mockImplementation((url, options, cb) => {
+        const callback = typeof options === "function" ? options : cb;
+        const res = new EventEmitter();
+        res.statusCode = 302;
+        res.headers = { location: "https://attacker.com/evil" };
+        res.resume = vi.fn();
+        const req = new EventEmitter();
+        req.destroy = vi.fn();
+        process.nextTick(() => {
+          if (callback) callback(res);
+          res.emit("end");
+        });
+        return req;
+      });
+
+      const result = await fetchGitHubJson("/repos/rqzbeh/KhatamRouter/releases/latest");
+      expect(result).toBeNull();
+      redirectSpy.mockRestore();
+    });
+
+    it("returns reconstructed version from fetchLatestReleaseVersion and never raw or hostile tag", async () => {
+      // Hostile tag
+      vi.spyOn(https, "get").mockImplementation((url, options, cb) => {
+        const callback = typeof options === "function" ? options : cb;
+        const res = new EventEmitter();
+        res.statusCode = 200;
+        res.headers = { "content-type": "application/json" };
+        res.resume = vi.fn();
+        const req = new EventEmitter();
+        req.destroy = vi.fn();
+        process.nextTick(() => {
+          if (callback) callback(res);
+          res.emit("data", JSON.stringify({ tag_name: "1.0.0; rm -rf /" }));
+          res.emit("end");
+        });
+        return req;
+      });
+
+      const hostileResult = await fetchLatestReleaseVersion("rqzbeh/KhatamRouter");
+      expect(hostileResult).toBeNull();
+      vi.restoreAllMocks();
+
+      // Valid tag with prerelease/leading v
+      vi.spyOn(https, "get").mockImplementation((url, options, cb) => {
+        const callback = typeof options === "function" ? options : cb;
+        const res = new EventEmitter();
+        res.statusCode = 200;
+        res.headers = { "content-type": "application/json" };
+        res.resume = vi.fn();
+        const req = new EventEmitter();
+        req.destroy = vi.fn();
+        process.nextTick(() => {
+          if (callback) callback(res);
+          res.emit("data", JSON.stringify({ tag_name: "v2.3.4-beta.1" }));
+          res.emit("end");
+        });
+        return req;
+      });
+
+      const validResult = await fetchLatestReleaseVersion("rqzbeh/KhatamRouter");
+      expect(validResult).toBe("2.3.4");
+      vi.restoreAllMocks();
     });
   });
 

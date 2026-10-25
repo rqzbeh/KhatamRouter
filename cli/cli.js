@@ -275,15 +275,7 @@ if (skipUpdate && !trayMode && !process.stdin.isTTY) {
 }
 
 // Compare semver versions: returns 1 if a > b, -1 if a < b, 0 if equal
-function compareVersions(a, b) {
-  const partsA = a.split(".").map(Number);
-  const partsB = b.split(".").map(Number);
-  for (let i = 0; i < 3; i++) {
-    if (partsA[i] > partsB[i]) return 1;
-    if (partsA[i] < partsB[i]) return -1;
-  }
-  return 0;
-}
+const { parseSemver, reconstructSemver, compareVersions } = require("./src/cli/utils/semver");
 
 // Get app data dir (matches app/src/lib/dataDir.js convention)
 function getAppDataDir() {
@@ -600,19 +592,30 @@ function checkForUpdate() {
 
     const req = https.get(options, (res) => {
       if (res.statusCode !== 200) {
-        res.resume();
+        if (typeof res.resume === "function") res.resume();
+        return done(null);
+      }
+      const contentType = res.headers?.["content-type"] || "";
+      if (!contentType.includes("application/json")) {
+        if (typeof res.resume === "function") res.resume();
         return done(null);
       }
       let data = "";
-      res.on("data", chunk => data += chunk);
+      res.on("data", (chunk) => {
+        data += chunk;
+        if (data.length > 512 * 1024) {
+          req.destroy();
+          done(null);
+        }
+      });
       res.on("end", () => {
         try {
           const release = JSON.parse(data);
           const rawVersion = release?.tag_name || release?.name;
-          if (rawVersion) {
-            const cleaned = rawVersion.trim().replace(/^v/, "");
-            if (compareVersions(cleaned, pkg.version) > 0) {
-              return done(cleaned);
+          if (rawVersion && typeof rawVersion === "string" && rawVersion.length <= 64) {
+            const reconstructed = reconstructSemver(rawVersion);
+            if (reconstructed && compareVersions(reconstructed, pkg.version) > 0) {
+              return done(reconstructed);
             }
           }
           done(null);

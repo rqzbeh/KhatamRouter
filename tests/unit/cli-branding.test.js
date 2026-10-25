@@ -47,6 +47,17 @@ describe("T2: CLI Branding, Dual Binary Alias & CLI Update Source", () => {
       expect(content).toContain("releases/latest");
     });
 
+    it("enforces 512 KiB buffer cap and JSON content-type in update check (A1)", () => {
+      expect(content).toContain("data.length > 512 * 1024");
+      expect(content).toContain("req.destroy()");
+      expect(content).toContain('.includes("application/json")');
+    });
+
+    it("uses strict semver reconstruction in update check to prevent escape injection (A3)", () => {
+      expect(content).toContain("reconstructSemver");
+      expect(content).toContain('require("./src/cli/utils/semver")');
+    });
+
     it("supports KHATAM_UPDATE_CHECK=0 to disable update checks", () => {
       expect(content).toContain('process.env.KHATAM_UPDATE_CHECK === "0"');
     });
