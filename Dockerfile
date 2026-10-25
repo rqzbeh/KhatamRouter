@@ -74,7 +74,7 @@ RUN apt-get update \
      curl \
      sqlite3 \
      ffmpeg \
-  && rm -rf /var/lib/apt/lists/*
+  && rm -rf /var/lib/apt/lists/* /usr/share/mime/*
 
 ENV NODE_ENV=production
 ENV PORT=20128
