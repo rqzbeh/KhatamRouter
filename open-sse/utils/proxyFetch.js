@@ -329,6 +329,189 @@ async function createBypassRequest(parsedUrl, realIP, options) {
   });
 }
 
+// OpenCode's free-tier gate answers 403 `FreeTierError` when the request
+// exits from an IP it has flagged — the transport itself succeeded, so the
+// proxy-failure fallback below never sees it and every retry keeps leaving
+// through the same flagged proxy. Live measurement (#4983): identical body and
+// headers in the same minute — flagged pool egress → 403 FreeTierError,
+// direct egress → 200.
+const FREE_TIER_ERROR_MARKER = "FreeTierError";
+const MAX_FREE_TIER_BODY_BYTES = 64 * 1024; // 64 KiB
+const OPENCODE_BASE_DOMAIN = "opencode.ai";
+
+/** Check if url belongs to the OpenCode domain or its subdomains. */
+function isOpenCodeHost(url) {
+  try {
+    const hostname = new URL(typeof url === "string" ? url : url.toString()).hostname.toLowerCase();
+    return hostname === OPENCODE_BASE_DOMAIN || hostname.endsWith(`.${OPENCODE_BASE_DOMAIN}`);
+  } catch {
+    return false;
+  }
+}
+
+/** Extract target host safely for logging without leaking path, query, or credentials. */
+function targetHost(url) {
+  try {
+    return new URL(typeof url === "string" ? url : url.toString()).host;
+  } catch {
+    const str = String(url).split("?")[0].split("#")[0];
+    const match = str.match(/^(?:https?:\/\/)?([^/:]+)/i);
+    return match ? match[1] : "[unknown]";
+  }
+}
+
+/** Rebuild a response whose body we buffered while inspecting it. */
+function bufferedResponse(text, original) {
+  const headers = new Headers(original.headers);
+  // The body was decoded while reading, so upstream framing no longer applies.
+  headers.delete("content-length");
+  headers.delete("content-encoding");
+  return new Response(text, {
+    status: original.status,
+    statusText: original.statusText || undefined,
+    headers,
+  });
+}
+
+/** Check if the request body is a stream that has already been consumed or locked. */
+function isRequestBodyConsumed(body) {
+  if (!body) return false;
+  // WHATWG ReadableStream
+  if (typeof body.getReader === "function" && body.locked) {
+    return true;
+  }
+  // Node.js Readable stream
+  if (typeof body.pipe === "function" && (body.readableEnded || body.destroyed)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Bounded read of response body up to `limit` bytes.
+ * Prevents unbounded buffering from hostile or misbehaving upstreams.
+ */
+async function readBoundedText(response, limit = MAX_FREE_TIER_BODY_BYTES) {
+  const clHeader = response.headers?.get?.("content-length");
+  if (clHeader !== null && clHeader !== undefined && clHeader !== "") {
+    const cl = Number(clHeader);
+    if (Number.isFinite(cl) && cl > limit) {
+      return { text: null, oversized: true, touched: false };
+    }
+  }
+
+  if (!response.body) {
+    if (typeof response.text === "function") {
+      try {
+        const text = await response.text();
+        const byteLen = Buffer.byteLength(text, "utf8");
+        if (byteLen > limit) {
+          return { text: text.slice(0, limit), oversized: true, touched: true };
+        }
+        return { text, oversized: false, touched: true };
+      } catch {
+        return { text: null, oversized: false, touched: true, error: true };
+      }
+    }
+    return { text: "", oversized: false, touched: false };
+  }
+
+  if (typeof response.body.getReader === "function") {
+    let reader;
+    try {
+      if (response.body.locked) {
+        return { text: null, oversized: false, touched: false, error: true };
+      }
+      reader = response.body.getReader();
+    } catch {
+      return { text: null, oversized: false, touched: false, error: true };
+    }
+    const chunks = [];
+    let totalBytes = 0;
+    let oversized = false;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) {
+          totalBytes += value.byteLength;
+          if (totalBytes > limit) {
+            oversized = true;
+            try { await reader.cancel(); } catch {}
+            break;
+          }
+          chunks.push(value);
+        }
+      }
+    } catch {
+      return { text: null, oversized: false, touched: true, error: true };
+    }
+    const text = Buffer.concat(chunks).toString("utf8");
+    return { text, oversized, touched: true };
+  }
+
+  if (typeof response.text === "function") {
+    try {
+      const text = await response.text();
+      const byteLen = Buffer.byteLength(text, "utf8");
+      if (byteLen > limit) {
+        return { text: text.slice(0, limit), oversized: true, touched: true };
+      }
+      return { text, oversized: false, touched: true };
+    } catch {
+      return { text: null, oversized: false, touched: true, error: true };
+    }
+  }
+
+  return { text: "", oversized: false, touched: false };
+}
+
+/**
+ * After a proxied attempt, replay once on the direct egress when upstream
+ * rejected the *proxy's IP* (403 FreeTierError).
+ *
+ * Security & hardening rules:
+ * - Restricted strictly to OpenCode origin(s) (opencode.ai and subdomains).
+ * - Never replays when strictProxy is true.
+ * - Caps body buffering at 64 KiB to prevent DoS.
+ * - Replays at most once with identical request method/body/headers.
+ * - Handles streamed/one-shot request bodies (cannot be rewound => no replay).
+ */
+async function replayFreeTierRejectionDirect(url, options, proxyOptions, proxied) {
+  if (proxied.status !== 403) return proxied;
+  if (proxyOptions?.strictProxy === true) return proxied;
+  if (!isOpenCodeHost(url)) return proxied;
+
+  const { text, oversized, touched, error } = await readBoundedText(proxied, MAX_FREE_TIER_BODY_BYTES);
+
+  // If reading threw or stream was locked, fail safe to returning original response
+  if (error) return proxied;
+
+  // If body exceeded limit, do not replay and fail safe to original or bounded response
+  if (oversized) {
+    return touched ? bufferedResponse(text, proxied) : proxied;
+  }
+
+  // If body does not contain the FreeTierError marker, return rebuilt response
+  if (!text || !text.includes(FREE_TIER_ERROR_MARKER)) {
+    return bufferedResponse(text, proxied);
+  }
+
+  // One-shot/streamed request body already consumed by first attempt cannot be resent
+  if (isRequestBodyConsumed(options?.body)) {
+    return bufferedResponse(text, proxied);
+  }
+
+  console.warn(`[ProxyFetch] Proxy egress rejected by the OpenCode free-tier gate (403 FreeTierError); replaying direct: ${targetHost(url)}`);
+  try {
+    return await fetchWithTlsFallback(url, options, null);
+  } catch (directError) {
+    // The direct replay failed outright — surface the original rejection.
+    console.warn(`[ProxyFetch] Direct replay failed: ${directError.message}`);
+    return bufferedResponse(text, proxied);
+  }
+}
+
 export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
   const targetUrl = typeof url === "string" ? url : url.toString();
 
@@ -376,7 +559,10 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
 
   if (proxyUrl) {
     try {
-      return await fetchWithTlsFallback(url, options, proxyUrl);
+      const proxied = await fetchWithTlsFallback(url, options, proxyUrl);
+      // strictProxy never leaves the configured path — pass the rejection through.
+      if (proxyOptions?.strictProxy === true) return proxied;
+      return await replayFreeTierRejectionDirect(url, options, proxyOptions, proxied);
     } catch (proxyError) {
       // If strictProxy is enabled, fail hard instead of falling back to direct
       if (proxyOptions?.strictProxy === true) {
