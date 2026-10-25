@@ -36,7 +36,7 @@ import { RedisSemaphore } from "@/lib/resilience/redisSemaphore.js";
 import { dedupRefresh, resetRefreshDedupCache } from "open-sse/services/tokenRefresh/dedup.js";
 import {
   getCircuitBreakerForDomain,
-  resetDomainCircuitBreakers,
+  resetAllCircuitBreakers,
   drainBreakerPersistence,
   getInFlightBreakerPersistenceCount,
 } from "@/lib/resilience/circuitBreakerStore.js";
@@ -78,6 +78,7 @@ describe("Wave 7.5: Redis Shared State & Distributed Coordination", () => {
     process.env.DATA_DIR_ALLOW_TEMP = "1";
     delete global._dbAdapter;
 
+    resetAllCircuitBreakers();
     FakeRedis.clearAll();
     resetRefreshDedupCache();
     clearLoginLimiter();
@@ -96,6 +97,8 @@ describe("Wave 7.5: Redis Shared State & Distributed Coordination", () => {
 
   afterEach(async () => {
     // Settle all in-flight persistence/restore tasks before tearing down Redis/SQLite
+    await drainBreakerPersistence();
+    resetAllCircuitBreakers();
     await drainBreakerPersistence();
     await closeRedisClient();
     delete process.env.REDIS_URL;
@@ -405,10 +408,36 @@ describe("Wave 7.5: Redis Shared State & Distributed Coordination", () => {
 
       // 2. Database adapter must NEVER point to the real ~/.9router database
       const realDbDefault = path.join(os.homedir(), ".9router", "db", "data.sqlite");
-      if (global._dbAdapter?.instance?.raw?.filename) {
-        expect(global._dbAdapter.instance.raw.filename).not.toBe(realDbDefault);
-        expect(global._dbAdapter.instance.raw.filename).toContain(tempDbDir);
-      }
+      const adapterFilename = global._dbAdapter?.instance?.raw?.filename;
+      expect(adapterFilename).toBeDefined();
+      expect(typeof adapterFilename).toBe("string");
+      expect(global._dbAdapter.instance.raw.filename).not.toBe(realDbDefault);
+      expect(global._dbAdapter.instance.raw.filename).toContain(tempDbDir);
+    });
+
+    it("drains deferred restore operations without synchronous persist before teardown", async () => {
+      // Create a breaker with no synchronous persist (calls restore() via deferred microtask Promise.resolve().then)
+      const domain = "anthropic:deferred-restore-drain-test";
+      const breaker = getCircuitBreakerForDomain(domain);
+      expect(breaker.state).toBe("CLOSED");
+
+      // Drain must deterministically flush deferred restore and await completion
+      await drainBreakerPersistence();
+
+      // Yield one extra macrotask
+      await new Promise((resolve) => setImmediate(resolve));
+
+      // Assertions:
+      // 1. In-flight count must remain 0 even after an extra macrotask
+      expect(getInFlightBreakerPersistenceCount()).toBe(0);
+
+      // 2. Database adapter must not point outside tempDbDir
+      const realDbDefault = path.join(os.homedir(), ".9router", "db", "data.sqlite");
+      const adapterFilename = global._dbAdapter?.instance?.raw?.filename;
+      expect(adapterFilename).toBeDefined();
+      expect(typeof adapterFilename).toBe("string");
+      expect(adapterFilename).not.toBe(realDbDefault);
+      expect(adapterFilename).toContain(tempDbDir);
     });
   });
 

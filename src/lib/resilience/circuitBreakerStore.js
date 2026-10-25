@@ -311,6 +311,9 @@ export async function clearRedisSnapshot(domain, options = {}) {
 // Flag to avoid self-echoing remote circuit trip events
 let isApplyingRemoteTrip = false;
 
+// Re-export resetAllCircuitBreakers for test isolation & breaker lifecycle management
+export { resetAllCircuitBreakers };
+
 // Set of in-flight persistence and restore promises (tracked for clean test teardown)
 const inFlightOperations = new Set();
 
@@ -333,9 +336,25 @@ export function getInFlightBreakerPersistenceCount() {
  * Allows test suites to drain background DB/Redis writes before closing clients or tearing down temp dirs.
  * Minimal additive production seam: behaviour-neutral on the hot path (caller continues fire-and-forget),
  * fail-open, and non-blocking for routing requests.
+ *
+ * Deterministic queue flush: flushes the microtask queue (via setImmediate) so deferred restore()
+ * hooks scheduled via Promise.resolve().then(...) are invoked and tracked, then loops until the
+ * in-flight set is empty and stays empty after one more flush.
  */
 export async function drainBreakerPersistence() {
-  while (inFlightOperations.size > 0) {
+  const flush = () => new Promise((resolve) => {
+    if (typeof setImmediate === "function") {
+      setImmediate(resolve);
+    } else {
+      setTimeout(resolve, 0);
+    }
+  });
+
+  while (true) {
+    await flush();
+    if (inFlightOperations.size === 0) {
+      break;
+    }
     await Promise.allSettled([...inFlightOperations]);
   }
 }
