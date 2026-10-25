@@ -528,7 +528,7 @@ async function fetchHermesProfiles() {
 const hermesProfileLine = (p) => {
   const name = p.displayName && !p.isDefault ? `${p.name} (${p.displayName})` : p.name;
   const state = p.has9Router
-    ? `${COLORS.green}✓ 9router${COLORS.reset}`
+    ? `${COLORS.green}✓ khatamrouter${COLORS.reset}`
     : p.baseUrl
       ? `${COLORS.red}other: ${p.baseUrl}${COLORS.reset}`
       : `${COLORS.red}✗ not configured${COLORS.reset}`;
@@ -684,7 +684,7 @@ async function showCliToolsMenu(port, breadcrumb = []) {
   await showMenuWithBack({
     title: "🔧 CLI Tools",
     breadcrumb,
-    headerContent: `Configure CLI tools to use 9Router\nEndpoint: ${endpoint}`,
+    headerContent: `Configure CLI tools to use KhatamRouter\nEndpoint: ${endpoint}`,
     items: [
       {
         label: "Claude Code",

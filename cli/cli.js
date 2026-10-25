@@ -249,10 +249,10 @@ Options:
   -v, --version       Show version
 
 Commands:
-  connect <server-url> Configure Claude Code for a remote 9router server
-                      (npx 9router connect http://host:20128 — no install needed)
-  show [tool…]        Show each CLI tool's current 9router config and models
-                      (e.g. 9router show claude)
+  connect <server-url> Configure Claude Code for a remote KhatamRouter server
+                      (khatamrouter connect http://host:20128 — no install needed)
+  show [tool…]        Show each CLI tool's current KhatamRouter config and models
+                      (e.g. khatamrouter show claude)
   xai video --prompt "..." --output video.mp4
                       Generate a Grok Imagine video via the running gateway
                       (see: ${APP_NAME} xai video --help)

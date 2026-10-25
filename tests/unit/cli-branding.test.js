@@ -75,6 +75,64 @@ describe("T2: CLI Branding, Dual Binary Alias & CLI Update Source", () => {
       expect(content).toContain("KhatamRouter is now running in background");
       expect(content).toContain("KhatamRouter is now running in system tray");
     });
+
+    it("displays khatamrouter and KhatamRouter in CLI help commands", () => {
+      expect(content).toContain("khatamrouter connect http://host:20128");
+      expect(content).toContain("khatamrouter show claude");
+      expect(content).toContain("remote KhatamRouter server");
+      expect(content).toContain("KhatamRouter config and models");
+    });
+  });
+
+  describe("CLI Subcommands and UI User-Facing Rebranding", () => {
+    it("brands connect.js help text, password prompt, and reset output", () => {
+      const connectContent = fs.readFileSync(path.join(cliDir, "src/cli/commands/connect.js"), "utf8");
+      expect(connectContent).toContain("Usage: khatamrouter connect");
+      expect(connectContent).toContain("KhatamRouter dashboard password");
+      expect(connectContent).toContain("removed KhatamRouter settings");
+      expect(connectContent).toContain("Undo: khatamrouter connect --reset");
+      expect(connectContent).not.toContain("npx 9router connect");
+    });
+
+    it("brands show.js help text and not-configured message", () => {
+      const showContent = fs.readFileSync(path.join(cliDir, "src/cli/commands/show.js"), "utf8");
+      expect(showContent).toContain("Usage: khatamrouter show");
+      expect(showContent).toContain("not configured for KhatamRouter");
+      expect(showContent).not.toContain("not configured for 9router");
+    });
+
+    it("brands xaiVideo.js help text and API key description", () => {
+      const xaiContent = fs.readFileSync(path.join(cliDir, "src/cli/commands/xaiVideo.js"), "utf8");
+      expect(xaiContent).toContain("Usage: khatamrouter xai video");
+      expect(xaiContent).toContain("via your local KhatamRouter gateway");
+      expect(xaiContent).toContain("KhatamRouter API key (or env NINE_ROUTER_API_KEY)");
+    });
+
+    it("brands terminalUI.js header and breadcrumb", () => {
+      const tuiContent = fs.readFileSync(path.join(cliDir, "src/cli/terminalUI.js"), "utf8");
+      expect(tuiContent).toContain('basePath = ["KhatamRouter"]');
+      expect(tuiContent).toContain("📡 KhatamRouter Terminal UI");
+    });
+
+    it("brands cliTools.js menu header and hermes profile line", () => {
+      const menuContent = fs.readFileSync(path.join(cliDir, "src/cli/menus/cliTools.js"), "utf8");
+      expect(menuContent).toContain("Configure CLI tools to use KhatamRouter");
+      expect(menuContent).toContain("✓ khatamrouter");
+    });
+
+    it("brands tray.js menu title and tooltips", () => {
+      const trayContent = fs.readFileSync(path.join(cliDir, "src/cli/tray/tray.js"), "utf8");
+      expect(trayContent).toContain("KhatamRouter (Port ${port})");
+      expect(trayContent).toContain("KhatamRouter - Port ${port}");
+      expect(trayContent).toContain("[khatamrouter] tray");
+      expect(trayContent).not.toContain("[9router] tray");
+    });
+
+    it("brands autostart.js Linux desktop entry metadata", () => {
+      const autostartContent = fs.readFileSync(path.join(cliDir, "src/cli/tray/autostart.js"), "utf8");
+      expect(autostartContent).toContain("Name=KhatamRouter");
+      expect(autostartContent).toContain("Comment=KhatamRouter API Proxy");
+    });
   });
 
   describe("cli/README.md documentation", () => {
