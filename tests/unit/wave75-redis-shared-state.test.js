@@ -37,6 +37,8 @@ import { dedupRefresh, resetRefreshDedupCache } from "open-sse/services/tokenRef
 import {
   getCircuitBreakerForDomain,
   resetDomainCircuitBreakers,
+  drainBreakerPersistence,
+  getInFlightBreakerPersistenceCount,
 } from "@/lib/resilience/circuitBreakerStore.js";
 import {
   checkLock,
@@ -66,8 +68,16 @@ describe("Wave 7.5: Redis Shared State & Distributed Coordination", () => {
   let fakeSubscriberClient;
   let tempDbDir;
   let originalDataDir;
+  let originalAllowTemp;
 
   beforeEach(async () => {
+    tempDbDir = fs.mkdtempSync(path.join(os.tmpdir(), "kh-wave75-redis-"));
+    originalDataDir = process.env.DATA_DIR;
+    originalAllowTemp = process.env.DATA_DIR_ALLOW_TEMP;
+    process.env.DATA_DIR = tempDbDir;
+    process.env.DATA_DIR_ALLOW_TEMP = "1";
+    delete global._dbAdapter;
+
     FakeRedis.clearAll();
     resetRefreshDedupCache();
     clearLoginLimiter();
@@ -85,6 +95,8 @@ describe("Wave 7.5: Redis Shared State & Distributed Coordination", () => {
   });
 
   afterEach(async () => {
+    // Settle all in-flight persistence/restore tasks before tearing down Redis/SQLite
+    await drainBreakerPersistence();
     await closeRedisClient();
     delete process.env.REDIS_URL;
     delete process.env.REDIS_KEY_PREFIX;
@@ -93,6 +105,15 @@ describe("Wave 7.5: Redis Shared State & Distributed Coordination", () => {
     resetRefreshDedupCache();
     clearLoginLimiter();
     clearStickyConnections();
+
+    try { global._dbAdapter?.instance?.close?.(); } catch {}
+    delete global._dbAdapter;
+    if (originalAllowTemp === undefined) delete process.env.DATA_DIR_ALLOW_TEMP;
+    else process.env.DATA_DIR_ALLOW_TEMP = originalAllowTemp;
+    if (originalDataDir === undefined) delete process.env.DATA_DIR;
+    else process.env.DATA_DIR = originalDataDir;
+    try { if (tempDbDir) fs.rmSync(tempDbDir, { recursive: true, force: true }); } catch {}
+
     vi.restoreAllMocks();
   });
 
@@ -374,6 +395,20 @@ describe("Wave 7.5: Redis Shared State & Distributed Coordination", () => {
       });
 
       expect(remoteBreaker.state).toBe("OPEN");
+
+      // Drain in-flight persistence before assertions and suite teardown
+      await drainBreakerPersistence();
+
+      // Regression assertions:
+      // 1. All background persistence and cache sync operations must be fully settled
+      expect(getInFlightBreakerPersistenceCount()).toBe(0);
+
+      // 2. Database adapter must NEVER point to the real ~/.9router database
+      const realDbDefault = path.join(os.homedir(), ".9router", "db", "data.sqlite");
+      if (global._dbAdapter?.instance?.raw?.filename) {
+        expect(global._dbAdapter.instance.raw.filename).not.toBe(realDbDefault);
+        expect(global._dbAdapter.instance.raw.filename).toContain(tempDbDir);
+      }
     });
   });
 
