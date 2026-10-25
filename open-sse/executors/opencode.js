@@ -17,7 +17,8 @@ import {
 
 // OpenCode v2 UA shape: opencode/<channel>/<version>/<client>. Upstream rejects
 // the v1 "opencode/1.18.x" form with 403 FreeTierError since 2026-10-14.
-export const OPENCODE_UA = "opencode/latest/2.0.26/cli";
+// Keep in step with the current CLI release (2.1.4, 2026-10-23).
+export const OPENCODE_UA = "opencode/latest/2.1.4/cli";
 export const OPENCODE_CLIENT = "cli";
 const MAX_SESSION_LENGTH = 256;
 const MAX_TOOL_NAME_LEN = 128;
@@ -105,26 +106,46 @@ export function generateRequestId(timestamp = Date.now()) {
 export const translatedIdStores = { session: new Map(), request: new Map() };
 export const MAX_TRANSLATED_IDS = 5000;
 
+// Upstream decodes the prefix timestamp and rejects sessions whose time is in
+// the future or older than the free-tier window (live probes: -60d passes,
+// -100d and +30d answer 429). A digest-derived time is effectively random over
+// 2^36 ms, so most translated ids were rejected even though the format matched.
+// Mint with the current time and memoize per conversation/tool so a
+// conversation keeps one stable, valid session for the cached TTL.
+const translatedSessionCleanup = setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of translatedIdStores.session) {
+    if (entry && (now - entry.lastUsed > MEMORY_CONFIG.sessionTtlMs)) {
+      translatedIdStores.session.delete(key);
+    }
+  }
+}, MEMORY_CONFIG.sessionCleanupIntervalMs);
+if (translatedSessionCleanup.unref) translatedSessionCleanup.unref();
+
 export function translateSessionId(sessionId, clientTool = "") {
   if (typeof sessionId === "string" && OPENCODE_SESSION_RE.test(sessionId.trim())) {
     return sessionId.trim();
   }
   const store = translatedIdStores.session;
   const cacheKey = `${clientTool || "generic"}\0${sessionId || ""}`;
-  const cached = store.get(cacheKey);
-  if (cached) return cached;
+  const existing = store.get(cacheKey);
+  if (existing) {
+    if (typeof existing === "object" && existing !== null) {
+      existing.lastUsed = Date.now();
+      store.delete(cacheKey);
+      store.set(cacheKey, existing);
+      return existing.sessionId;
+    }
+    return existing;
+  }
 
-  const digest = crypto
-    .createHash("sha256")
-    .update(`opencode\0${clientTool || "generic"}\0${sessionId || ""}`)
-    .digest();
   // Real monotonic 48-bit timestamp with counter pinned to 1 (what the CLI sends).
-  const id = `ses_${stampHex(true, BigInt(Date.now()), 1n)}${digestBase62(digest)}`;
+  const translated = `ses_${stampHex(true, BigInt(Date.now()), 1n)}${unstableRandom()}`;
   if (store.size >= MAX_TRANSLATED_IDS) {
     store.delete(store.keys().next().value);
   }
-  store.set(cacheKey, id);
-  return id;
+  store.set(cacheKey, { sessionId: translated, lastUsed: Date.now() });
+  return translated;
 }
 
 export function translateRequestId(requestId, clientTool = "") {
@@ -440,7 +461,9 @@ export class OpenCodeExecutor extends BaseExecutor {
       applyFingerprintTools(body, true);
     } else if (body && typeof body === "object") {
       dropAdaptiveReasoningEffort(body);
-      applyFingerprintTools(body, false);
+      // union-alpha posts to /messages with a claude-shaped body: the fingerprint
+      // note and `<env>` marker must live on the top-level `system` field there.
+      applyFingerprintTools(body, false, { claude: isMessagesModel(model || body?.model) });
     }
     return injectReasoningContent({ provider: this.provider, model, body });
   }
