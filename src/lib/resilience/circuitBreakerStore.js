@@ -311,6 +311,54 @@ export async function clearRedisSnapshot(domain, options = {}) {
 // Flag to avoid self-echoing remote circuit trip events
 let isApplyingRemoteTrip = false;
 
+// Re-export resetAllCircuitBreakers for test isolation & breaker lifecycle management
+export { resetAllCircuitBreakers };
+
+// Set of in-flight persistence and restore promises (tracked for clean test teardown)
+const inFlightOperations = new Set();
+
+function trackOperation(promise) {
+  if (!promise || typeof promise.then !== "function") return promise;
+  inFlightOperations.add(promise);
+  promise.finally(() => inFlightOperations.delete(promise)).catch(() => {});
+  return promise;
+}
+
+/**
+ * Returns count of currently in-flight breaker persistence / restore operations.
+ */
+export function getInFlightBreakerPersistenceCount() {
+  return inFlightOperations.size;
+}
+
+/**
+ * Test seam: await all in-flight persistence and restore operations.
+ * Allows test suites to drain background DB/Redis writes before closing clients or tearing down temp dirs.
+ * Minimal additive production seam: behaviour-neutral on the hot path (caller continues fire-and-forget),
+ * fail-open, and non-blocking for routing requests.
+ *
+ * Deterministic queue flush: flushes the microtask queue (via setImmediate) so deferred restore()
+ * hooks scheduled via Promise.resolve().then(...) are invoked and tracked, then loops until the
+ * in-flight set is empty and stays empty after one more flush.
+ */
+export async function drainBreakerPersistence() {
+  const flush = () => new Promise((resolve) => {
+    if (typeof setImmediate === "function") {
+      setImmediate(resolve);
+    } else {
+      setTimeout(resolve, 0);
+    }
+  });
+
+  while (true) {
+    await flush();
+    if (inFlightOperations.size === 0) {
+      break;
+    }
+    await Promise.allSettled([...inFlightOperations]);
+  }
+}
+
 // Subscribe to cluster circuit trips to sync state across router replicas
 try {
   subscribeKhatamEvent(KHATAM_EVENTS.CIRCUIT_TRIP, (payload) => {
@@ -354,15 +402,21 @@ export function getCircuitBreakerForDomain(domain, options = {}) {
       // Fire-and-forget to both sinks; neither failure may reject
       const pSql = saveBreakerRow(name, snapshot).catch(() => false);
       const pRedis = writeRedisSnapshot(name, snapshot).catch(() => false);
-      return Promise.all([pSql, pRedis]);
+      const pAll = Promise.all([pSql, pRedis]);
+      trackOperation(pAll);
+      return pAll;
     },
   };
 
-  const restore = async () => {
-    // Redis cache mirror first (sub-millisecond), falling back to SQLite
-    const cached = await readRedisSnapshot(domain);
-    if (cached) return cached;
-    return await loadBreakerRow(domain);
+  const restore = () => {
+    const p = (async () => {
+      // Redis cache mirror first (sub-millisecond), falling back to SQLite
+      const cached = await readRedisSnapshot(domain);
+      if (cached) return cached;
+      return await loadBreakerRow(domain);
+    })();
+    trackOperation(p);
+    return p;
   };
 
   const onStateChange = (name, oldState, newState) => {
