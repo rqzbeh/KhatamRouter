@@ -148,54 +148,6 @@ function assertRequiredApiArtifacts(cliAppDir) {
   }
 }
 
-function buildTypeScriptCli(opts = {}) {
-  const { outdir: customOutDir, ...esbuildOpts } = opts;
-  const tsEntry = path.join(cliDir, "src", "ts", "index.ts");
-  if (!fs.existsSync(tsEntry)) {
-    console.log("⏭️  No TypeScript CLI entrypoint found\n");
-    return;
-  }
-
-  const outDir = customOutDir || path.join(cliDir, "src", "ts", "dist");
-  fs.mkdirSync(outDir, { recursive: true });
-  const outFile = path.join(outDir, "index.js");
-
-  let esbuild;
-  try {
-    esbuild = require("esbuild");
-  } catch {
-    try {
-      esbuild = require(path.join(cliDir, "node_modules", "esbuild"));
-    } catch {}
-  }
-
-  if (esbuild) {
-    esbuild.buildSync({
-      entryPoints: [tsEntry],
-      bundle: true,
-      platform: "node",
-      target: "node18",
-      format: "cjs",
-      outfile: outFile,
-      external: [
-        "enquirer",
-        "node-forge",
-        "node-machine-id",
-        "confbox",
-        "open",
-      ],
-      ...esbuildOpts,
-    });
-    console.log(`✅ TypeScript CLI core bundled via esbuild → ${outFile}`);
-  } else {
-    execSync(`bun build "${tsEntry}" --target=node --outfile="${outFile}"`, {
-      stdio: "inherit",
-      cwd: cliDir,
-    });
-    console.log(`✅ TypeScript CLI core bundled via bun build → ${outFile}`);
-  }
-}
-
 function buildCliPackage() {
   console.log("📦 Building 9Router CLI package with Next.js...\n");
 
@@ -379,16 +331,6 @@ function buildCliPackage() {
     process.exit(1);
   }
 
-  // Step 8b: Bundle TypeScript CLI assets via esbuild
-  console.log("8️⃣ b Building consolidated TypeScript CLI core via esbuild...");
-  try {
-    buildTypeScriptCli();
-    console.log("✅ TypeScript CLI core build completed\n");
-  } catch (error) {
-    console.error("❌ TypeScript CLI core build failed:", error.message);
-    process.exit(1);
-  }
-
   console.log("✨ CLI package build completed!");
   console.log(`📁 Output: ${cliAppDir}`);
 
@@ -403,7 +345,6 @@ function buildCliPackage() {
 
 module.exports = {
   assertRequiredApiArtifacts,
-  buildTypeScriptCli,
   copyStandaloneBuild,
   mergeServerArtifacts,
 };
