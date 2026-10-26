@@ -1,4 +1,4 @@
-# Feature Specification: Bun Hot-Path Profile, Multi-Process Scale, Ladder Re-Run
+# Feature Specification: Wave 8 — Bun Hot-Path Profile, Multi-Process Scale, Ladder Re-Run
 
 **Feature Branch**: `spec/008-bun-perf-scale`
 **Created**: 2026-10-24

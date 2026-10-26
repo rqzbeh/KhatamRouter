@@ -1,4 +1,4 @@
-# Quickstart & Verification Guide: Wave 8 — Dashboard and Tooling
+# Quickstart & Verification Guide: Dashboard and Tooling
 
 **Branch**: `spec/010-wave8-dashboard-tooling`  
 **Date**: 2026-10-26  
@@ -31,18 +31,18 @@ bun x vitest run unit/key-quota-tabs.test.js
 *Expected Outcome*: All assertions pass verifying authenticated quota read/write, spend summation across daily/weekly/monthly windows, and fail-open degraded handling.
 
 ### 3. Capability Modality Badges Tests
-Tests `CapacityBadges.tsx` rendering and `aggregateComboCapabilities` modality mapping.
+Tests `CapacityBadges.js` rendering and `aggregateComboCapabilities` modality mapping.
 ```bash
 bun x vitest run unit/capability-badges.test.js
 ```
 *Expected Outcome*: All 9 modality icons, labels, and colors render correctly; combo aggregation preserves union for inputs, intersection for tools, and primary reasoning.
 
-### 4. Consolidated TypeScript CLI Tests
-Tests the consolidated CLI dispatcher, commands, flag handling, and Bun check.
+### 4. No-TypeScript Guard Test
+Verifies that no unallowlisted TypeScript files exist in the repository (Principle II).
 ```bash
-bun x vitest run unit/cli-consolidated.test.js
+bun x vitest run unit/no-typescript-guard.test.js
 ```
-*Expected Outcome*: CLI commands (`show`, `connect`, `status`, `ping`) execute with expected exits, masked secrets, and backward-compatible behavior.
+*Expected Outcome*: All assertions pass verifying plain JavaScript codebase with single custom-server.ts allowlist.
 
 ### 5. Provider Baselines & Regression Check
 Verifies that no changes broke provider catalogs or aliases:

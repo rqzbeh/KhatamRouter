@@ -1,4 +1,4 @@
-# Implementation Plan: Bun Hot-Path Profile, Multi-Process Scale, Ladder Re-Run
+# Implementation Plan: Wave 8 — Bun Hot-Path Profile, Multi-Process Scale, Ladder Re-Run
 
 **Branch**: `spec/008-bun-perf-scale` | **Date**: 2026-10-24 | **Spec**: [spec.md](./spec.md)
 

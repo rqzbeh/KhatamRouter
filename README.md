@@ -33,7 +33,7 @@
 
 #### 🟢 Shipped Core Capabilities
 
-- ⚡ **Bun v1.4.3 + TypeScript runtime** — Sub-second cold starts, lower resident memory, and type-safe control-plane orchestration powered by native `bun:sqlite`.
+- ⚡ **Bun v1.4.3 runtime** — Sub-second cold starts, lower resident memory, and control-plane orchestration powered by native `bun:sqlite`.
 - 🗄️ **SQLite in WAL mode with integrity preflight** — Concurrent multi-process database sharing with a 5000ms `busy_timeout` and startup validation that refuses silent in-memory fallback over existing data.
 - 🚀 **Optional Redis accelerator (`khatam:` namespace)** — Low-latency cluster-wide Pub/Sub event bus, real-time config invalidation, and sliding-window quota tracking, with automatic SQLite fallback when `REDIS_URL` is unset.
 - 🗄️ **Versioned migrations & hybrid quota store** — Idempotent `_khatam_migrations` runner with backup-before-migrate safety, additive schema v3, hybrid Redis/SQLite sliding-window quota store with fail-open semantics, and 5s settings cache.
@@ -44,7 +44,7 @@
 - 🔍 **Live model discovery & capability resolution** — Defensive normalisation of upstream `/v1/models` payloads across 4 real shapes (`src/lib/models/discovery.js`), 7-tier capability precedence cascade as a pure function (`src/lib/models/capabilities.js`), self-correcting context reconciler (`src/lib/models/contextReconciler.js`) protecting manual pins, and fail-closed combo routing (`src/domain/requestCapabilities.js`, `open-sse/services/combo.js`) ensuring image requests never dispatch to non-vision targets. Default-off behind `KHATAM_MODEL_CAPABILITY_GUARD=1`.
 - 🤝 **VansRouter provider parity & stateless executors** — Full provider parity porting 30 upstream providers (164 total in `open-sse/providers/registry/`), specialized executors (`open-sse/executors/agentrouter.js`, `qwen.js`, `zcode.js`, `freebuff.js`, `muse-spark-web.js`) with strictly stateless `buildHeaders` contracts, deterministic free-tier catalog derivation (`open-sse/providers/freeTiers.js`), multi-intensity Ponytail (`open-sse/rtk/ponytailPrompt.js`) with 2026 skepticism rules, and stateless anti-loop detection (`open-sse/utils/loopGuard.js`) behind default-off settings.
 - 🛡️ **Upstream ports & security hardening** — 44 audit-confirmed candidates ported across VansRouter v0.91.61→v0.91.81 and 9router v0.5.104→v0.5.109 in Wave 9, plus five `decolua/9router` PRs (#4988, #5222, #5150, #5179, #5193) ported via PR #67 with security hardening (neutral CLI fingerprinting preventing host layout disclosure, strict OpenCode domain gating and bounded buffering on 403 free-tier replays, DeepSeek `json_schema` downgrade guard, context cap pinning, and probe-free free-lane dashboard tests). Hardens `undici` to 7.30.1 with loopback headroom binding, pins dashboard Monaco editor CDN loader to 0.57.0 (DOMPurify 3.4.15), patches Gemini translator against `__proto__` pollution and prototype-method shadowing, adds SSRF-safe reference image inputs for Gemini, and introduces Redis-backed Smart Router session stickiness. Complete audit ledger in [`docs/UPSTREAM-PORTS.md`](./docs/UPSTREAM-PORTS.md).
-- 🎛️ **Dashboard tooling & TypeScript CLI** — Per-connection limits modal (`src/shared/components/ConnectionLimitsModal.tsx`), key quota tabs with spend trends (`src/app/(dashboard)/dashboard/quota/`), 9-modality capability badges (`src/shared/components/CapacityBadges.tsx`), and an opt-in consolidated TypeScript CLI core (`cli/src/ts/` via `KHATAM_TS_CLI=1`).
+- 🎛️ **Dashboard tooling** — Pure JavaScript controls: per-connection limits modal (`src/shared/components/ConnectionLimitsModal.js`), key quota tabs with spend trends (`src/app/(dashboard)/dashboard/quota/`), and 9-modality capability badges (`src/shared/components/CapacityBadges.js`).
 - 🏷️ **KhatamRouter branding & release update feed** — Display branding across dashboard/landing/CLI, GitHub release update check pinned to `rqzbeh/KhatamRouter` with 512 KiB buffer cap and strict semver parsing in `src/app/api/version/route.js`, and in-place package updater neutralized (returns 403).
 - ✂️ **Multi-layer token savers** — Token-reducing 10 MiB RTK tool compression (intentionally truncates verbose diffs, logs, and build outputs), Caveman terseness prompts, and YAGNI-first Ponytail (Lite/Full/Ultra) modes saving an upstream-claimed 20-40% input and up to 65% output tokens.
 - 🔄 **Unified API gateway & Next.js dashboard (port 20128)** — Single lightweight endpoint serving both web dashboard and OpenAI-compatible `/v1/*` proxy routing across 40+ providers.
@@ -55,7 +55,7 @@ We value engineering honesty over hype. Here is the exact status of each archite
 
 | Feature Capability | Status | Target Wave / Delivery |
 | :--- | :---: | :--- |
-| **Bun v1.4.3 + TypeScript Runtime** | 🟢 Shipped | Wave 1: Native Bun execution, `@/*` mapping, `Dockerfile.bun` |
+| **Bun v1.4.3 Runtime** | 🟢 Shipped | Wave 1: Native Bun execution, `@/*` mapping, `Dockerfile.bun` |
 | **SQLite WAL Engine + Integrity Preflight** | 🟢 Shipped | Wave 1: `bun:sqlite` WAL, `busy_timeout=5000`, startup integrity check |
 | **Redis Accelerator & Real-Time Pub/Sub** | 🟢 Shipped | Wave 1: `khatam:` namespace, cluster invalidation, transparent SQLite fallback |
 | **Versioned DB Migrations & Hybrid Quota** | 🟢 Shipped | Wave 2: Idempotent `_khatam_migrations` runner with backup-before-migrate, additive schema v3, hybrid Redis/SQLite sliding-window quota store with fail-open, 5s settings cache |
@@ -69,7 +69,8 @@ We value engineering honesty over hype. Here is the exact status of each archite
 | **VansRouter Provider Parity** | 🟢 Shipped | Wave 7: 30 ported providers (`open-sse/providers/registry/`), stateless executors (`open-sse/executors/agentrouter.js`, `zcode.js`, `qwen.js`, `freebuff.js`, `muse-spark-web.js`), free-tier catalogue (`open-sse/providers/freeTiers.js`), and default-off LoopGuard (`open-sse/utils/loopGuard.js`) |
 | **Bun-Only Runtime & Redis-by-Default** | 🟢 Shipped | Wave 7.5: Bun-only server & CLI runtime, sole `bun:sqlite` engine, compose with `redis:8.2-alpine` default stack, lease semaphores, 4102 passing tests |
 | **Upstream Ports & Security Hardening** | 🟢 Shipped | Wave 9: 44 candidates ported (VansRouter 0.91.81 / 9router 0.5.109); PR #67: 5 decolua/9router PRs (#4988, #5222, #5150, #5179, #5193) with security hardening; see [`docs/UPSTREAM-PORTS.md`](./docs/UPSTREAM-PORTS.md) |
-| **Dashboard and Tooling** | 🟢 Shipped | Wave 8: PR #71 (specs), PR #72 (implementation): limits modal (`src/shared/components/ConnectionLimitsModal.tsx`, stored and displayed; connection budget cap NOT enforced at request time), key quota tabs with spend trends (`src/app/(dashboard)/dashboard/quota/`), capability badges (provider rows, model selector, combo builder via `src/shared/components/CapacityBadges.tsx`), TypeScript CLI core (`cli/src/ts/`) opt-in via `KHATAM_TS_CLI=1` and not default entrypoint |
+| **Dashboard and Tooling** | 🟢 Shipped | PR #71 (specs), PR #72 (implementation): pure JavaScript controls: limits modal (`src/shared/components/ConnectionLimitsModal.js`, stored and displayed; connection budget cap NOT enforced at request time), key quota tabs with spend trends (`src/app/(dashboard)/dashboard/quota/`), capability badges (provider rows, model selector, combo builder via `src/shared/components/CapacityBadges.js`) |
+| **Bun Performance and Scale** | 🔵 Planned | Wave 8: In-process L1 benchmark harness, profile-guided SQLite/translator hot-path slim, multi-instance horizontal scale with shared Redis state; spec at [`specs/008-bun-perf-scale`](./specs/008-bun-perf-scale) |
 | **KhatamRouter Branding & Release Update Feed** | 🟢 Shipped | PR #69: UI/CLI display branding, update check targeting KhatamRouter GitHub Releases with strict semver parsing and 512 KiB buffer cap in `src/app/api/version/route.js`; in-place updater disabled (`/api/version/update` returns 403) |
 
 The detailed per-wave plan, known limitations and non-goals are tracked in [ROADMAP.md](./ROADMAP.md); the table above remains the authoritative shipped-versus-planned summary.
@@ -102,7 +103,7 @@ We actively build for the former, but we keep the latter in mind as a healthy re
 │                KhatamRouter Architecture                    │
 │                                                             │
 │  [Port 20128: Unified Control & Data Plane]                 │
-│   • Bun v1.4.3 + TypeScript + Next.js App Router            │
+│   • Bun v1.4.3 + Next.js App Router                         │
 │   • Provider connection manager & OAuth auto-refresh        │
 │   • Real-time quota tracking & spend analytics              │
 │   • OpenAI-compatible API Gateway (/v1/*)                   │
@@ -1568,7 +1569,7 @@ Notes:
 ## 🛠️ Tech Stack
 
 - **Runtime**: Bun v1.4.3+ strictly required (Node.js is not supported)
-- **Language**: JavaScript / TypeScript (`tsconfig.json`, `@/*` → `src/*`)
+- **Language**: JavaScript (ESM, `@/*` → `src/*`)
 - **Framework**: Next.js 16 (Webpack bundler)
 - **UI**: React 19 + Tailwind CSS 4
 - **Database**: SQLite in WAL mode strictly via `bun:sqlite` (`$DATA_DIR/db/data.sqlite`)

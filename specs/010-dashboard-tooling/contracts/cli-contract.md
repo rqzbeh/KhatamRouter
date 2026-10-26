@@ -1,7 +1,7 @@
-# CLI Command Contract: Wave 8 — Consolidated TypeScript CLI
+# CLI Command Contract: Standalone Plain JavaScript CLI
 
 **Package**: `cli/` (`9router` on npm)  
-**Binary Entrypoint**: `./cli.js` (delegates to compiled TS core)  
+**Binary Entrypoint**: `./cli.js` (plain JavaScript launcher)  
 
 ---
 

@@ -1,4 +1,4 @@
-# Specification Quality Checklist: Wave 8 — Dashboard and Tooling
+# Specification Quality Checklist: Dashboard and Tooling
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning  
 **Created**: 2026-10-26  
@@ -27,7 +27,7 @@
 - [x] All functional requirements have clear acceptance criteria
 - [x] User scenarios cover primary operator workflows (connection limits, quota views, capability badges, CLI commands)
 - [x] Feature meets measurable outcomes defined in Success Criteria
-- [x] Coexistence of TS/TSX and plain ESM JS verified without breaking existing routes
+- [x] Plain ESM JS components verified without breaking existing routes
 
 ## Notes
 
