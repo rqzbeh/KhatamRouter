@@ -59,6 +59,7 @@ export async function handleEmbeddingsCore({
 
   log?.debug?.("EMBEDDINGS", `${provider.toUpperCase()} | ${model} | input_type=${Array.isArray(input) ? `array[${input.length}]` : "string"}`);
 
+  const timeoutMs = adapter.timeoutMs || FETCH_CONNECT_TIMEOUT_MS;
   let providerResponse;
   try {
     providerResponse = await fetch(url, {
@@ -66,7 +67,7 @@ export async function handleEmbeddingsCore({
       headers,
       body: JSON.stringify(requestBody),
       ...(typeof AbortSignal?.timeout === "function"
-        ? { signal: AbortSignal.timeout(FETCH_CONNECT_TIMEOUT_MS) }
+        ? { signal: AbortSignal.timeout(timeoutMs) }
         : {}),
     });
   } catch (error) {
@@ -100,6 +101,9 @@ export async function handleEmbeddingsCore({
           method: "POST",
           headers: retryHeaders,
           body: JSON.stringify(requestBody),
+          ...(typeof AbortSignal?.timeout === "function"
+            ? { signal: AbortSignal.timeout(timeoutMs) }
+            : {}),
         });
       } catch {
         log?.warn?.("TOKEN", `${provider.toUpperCase()} | retry after refresh failed`);
