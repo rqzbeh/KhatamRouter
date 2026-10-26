@@ -6,7 +6,7 @@ import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, v
 import { CSS } from "@dnd-kit/utilities";
 import { restrictToVerticalAxis, restrictToParentElement } from "@dnd-kit/modifiers";
 import { Card, Button, Modal, Input, CardSkeleton, ModelSelectModal, ConfirmModal, Select, Toggle, Badge } from "@/shared/components";
-import CapacityBadges from "@/shared/components/CapacityBadges.tsx";
+import CapacityBadges from "@/shared/components/CapacityBadges";
 import SmartPolicyModal from "@/shared/components/SmartPolicyModal";
 import Link from "next/link";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";

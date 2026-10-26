@@ -5,7 +5,7 @@ import Modal from "./Modal";
 import Input from "./Input";
 import Button from "./Button";
 import ModelSelectModal from "./ModelSelectModal";
-import CapacityBadges from "./CapacityBadges.tsx";
+import CapacityBadges from "./CapacityBadges";
 
 const VALID_NAME_REGEX = /^[a-zA-Z0-9_.\-]+$/;
 

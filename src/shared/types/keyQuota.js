@@ -20,85 +20,92 @@ export const VALID_QUOTA_WINDOW_TYPES = [
   "daily_usd",
   "weekly_usd",
   "monthly_usd",
-] as const;
+];
 
-export type QuotaWindowType = typeof VALID_QUOTA_WINDOW_TYPES[number];
+export const VALID_QUOTA_ACTIONS = ["reject", "warn", "throttle"];
 
-export const VALID_QUOTA_ACTIONS = ["reject", "warn", "throttle"] as const;
-export type QuotaAction = typeof VALID_QUOTA_ACTIONS[number];
+/**
+ * @typedef {"rpm" | "rph" | "rpd" | "tpm" | "tpd" | "daily_usd" | "weekly_usd" | "monthly_usd"} QuotaWindowType
+ * @typedef {"reject" | "warn" | "throttle"} QuotaAction
+ */
 
-export interface ApiKeyQuotaLimit {
-  id?: string;
-  apiKey?: string;
-  windowType: QuotaWindowType;
-  limitValue: number;
-  action?: QuotaAction;
-  createdAt?: string;
-  updatedAt?: string;
-}
+/**
+ * @typedef {Object} ApiKeyQuotaLimit
+ * @property {string} [id]
+ * @property {string} [apiKey]
+ * @property {QuotaWindowType} windowType
+ * @property {number} limitValue
+ * @property {QuotaAction} [action]
+ * @property {string} [createdAt]
+ * @property {string} [updatedAt]
+ */
 
-export interface ApiKeyQuotaPayload {
-  limits: Array<{
-    id?: string;
-    windowType: QuotaWindowType;
-    limitValue: number;
-    action?: QuotaAction;
-  }>;
-}
+/**
+ * @typedef {Object} ApiKeyQuotaPayload
+ * @property {Array<{ id?: string, windowType: QuotaWindowType, limitValue: number, action?: QuotaAction }>} limits
+ */
 
-export interface WindowUtilization {
-  windowType: QuotaWindowType;
-  limit: number;
-  used: number;
-  remaining: number;
-  utilizationPercent: number;
-  resetMs: number;
-  resetsAtIso: string;
-  action?: QuotaAction;
-}
+/**
+ * @typedef {Object} WindowUtilization
+ * @property {QuotaWindowType} windowType
+ * @property {number} limit
+ * @property {number} used
+ * @property {number} remaining
+ * @property {number} utilizationPercent
+ * @property {number} resetMs
+ * @property {string} resetsAtIso
+ * @property {QuotaAction} [action]
+ */
 
-export interface SpendSummary {
-  todayUsd: number;
-  thisWeekUsd: number;
-  thisMonthUsd: number;
-  totalTokensToday: number;
-}
+/**
+ * @typedef {Object} SpendSummary
+ * @property {number} todayUsd
+ * @property {number} thisWeekUsd
+ * @property {number} thisMonthUsd
+ * @property {number} totalTokensToday
+ */
 
-export interface ApiKeyQuotaUtilization {
-  keyId: string;
-  keyName: string;
-  keyMasked: string;
-  limits: WindowUtilization[];
-  spendSummary: SpendSummary;
-  status: "healthy" | "warning" | "exceeded";
-}
+/**
+ * @typedef {Object} ApiKeyQuotaUtilization
+ * @property {string} keyId
+ * @property {string} keyName
+ * @property {string} keyMasked
+ * @property {WindowUtilization[]} limits
+ * @property {SpendSummary} spendSummary
+ * @property {"healthy" | "warning" | "exceeded"} status
+ */
 
-export interface SpendTrendPoint {
-  timestamp: string;
-  totalCostUsd: number;
-  promptTokens: number;
-  completionTokens: number;
-  totalTokens?: number;
-  requestCount: number;
-}
+/**
+ * @typedef {Object} SpendTrendPoint
+ * @property {string} timestamp
+ * @property {number} totalCostUsd
+ * @property {number} promptTokens
+ * @property {number} completionTokens
+ * @property {number} [totalTokens]
+ * @property {number} requestCount
+ */
 
-export interface KeyQuotaApiResponse {
-  keyId: string;
-  keyName: string;
-  keyMasked: string;
-  limits: ApiKeyQuotaLimit[];
-  utilization?: ApiKeyQuotaUtilization;
-  spendTrends?: SpendTrendPoint[];
-  unconfigured?: boolean;
-  degraded?: boolean;
-}
+/**
+ * @typedef {Object} KeyQuotaApiResponse
+ * @property {string} keyId
+ * @property {string} keyName
+ * @property {string} keyMasked
+ * @property {ApiKeyQuotaLimit[]} limits
+ * @property {ApiKeyQuotaUtilization} [utilization]
+ * @property {SpendTrendPoint[]} [spendTrends]
+ * @property {boolean} [unconfigured]
+ * @property {boolean} [degraded]
+ */
 
 /**
  * Mask an API key for safe UI display and API responses.
  * Leaves the first 8 characters and last 4 characters, replacing the middle with ***.
  * Never leaks the entire key or secret tokens.
+ *
+ * @param {string | null} [key]
+ * @returns {string}
  */
-export function maskApiKey(key?: string | null): string {
+export function maskApiKey(key) {
   if (!key || typeof key !== "string") return "";
   const trimmed = key.trim();
   if (trimmed.length <= 12) {
@@ -109,22 +116,21 @@ export function maskApiKey(key?: string | null): string {
 
 /**
  * Validate an incoming ApiKeyQuotaPayload against the contract schema.
+ *
+ * @param {unknown} payload
+ * @returns {{ ok: boolean, value?: ApiKeyQuotaPayload, error?: string }}
  */
-export function validateApiKeyQuotaPayload(payload: unknown): {
-  ok: boolean;
-  value?: ApiKeyQuotaPayload;
-  error?: string;
-} {
+export function validateApiKeyQuotaPayload(payload) {
   if (!payload || typeof payload !== "object") {
     return { ok: false, error: "Payload must be a non-null object" };
   }
 
-  const obj = payload as Record<string, unknown>;
+  const obj = payload;
   if (!Array.isArray(obj.limits)) {
     return { ok: false, error: "Missing or invalid 'limits' array" };
   }
 
-  const validatedLimits: ApiKeyQuotaPayload["limits"] = [];
+  const validatedLimits = [];
 
   for (let i = 0; i < obj.limits.length; i++) {
     const item = obj.limits[i];
@@ -132,9 +138,9 @@ export function validateApiKeyQuotaPayload(payload: unknown): {
       return { ok: false, error: `Limit at index ${i} must be an object` };
     }
 
-    const { windowType, limitValue, action = "reject", id } = item as Record<string, unknown>;
+    const { windowType, limitValue, action = "reject", id } = item;
 
-    if (typeof windowType !== "string" || !VALID_QUOTA_WINDOW_TYPES.includes(windowType as QuotaWindowType)) {
+    if (typeof windowType !== "string" || !VALID_QUOTA_WINDOW_TYPES.includes(windowType)) {
       return {
         ok: false,
         error: `Limit at index ${i} has invalid windowType: '${String(windowType)}'`,
@@ -150,7 +156,7 @@ export function validateApiKeyQuotaPayload(payload: unknown): {
     }
 
     const normAction = typeof action === "string" ? action.toLowerCase().trim() : "reject";
-    if (!VALID_QUOTA_ACTIONS.includes(normAction as QuotaAction)) {
+    if (!VALID_QUOTA_ACTIONS.includes(normAction)) {
       return {
         ok: false,
         error: `Limit at index ${i} has invalid action: '${String(action)}'`,
@@ -159,9 +165,9 @@ export function validateApiKeyQuotaPayload(payload: unknown): {
 
     validatedLimits.push({
       id: typeof id === "string" ? id : undefined,
-      windowType: windowType as QuotaWindowType,
+      windowType,
       limitValue: numericLimit,
-      action: normAction as QuotaAction,
+      action: normAction,
     });
   }
 
@@ -172,8 +178,12 @@ export function validateApiKeyQuotaPayload(payload: unknown): {
  * Pure calculation of UTC window boundaries without server runtime dependencies.
  * Duplicated from src/lib/db/keyQuota.js so the client bundle does not pull bun:sqlite.
  * Parity with the server implementation is enforced by tests/unit/key-quota-tabs.test.js.
+ *
+ * @param {string} windowType
+ * @param {number} [now]
+ * @returns {{ sinceIso: string, untilIso: string, resetMs: number }}
  */
-export function getUtcWindowBoundaries(windowType: string, now: number = Date.now()) {
+export function getUtcWindowBoundaries(windowType, now = Date.now()) {
   const d = new Date(now);
   const norm = String(windowType || "daily").toLowerCase().trim();
 
@@ -221,11 +231,12 @@ export function getUtcWindowBoundaries(windowType: string, now: number = Date.no
 
 /**
  * Calculate the reset timestamp and remaining milliseconds for a given window type.
+ *
+ * @param {QuotaWindowType} windowType
+ * @param {number} [now]
+ * @returns {{ resetMs: number, resetsAtIso: string }}
  */
-export function calculateWindowReset(
-  windowType: QuotaWindowType,
-  now: number = Date.now()
-): { resetMs: number; resetsAtIso: string } {
+export function calculateWindowReset(windowType, now = Date.now()) {
   const norm = String(windowType || "").toLowerCase().trim();
 
   // Minute windows: next minute boundary
@@ -286,8 +297,11 @@ export function calculateWindowReset(
 /**
  * Format a duration in milliseconds into a concise countdown string.
  * Example: 45000 -> "45s", 125000 -> "2m 5s", 3665000 -> "1h 1m"
+ *
+ * @param {number} resetMs
+ * @returns {string}
  */
-export function formatResetTimer(resetMs: number): string {
+export function formatResetTimer(resetMs) {
   if (!resetMs || resetMs <= 0) return "0s";
 
   const totalSec = Math.ceil(resetMs / 1000);
@@ -314,8 +328,12 @@ export function formatResetTimer(resetMs: number): string {
 
 /**
  * Calculate utilization percentage rounded to 1 decimal place.
+ *
+ * @param {number} used
+ * @param {number} limit
+ * @returns {number}
  */
-export function calculateUtilizationPercent(used: number, limit: number): number {
+export function calculateUtilizationPercent(used, limit) {
   if (!limit || limit <= 0 || !Number.isFinite(limit)) return 0;
   const pct = (used / limit) * 100;
   return Math.round(pct * 10) / 10;
@@ -326,8 +344,11 @@ export function calculateUtilizationPercent(used: number, limit: number): number
  *  - "healthy": < 70%
  *  - "warning": 70% to 90%
  *  - "exceeded": > 90%
+ *
+ * @param {number} utilizationPercent
+ * @returns {"healthy" | "warning" | "exceeded"}
  */
-export function getQuotaStatus(utilizationPercent: number): "healthy" | "warning" | "exceeded" {
+export function getQuotaStatus(utilizationPercent) {
   if (utilizationPercent > 90) return "exceeded";
   if (utilizationPercent >= 70) return "warning";
   return "healthy";
@@ -335,29 +356,24 @@ export function getQuotaStatus(utilizationPercent: number): "healthy" | "warning
 
 /**
  * Aggregate and compute key quota utilization summary.
+ *
+ * @param {Object} params
+ * @param {string} params.keyId
+ * @param {string} params.keyName
+ * @param {string} [params.rawKey]
+ * @param {string} [params.keyMasked]
+ * @param {Array<{ windowType: QuotaWindowType, limit: number, used: number, resetMs: number, resetsAtIso: string, action?: QuotaAction }>} params.limitsWithUsage
+ * @param {SpendSummary} params.spendSummary
+ * @returns {ApiKeyQuotaUtilization}
  */
-export function computeKeyQuotaUtilization(params: {
-  keyId: string;
-  keyName: string;
-  rawKey?: string;
-  keyMasked?: string;
-  limitsWithUsage: Array<{
-    windowType: QuotaWindowType;
-    limit: number;
-    used: number;
-    resetMs: number;
-    resetsAtIso: string;
-    action?: QuotaAction;
-  }>;
-  spendSummary: SpendSummary;
-}): ApiKeyQuotaUtilization {
+export function computeKeyQuotaUtilization(params) {
   const { keyId, keyName, rawKey, keyMasked, limitsWithUsage, spendSummary } = params;
 
   const masked = keyMasked || maskApiKey(rawKey);
 
-  let worstStatus: "healthy" | "warning" | "exceeded" = "healthy";
+  let worstStatus = "healthy";
 
-  const limits: WindowUtilization[] = limitsWithUsage.map((item) => {
+  const limits = limitsWithUsage.map((item) => {
     const utilizationPercent = calculateUtilizationPercent(item.used, item.limit);
     const remaining = Math.max(0, item.limit - item.used);
     const itemStatus = getQuotaStatus(utilizationPercent);
@@ -389,22 +405,17 @@ export function computeKeyQuotaUtilization(params: {
 
 /**
  * Group raw cost ledger rows into hourly or daily trend points.
+ *
+ * @param {Array<{ created_at?: string, total_cost_usd?: number, prompt_tokens?: number, completion_tokens?: number, total_tokens?: number }>} rows
+ * @param {string} [period]
+ * @returns {SpendTrendPoint[]}
  */
-export function aggregateSpendTrends(
-  rows: Array<{
-    created_at?: string;
-    total_cost_usd?: number;
-    prompt_tokens?: number;
-    completion_tokens?: number;
-    total_tokens?: number;
-  }>,
-  period: string = "24h"
-): SpendTrendPoint[] {
+export function aggregateSpendTrends(rows, period = "24h") {
   if (!Array.isArray(rows) || rows.length === 0) return [];
 
   const isHourly = period === "24h" || period === "today";
 
-  const buckets = new Map<string, SpendTrendPoint>();
+  const buckets = new Map();
 
   for (const row of rows) {
     if (!row.created_at) continue;
@@ -446,18 +457,18 @@ export function aggregateSpendTrends(
  * Query request_cost_ledger for spend trends.
  * Fully parameterized SQL, bounded time window and row limit.
  * Fail-open: returns { points: [], degraded: true } on database failure or missing db.
+ *
+ * @param {Object} params
+ * @param {string} params.apiKeyId
+ * @param {string} [params.period]
+ * @param {string} [params.sinceIso]
+ * @param {string} [params.untilIso]
+ * @param {number} [params.limit]
+ * @param {number} [params.now]
+ * @param {any} [customDb]
+ * @returns {Promise<{ points: SpendTrendPoint[], degraded: boolean }>}
  */
-export async function getSpendTrendsFromLedger(
-  params: {
-    apiKeyId: string;
-    period?: string;
-    sinceIso?: string;
-    untilIso?: string;
-    limit?: number;
-    now?: number;
-  },
-  customDb: unknown = null
-): Promise<{ points: SpendTrendPoint[]; degraded: boolean }> {
+export async function getSpendTrendsFromLedger(params, customDb = null) {
   if (!customDb) {
     return { points: [], degraded: true };
   }
@@ -488,7 +499,7 @@ export async function getSpendTrendsFromLedger(
   const strftimeFormat = isHourly ? "%Y-%m-%d %H:00" : "%Y-%m-%d";
 
   try {
-    const db = customDb as any;
+    const db = customDb;
     const query = `
       SELECT
         strftime(?, created_at) AS bucket,
@@ -512,7 +523,7 @@ export async function getSpendTrendsFromLedger(
       Math.min(limit, 1000),
     ]);
 
-    const points: SpendTrendPoint[] = (rows || []).map((r: any) => ({
+    const points = (rows || []).map((r) => ({
       timestamp: String(r.bucket || ""),
       totalCostUsd: Number(r.total_cost_usd) || 0.0,
       promptTokens: Number(r.prompt_tokens) || 0,
@@ -522,7 +533,7 @@ export async function getSpendTrendsFromLedger(
     }));
 
     return { points, degraded: false };
-  } catch (err: any) {
+  } catch (err) {
     console.warn(`[keyQuota:trends] Failed to query spend trends (failing open): ${err?.message ?? err}`);
     return { points: [], degraded: true };
   }
