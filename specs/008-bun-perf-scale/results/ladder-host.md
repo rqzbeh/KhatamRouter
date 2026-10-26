@@ -43,9 +43,9 @@ Conforming to the `LadderRow` data model schema (`specs/008-bun-perf-scale/data-
 | **L0 micro** (findModel Map lookup) | 1 | 0.00008 | 0.00010 | 0.00011 | 13023667.8 | normal | 12.68% | 0 | AMD Ryzen 7 4800H host Bun 1.4.3 | `bun scripts/perf-l0-micro.mjs` | - |
 | **L0 micro** (findModel linear scan comparison) | 1 | 0.00030 | 0.00033 | 0.00034 | 3331416.2 | normal | 10.19% | 0 | AMD Ryzen 7 4800H host Bun 1.4.3 | `bun scripts/perf-l0-micro.mjs` | - |
 | **L0 micro** (getModelAliases cache warm) | 1 | 0.00080 | 0.00091 | 0.00097 | 1255397.0 | normal | 7.73% | 0 | AMD Ryzen 7 4800H host Bun 1.4.3 | `bun scripts/perf-l0-micro.mjs` | - |
-| **L0 micro** (getModelAliases cache bypassed) | 1 | 0.0090 | 0.0120 | 0.0151 | 110722.9 | normal | 16.63% | 0 | AMD Ryzen 7 4800H host Bun 1.4.3 | `bun scripts/perf-l0-micro.mjs` | - |
+| **L0 micro** (getModelAliases cache bypassed) | 1 | 0.0090 | 0.0120 | 0.0151 | 110722.9 | noisy | 16.63% | 0 | AMD Ryzen 7 4800H host Bun 1.4.3 | `bun scripts/perf-l0-micro.mjs` | CV > 15% (16.63%) due to filesystem/WAL paging variance; marked noisy per protocol and must not be used for quantitative claims. |
 | **L0 micro** (getComboByName cache warm) | 1 | 0.0039 | 0.0045 | 0.0048 | 256009.0 | normal | 6.80% | 0 | AMD Ryzen 7 4800H host Bun 1.4.3 | `bun scripts/perf-l0-micro.mjs` | - |
-| **L0 micro** (getComboByName cache bypassed) | 1 | 0.0142 | 0.0201 | 0.0246 | 70305.3 | normal | 22.00% | 0 | AMD Ryzen 7 4800H host Bun 1.4.3 | `bun scripts/perf-l0-micro.mjs` | - |
+| **L0 micro** (getComboByName cache bypassed) | 1 | 0.0142 | 0.0201 | 0.0246 | 70305.3 | noisy | 22.00% | 0 | AMD Ryzen 7 4800H host Bun 1.4.3 | `bun scripts/perf-l0-micro.mjs` | CV > 15% (22.00%) due to filesystem/WAL paging variance; marked noisy per protocol and must not be used for quantitative claims. |
 | **L1 harness** (baseline T007) | 1 | 1.3708 | 5.0359 | 12.1579 | 545.4 | normal | 5.39% | 0 | AMD Ryzen 7 4800H host Bun 1.4.3 | `bun scripts/perf-l1-harness.mjs --label baseline --out results/l1-baseline.json` | - |
 | **L1 harness** (after slim T014) | 1 | 1.0080 | 2.5950 | 12.0116 | 713.8 | normal | 10.85% | 0 | `AMD Ryzen 7 4800H host Bun 1.4.3` | `bun scripts/perf-l1-harness.mjs --label after-slim --out results/l1-after.json` | - |
 | **L1 harness** (same-session A1 pre-slim) | 1 | 1.3692 | 4.8192 | 11.8228 | 552.1 | normal | 6.30% | 0 | AMD Ryzen 7 4800H host Bun 1.4.3 | `cd <throwaway-t007> && bun scripts/perf-l1-harness.mjs --label t007-pre-slim-round1` | - |
@@ -107,10 +107,12 @@ Across all 10 benchmarks, Run 1 corresponds directly to the median performance p
 - **Command**: `bun scripts/perf-l0-micro.mjs` (isolated temporary `DATA_DIR`)
 - **`getModelAliases` Warm**: **0.80 µs / op** (0.00080 ms / op), p95 = 0.91 µs, CV = 7.73% (non-noisy).
 - **`getModelAliases` Bypassed**: **9.03 µs / op** (0.0090 ms / op), p95 = 12.03 µs, CV = 16.63% (flagged noisy due to SQLite disk/WAL paging).
-  - **Delta**: **-91.1% latency reduction** (11.3x speedup) through the 5-second in-memory TTL cache in `src/lib/db/repos/aliasRepo.js`.
+  - *Noisy Metric Note*: CV = 16.63% exceeds the 15% threshold; mode set to `noisy`. Its numbers must not be used for quantitative claims.
+  - **Delta (directional only)**: **~91.1% latency reduction (~11.3x speedup)** through the 5-second in-memory TTL cache in `src/lib/db/repos/aliasRepo.js`. *Qualified: Speedup ratio is directional only; bypassed measurement is marked noisy due to filesystem/WAL paging jitter.*
 - **`getComboByName` Warm**: **3.91 µs / op** (0.0039 ms / op), p95 = 4.46 µs, CV = 6.80% (non-noisy).
 - **`getComboByName` Bypassed**: **14.22 µs / op** (0.0142 ms / op), p95 = 20.06 µs, CV = 22.00% (flagged noisy due to SQLite disk/WAL paging).
-  - **Delta**: **-72.5% latency reduction** (3.64x speedup) through the in-memory Map TTL cache in `src/lib/db/repos/combosRepo.js`.
+  - *Noisy Metric Note*: CV = 22.00% exceeds the 15% threshold; mode set to `noisy`. Its numbers must not be used for quantitative claims.
+  - **Delta (directional only)**: **~72.5% latency reduction (~3.64x speedup)** through the in-memory Map TTL cache in `src/lib/db/repos/combosRepo.js`. *Qualified: Speedup ratio is directional only; bypassed measurement is marked noisy due to filesystem/WAL paging jitter.*
 
 ### 3.3 Golden Regression Verifiers
 All Wave 8 golden verification baselines continue to pass with 100% green integrity:
