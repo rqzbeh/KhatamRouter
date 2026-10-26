@@ -26,55 +26,21 @@ import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { getProjectIdForConnection } from "open-sse/services/projectId.js";
 import { stripModelContextMarker } from "open-sse/utils/modelMarkers.js";
-import { getKeyAccessContext, enforceKeyAccess, filterAdapterModels, extractClientApiKey } from "../services/keyAccess.js";
+import {
+  getKeyAccessContext,
+  keyAccessContextFromRecord,
+  enforceKeyAccess,
+  filterAdapterModels,
+  extractClientApiKey,
+} from "../services/keyAccess.js";
 import { isTrustedInternalRequest } from "../services/internalTrust.js";
-import { enforceUnifiedAcl, resolveKeyAcl } from "../services/allowedModels.js";
+import { enforceUnifiedAcl } from "../services/allowedModels.js";
 import { getApiKeyByKey } from "@/lib/db/repos/apiKeysRepo.js";
 import { checkApiKeyUsageLimits, formatQuotaErrorResponse } from "@/lib/usage/apiKeyUsageLimits.js";
 import { gateTarget, observeFailure, observeSuccess, isResilienceEnabled } from "@/domain/fallbackResilience.js";
 import { isStickinessEnabled, computeSessionKey, getStickyConnection, setStickyConnection, clearStickyConnection } from "@/lib/stealth/stickiness.js";
 import { handleIdempotencyPreRequest, handleIdempotencyPostRequest } from "@/lib/idempotency/index.js";
 import { resolveSmartChoice } from "../services/systemoneRouter.js";
-
-/**
- * Helper to build KeyAccessContext from an already-resolved API key record
- * without re-querying SQLite. Returns null for unrestricted access or missing record.
- */
-function buildKeyAccessFromRecord(record) {
-  if (!record) return null;
-
-  const hasNewFields =
-    record.allowedKinds !== undefined ||
-    record.allowedProviders !== undefined ||
-    record.allowedCombos !== undefined ||
-    record.allowedModels !== undefined;
-
-  if (hasNewFields && (
-    record.allowedKinds !== null ||
-    record.allowedProviders !== null ||
-    record.allowedCombos !== null ||
-    record.allowedModels !== null
-  )) {
-    const acl = resolveKeyAcl(record);
-    return {
-      keyId: record.id,
-      keyName: record.name || record.id,
-      acl,
-      allow: record.access?.allow || [],
-      _sets: null,
-    };
-  }
-
-  if (!record.access?.restricted && !record.accessRestricted) return null;
-
-  return {
-    keyId: record.id,
-    keyName: record.name || record.id,
-    acl: null,
-    allow: record.access?.allow || [],
-    _sets: null,
-  };
-}
 
 /**
  * Handle chat completion request
@@ -235,7 +201,7 @@ export async function handleChat(request, clientRawRequest = null) {
   // models. Checked once on the requested target, before bypass, combo expansion
   // and any credential lookup; an allowed combo grants the members it routes to.
   // When unified ACL has already evaluated this key, skip the redundant legacy check.
-  const keyAccess = isTrustedInternal ? null : (keyRecord ? buildKeyAccessFromRecord(keyRecord) : await getKeyAccessContext(request));
+  const keyAccess = isTrustedInternal ? null : (keyRecord ? keyAccessContextFromRecord(keyRecord) : await getKeyAccessContext(request));
   if (!aclEvaluated) {
     const keyAccessDenied = await enforceKeyAccess(keyAccess, modelStr);
     if (keyAccessDenied) return await finishResponse(keyAccessDenied);

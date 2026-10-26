@@ -30,22 +30,6 @@ try {
   // Safe fail-open if events bus cannot hook
 }
 
-async function ensureDbHook() {
-  try {
-    const db = await getAdapter();
-    if (db && !db._nodesHooked) {
-      db._nodesHooked = true;
-      const origRun = db.run.bind(db);
-      db.run = (sql, ...args) => {
-        if (typeof sql === "string" && sql.trim() === "DELETE FROM providerNodes") {
-          invalidateNodesCache();
-        }
-        return origRun(sql, ...args);
-      };
-    }
-  } catch {}
-}
-
 function rowToNode(row) {
   if (!row) return null;
   const extra = parseJson(row.data, {});
@@ -90,7 +74,6 @@ export async function getProviderNodes(filter = {}) {
     return structuredClone(cached.data);
   }
 
-  await ensureDbHook();
   const db = await getAdapter();
   const where = [];
   const params = [];

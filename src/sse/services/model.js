@@ -9,34 +9,11 @@ const LOCAL_PROVIDER_ALIASES = {
   "xiaomi-tokenplan": "xiaomi-tokenplan",
 };
 
-const MEDIA_ONLY_ALIASES = {
-  el: "elevenlabs",
-  jina: "jina-ai",
-  "jina-ai": "jina-ai",
-  polly: "aws-polly",
-  "aws-polly": "aws-polly",
-};
-
-const RESERVED_PROVIDER_PREFIXES = new Set([
-  ...Object.keys(LOCAL_PROVIDER_ALIASES),
-  ...Object.values(LOCAL_PROVIDER_ALIASES),
-  ...Object.keys(MEDIA_ONLY_ALIASES),
-  ...Object.values(MEDIA_ONLY_ALIASES),
-]);
-
+const RESERVED_PROVIDER_PREFIXES = new Set(Object.keys(LOCAL_PROVIDER_ALIASES));
 for (const entry of REGISTRY) {
-  if (entry.id) {
-    RESERVED_PROVIDER_PREFIXES.add(entry.id);
-    RESERVED_PROVIDER_PREFIXES.add(entry.id.toLowerCase());
-  }
-  if (entry.alias) {
-    RESERVED_PROVIDER_PREFIXES.add(entry.alias);
-    RESERVED_PROVIDER_PREFIXES.add(entry.alias.toLowerCase());
-  }
-  for (const alias of entry.aliases || []) {
-    RESERVED_PROVIDER_PREFIXES.add(alias);
-    RESERVED_PROVIDER_PREFIXES.add(alias.toLowerCase());
-  }
+  RESERVED_PROVIDER_PREFIXES.add(entry.id);
+  if (entry.alias) RESERVED_PROVIDER_PREFIXES.add(entry.alias);
+  for (const alias of entry.aliases || []) RESERVED_PROVIDER_PREFIXES.add(alias);
 }
 
 export function parseModel(modelStr) {
@@ -66,12 +43,7 @@ export async function getModelInfo(modelStr, preResolvedCombo = undefined) {
   if (!parsed.isAlias) {
     // Provider-node prefixes are user-defined. They must not override built-in
     // provider ids/aliases such as `cf`, `cloudflare-ai`, `openai`, or `hf`.
-    const prefix = parsed.providerAlias?.toLowerCase();
-    const isBuiltin = RESERVED_PROVIDER_PREFIXES.has(parsed.providerAlias) ||
-      (prefix && RESERVED_PROVIDER_PREFIXES.has(prefix)) ||
-      (parsed.provider && RESERVED_PROVIDER_PREFIXES.has(parsed.provider));
-
-    if (!isBuiltin) {
+    if (!RESERVED_PROVIDER_PREFIXES.has(parsed.providerAlias)) {
       const openaiNodes = await getProviderNodes({ type: "openai-compatible" });
       const matchedOpenAI = openaiNodes.find((node) => node.prefix === parsed.providerAlias);
       if (matchedOpenAI) {

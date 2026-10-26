@@ -25,22 +25,6 @@ try {
   // Safe fail-open if events bus cannot hook
 }
 
-async function ensureDbHook() {
-  try {
-    const db = await getAdapter();
-    if (db && !db._combosHooked) {
-      db._combosHooked = true;
-      const origRun = db.run.bind(db);
-      db.run = (sql, ...args) => {
-        if (typeof sql === "string" && sql.trim() === "DELETE FROM combos") {
-          invalidateCombosCache();
-        }
-        return origRun(sql, ...args);
-      };
-    }
-  } catch {}
-}
-
 function rowToCombo(row) {
   if (!row) return null;
   return {
@@ -72,7 +56,6 @@ export async function getComboByName(name) {
     return structuredClone(cached.data);
   }
 
-  await ensureDbHook();
   const db = await getAdapter();
   const row = db.get(`SELECT * FROM combos WHERE name = ?`, [name]);
   const combo = rowToCombo(row);

@@ -33,29 +33,12 @@ try {
   // Safe fail-open if events bus cannot hook
 }
 
-async function ensureDbHook() {
-  try {
-    const db = await getAdapter();
-    if (db && !db._aliasHooked) {
-      db._aliasHooked = true;
-      const origRun = db.run.bind(db);
-      db.run = (sql, ...args) => {
-        if (typeof sql === "string" && sql.includes("DELETE FROM kv WHERE scope IN")) {
-          invalidateAliasesCache();
-        }
-        return origRun(sql, ...args);
-      };
-    }
-  } catch {}
-}
-
 // modelAliases: key=alias, value=modelString
 export async function getModelAliases() {
   const now = Date.now();
   if (aliasesCache.data && now < aliasesCache.expiresAt) {
     return structuredClone(aliasesCache.data);
   }
-  await ensureDbHook();
   const raw = await aliasKv.getAll();
   aliasesCache.data = raw || {};
   aliasesCache.expiresAt = now + ALIASES_CACHE_TTL_MS;

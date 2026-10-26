@@ -245,3 +245,116 @@ describe("T012: Request-scoped keyRecord and combo reuse in handleChat", () => {
     expect(res2.status).toBe(401);
   });
 });
+
+describe("FIX 2: keyAccessContextFromRecord agreement with getKeyAccessContext", () => {
+  it("agrees for null record / missing key", async () => {
+    const { getKeyAccessContext, keyAccessContextFromRecord } = await import("@/sse/services/keyAccess.js");
+
+    expect(keyAccessContextFromRecord(null)).toBeNull();
+    expect(keyAccessContextFromRecord(undefined)).toBeNull();
+
+    const reqNoAuth = new Request("http://localhost:20128/v1/chat/completions", {
+      headers: { "content-type": "application/json" },
+    });
+    const ctxNoAuth = await getKeyAccessContext(reqNoAuth);
+    expect(ctxNoAuth).toBeNull();
+    expect(ctxNoAuth).toEqual(keyAccessContextFromRecord(null));
+  });
+
+  it("agrees for unrestricted key (returns null)", async () => {
+    const { createApiKey } = await import("@/lib/db/repos/apiKeysRepo.js");
+    const { getKeyAccessContext, keyAccessContextFromRecord } = await import("@/sse/services/keyAccess.js");
+
+    const key = await createApiKey("Unrestricted Key Test", "mach-unrestricted-01");
+    const req = new Request("http://localhost:20128/v1/chat/completions", {
+      headers: { authorization: `Bearer ${key.key}` },
+    });
+
+    const ctxFromReq = await getKeyAccessContext(req);
+    const ctxFromRecord = keyAccessContextFromRecord(key);
+
+    expect(ctxFromReq).toBeNull();
+    expect(ctxFromRecord).toBeNull();
+    expect(ctxFromReq).toEqual(ctxFromRecord);
+  });
+
+  it("agrees for legacy-restricted key", async () => {
+    const { getAdapter } = await import("@/lib/db/driver.js");
+    const { getKeyAccessContext, keyAccessContextFromRecord } = await import("@/sse/services/keyAccess.js");
+    const { getApiKeyByKey } = await import("@/lib/db/repos/apiKeysRepo.js");
+
+    const db = await getAdapter();
+    const keyStr = "sk-legacy-test-key-12345";
+    const allowList = ["openai/gpt-4o", "Main"];
+    db.run(
+      `INSERT INTO apiKeys(id, key, name, machineId, isActive, createdAt, accessRestricted, accessAllow)
+       VALUES(?, ?, ?, ?, 1, ?, 1, ?)`,
+      ["key-leg-1", keyStr, "Legacy Test Key", "mach-leg-01", new Date().toISOString(), JSON.stringify(allowList)]
+    );
+
+    const record = await getApiKeyByKey(keyStr);
+    expect(record).not.toBeNull();
+
+    const req = new Request("http://localhost:20128/v1/chat/completions", {
+      headers: { authorization: `Bearer ${keyStr}` },
+    });
+
+    const ctxFromReq = await getKeyAccessContext(req);
+    const ctxFromRecord = keyAccessContextFromRecord(record);
+
+    expect(ctxFromReq).not.toBeNull();
+    expect(ctxFromRecord).not.toBeNull();
+    expect(ctxFromReq).toEqual(ctxFromRecord);
+    expect(ctxFromRecord).toEqual({
+      keyId: "key-leg-1",
+      keyName: "Legacy Test Key",
+      acl: null,
+      allow: allowList,
+      _sets: null,
+    });
+  });
+
+  it("agrees for new-ACL-field key", async () => {
+    const { getAdapter } = await import("@/lib/db/driver.js");
+    const { getKeyAccessContext, keyAccessContextFromRecord } = await import("@/sse/services/keyAccess.js");
+    const { getApiKeyByKey } = await import("@/lib/db/repos/apiKeysRepo.js");
+
+    const db = await getAdapter();
+    const keyStr = "sk-new-acl-test-key-67890";
+    db.run(
+      `INSERT INTO apiKeys(id, key, name, machineId, isActive, createdAt, accessRestricted, accessAllow, allowedKinds, allowedProviders, allowedCombos, allowedModels)
+       VALUES(?, ?, ?, ?, 1, ?, 0, NULL, ?, ?, ?, ?)`,
+      [
+        "key-acl-1",
+        keyStr,
+        "New ACL Test Key",
+        "mach-acl-01",
+        new Date().toISOString(),
+        JSON.stringify(["llm"]),
+        JSON.stringify(["openai"]),
+        JSON.stringify(["fast-combo"]),
+        JSON.stringify(["openai/gpt-4o-mini"]),
+      ]
+    );
+
+    const record = await getApiKeyByKey(keyStr);
+    expect(record).not.toBeNull();
+
+    const req = new Request("http://localhost:20128/v1/chat/completions", {
+      headers: { authorization: `Bearer ${keyStr}` },
+    });
+
+    const ctxFromReq = await getKeyAccessContext(req);
+    const ctxFromRecord = keyAccessContextFromRecord(record);
+
+    expect(ctxFromReq).not.toBeNull();
+    expect(ctxFromRecord).not.toBeNull();
+    expect(ctxFromReq).toEqual(ctxFromRecord);
+    expect(ctxFromRecord.keyId).toBe("key-acl-1");
+    expect(ctxFromRecord.acl).toBeDefined();
+    expect(ctxFromRecord.acl.allowedKinds).toEqual(["llm"]);
+    expect(ctxFromRecord.acl.allowedProviders).toEqual(["openai"]);
+    expect(ctxFromRecord.acl.allowedCombos).toEqual(["fast-combo"]);
+    expect(ctxFromRecord.acl.allowedModels).toEqual(["openai/gpt-4o-mini"]);
+  });
+});
