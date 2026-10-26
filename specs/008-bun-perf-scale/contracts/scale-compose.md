@@ -5,7 +5,7 @@
 | Value | Behavior |
 |---|---|
 | unset / empty | **Unchanged**: forwarding headers are trusted only from loopback (`127.0.0.1`, `::1`, `::ffff:127.0.0.1`) |
-| `172.18.0.0/16,10.0.0.0/8` | Also trusts `X-Forwarded-For` / `X-Real-IP` when the TCP peer is inside a listed CIDR |
+| `172.31.250.254/32` | Also trusts `X-Forwarded-For` / `X-Real-IP` when the TCP peer matches the exact load balancer address |
 | invalid entry | Startup logs one error and ignores that entry, so the result is more restrictive, never less |
 
 Invariants (each needs a unit test):
@@ -23,7 +23,7 @@ Requirements:
 2. Healthcheck: `curl -f http://localhost:20128/api/health`, with `start_period` set.
 3. The LB is nginx round-robin to the service DNS name. It sets `X-Forwarded-For $remote_addr`, which overwrites any client-supplied value and does not append to it.
 4. All replicas mount the same `9router-data` volume and the same `REDIS_URL`. `DATA_DIR` is identical.
-5. `TRUSTED_PROXY_CIDRS` is set to the compose network subnet.
+5. `TRUSTED_PROXY_CIDRS` is set to ONLY the LB address (`172.31.250.254/32`), never the whole subnet, so co-tenant containers (Redis, etc.) cannot forge client IPs.
 6. Docs state: single host only. NFS/EFS is unsupported for the SQLite WAL.
 
 ## Redis-down contract (re-verified under N replicas)

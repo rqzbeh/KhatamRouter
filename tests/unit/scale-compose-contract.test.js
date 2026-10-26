@@ -94,12 +94,21 @@ describe("Wave 8: Multi-Replica Scale Compose & Trusted Proxy Contract (T017, T0
       expect(app.environment?.REDIS_URL).toBe("redis://redis:6379");
     });
 
-    it("configures deterministic subnet in IPAM and sets TRUSTED_PROXY_CIDRS to it", () => {
+    it("configures deterministic subnet in IPAM and sets TRUSTED_PROXY_CIDRS to only the LB /32 address", () => {
       const { parsed } = loadScaleOverlay();
       const app = parsed.services?.["9router"];
       const cidr = app.environment?.TRUSTED_PROXY_CIDRS;
       expect(cidr).toBeDefined();
-      expect(cidr).toBe("172.31.250.0/24");
+
+      // LB must have fixed ipv4_address
+      const lb = parsed.services?.lb;
+      expect(lb).toBeDefined();
+      const lbIp = lb.networks?.default?.ipv4_address;
+      expect(lbIp).toBeDefined();
+
+      // TRUSTED_PROXY_CIDRS must be single address as /32 (never the whole /24)
+      expect(cidr).toBe(`${lbIp}/32`);
+      expect(cidr).not.toBe("172.31.250.0/24");
 
       // Verify deterministic IPAM network configuration
       const net = parsed.networks?.default;
@@ -107,6 +116,12 @@ describe("Wave 8: Multi-Replica Scale Compose & Trusted Proxy Contract (T017, T0
       expect(net.ipam?.config).toBeDefined();
       const subnetConfig = net.ipam.config.find((c) => c.subnet === "172.31.250.0/24");
       expect(subnetConfig).toBeDefined();
+
+      // Verify lbIp is within the 172.31.250.0/24 subnet
+      expect(lbIp.startsWith("172.31.250.")).toBe(true);
+
+      // Verify ip_range is configured so dynamic allocation cannot collide with static lbIp
+      expect(subnetConfig.ip_range).toBeDefined();
     });
 
     it("requires runtime secrets via ${VAR:?...} and commits no literal secrets", () => {

@@ -112,7 +112,8 @@ The scale overlay (`docker-compose.scale.yml`):
 - Removes the fixed `container_name` and resets published host ports from the `9router` app replicas.
 - Starts an Nginx load balancer service publishing port `20128` that round-robins across the replicas.
 - Configures Nginx with `proxy_set_header X-Forwarded-For $remote_addr;` (overwriting client-supplied headers) and enables SSE streaming support (`proxy_buffering off`, long timeouts).
-- Configures `TRUSTED_PROXY_CIDRS` to trust forwarded client IPs only from the deterministic Compose network subnet (`172.31.250.0/24`).
+- Configures `TRUSTED_PROXY_CIDRS` to trust forwarded client IPs ONLY from the exact static address of the Nginx load balancer (`172.31.250.254/32`), NOT the whole subnet.
+  - **Trust Boundary**: Only the load balancer is trusted to provide forwarding headers. Any other container on the shared network (such as Redis, monitoring, or co-tenant services) that can reach the replicas directly but is not listed in `TRUSTED_PROXY_CIDRS` cannot spoof `X-Forwarded-For` or `X-Real-IP`. Any address listed in `TRUSTED_PROXY_CIDRS` has full authority to dictate client IPs, so scoping trust strictly to the single `/32` proxy address prevents co-tenant privilege escalation and spoofing.
 - Shares the `9router-data` volume and single Redis service across all replicas.
 
 > **CRITICAL: Single-Host Only**: The shared `9router-data` SQLite WAL volume **must reside on a local filesystem** on a single host. Network filesystems such as NFS, SMB, or AWS EFS are **strictly unsupported** for SQLite in WAL mode due to POSIX shared-memory (`-shm`) and file-locking semantics across hosts, which cause database corruption. Multi-replica scaling is intended strictly for multi-core scale on a single host.
