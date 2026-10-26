@@ -74,7 +74,9 @@ export function findModel(modelsOrAlias, modelId, aliasOrId) {
   let targetAlias;
   if (typeof modelsOrAlias === "string") {
     targetAlias = modelsOrAlias;
-    models = PROVIDER_MODELS[targetAlias];
+    const resolvedAlias = PROVIDER_ID_TO_ALIAS[targetAlias] || targetAlias;
+    targetAlias = resolvedAlias;
+    models = PROVIDER_MODELS[resolvedAlias];
   } else {
     models = modelsOrAlias;
     targetAlias = aliasOrId;
