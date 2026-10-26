@@ -206,7 +206,7 @@ export async function DELETE() {
 
     return NextResponse.json({
       success: true,
-      message: "9Router settings removed successfully",
+      message: "KhatamRouter settings removed successfully",
     });
   } catch (error) {
     console.log("Error resetting droid settings:", error);

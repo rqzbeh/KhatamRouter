@@ -53,17 +53,17 @@ export default function LandingPage() {
           <div className="max-w-4xl mx-auto text-center relative z-10">
             <h2 className="text-4xl md:text-5xl font-black mb-6">Ready to Simplify Your AI Infrastructure?</h2>
             <p className="text-xl text-gray-400 mb-10 max-w-2xl mx-auto">
-              Join developers who are streamlining their AI integrations with 9Router. Open source and free to start.
+              Join developers who are streamlining their AI integrations with KhatamRouter. Open source and free to start.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <button 
+              <button
                 onClick={() => router.push("/dashboard")}
                 className="w-full sm:w-auto h-14 px-10 rounded-lg bg-[#f97815] hover:bg-[#e0650a] text-[#181411] text-lg font-bold transition-all shadow-[0_0_20px_rgba(249,120,21,0.5)]"
               >
                 Start Free
               </button>
-              <button 
-                onClick={() => window.open("https://github.com/decolua/9router#readme", "_blank")}
+              <button
+                onClick={() => window.open("https://github.com/rqzbeh/KhatamRouter#readme", "_blank")}
                 className="w-full sm:w-auto h-14 px-10 rounded-lg border border-[#3a2f27] hover:bg-[#23180f] text-white text-lg font-bold transition-all"
               >
                 Read Documentation

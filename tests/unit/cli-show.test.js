@@ -36,7 +36,7 @@ describe("9router show", () => {
   it("reports every tool as not configured on an empty home", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     expect(await show.run([])).toBe(0);
-    expect(out.filter((l) => l.includes("not configured for 9router"))).toHaveLength(tools.TOOLS.length);
+    expect(out.filter((l) => l.includes("not configured for KhatamRouter"))).toHaveLength(tools.TOOLS.length);
     expect(fetchSpy).not.toHaveBeenCalled(); // offline
   });
 
