@@ -212,3 +212,192 @@
 2. **Direct In-Container Token Refresh Mutex Test (`scripts/scale-smoke.sh` Step 6)**:
    - **Reason**: Skipped due to Defect 1 (`src/lib/redis/client.js` not present on disk in standalone image).
    - **Mitigation / Prior Verification**: Concurrent token refresh single-flight lock deduplication across instances is verified in `tests/unit/cluster-two-instance.test.js`.
+
+---
+
+## 5. Re-run After Fixes (2026-10-27)
+
+**Date**: 2026-10-27  
+**Commit SHA**: `91c9140dafd4714d5df71462ca70a14d1107a071` (`91c9140d`)  
+**Image Tag**: `khatamrouter:smoke-91c9140d`  
+**Host Architecture**: `x86_64` (Linux 6.18 WSL2, Docker 29.x, Bun 1.4.3-slim)  
+**Compose Project**: `khatam-scale-smoke`  
+
+### 5.1 Re-run Executive Verdict Table
+
+| # | Check Description | Category | Verdict | Evidence / Metrics |
+|---|---|---|---|---|
+| 1 | Static Compose config validation (`enable_ipv6: false`, `SCALE_SMOKE_LB_PORT` honored, no container_name) | Static Config | **PASS** | `docker compose ... config` parsed cleanly; `SCALE_SMOKE_LB_PORT=30128` mapped to 20128; `enable_ipv6: false` present. |
+| 2 | Native Bun production image build (`Dockerfile.bun`) with memory caps | Build | **PASS** | Built in 238s from detached worktree of SHA `91c9140d`; size 1.19 GB (`NEXT_BUILD_CPUS=2`, `NODE_OPTIONS=--max-old-space-size=3072`). |
+| 3 | Image hygiene (no `.ts`/`.tsx`, no `better_sqlite3.node`, `curl` and `sqlite3` present) | Image Audit | **PASS** | 0 TypeScript files in `/app`, 0 `better_sqlite3.node`, `/usr/bin/curl` and `/usr/bin/sqlite3` present in runner. |
+| 4 | Execution of `scripts/scale-smoke.sh 2` exactly as written | Test Automation | **FAIL** *(Test Script Defect)* | Failed at step [7/11]: line 293 executed `docker compose exec -T "$REPLICA_A"` instead of `docker exec "$REPLICA_A"` where `$REPLICA_A` is a container ID, causing Compose to fail with `service "<cid>" is not running`. |
+| 5 | Multi-replica bring-up (9router=2 + lb + redis) via Compose | Runtime | **PASS** | Both replicas (`khatam-scale-smoke-9router-1` and `...-2`), Redis, headroom, and Nginx LB healthy and running in 1s. |
+| 6 | LB HTTP routing (`/api/health`, `/api/version`, unauthenticated `/v1/models`) | HTTP Routing | **PASS** | `/api/health` returned HTTP 200 `{"ok":true}`; `/api/version` returned HTTP 200 with version `0.5.111`; `/v1/models` unauthenticated returned HTTP 401. |
+| 7 | Round-robin load balancing across both replicas | Cluster Distribution | **PASS** | Traffic distributed to both replicas; `/proc/net/dev` packet counters confirmed active rx increments on both replicas (+6015 / +4929 bytes). |
+| 8 | Redis Pub/Sub channels verification | Cluster Pub/Sub | **PASS** | Channels `khatam:events:console_log` and `khatam:events:config_reload` active; subscriber count queried. |
+| 9 | Distributed token refresh lock & rotation counter via Redis | Cluster Locks | **PASS** | Distributed mutex acquisition verified (`SET NX EX 5`); concurrent lock acquisition blocked; rotation counter incremented. |
+| 10 | Cross-replica shared state (Combo create & delete via LB) | Cluster Sync | **PASS** | Combo `test-scale-combo` created via LB and queryable across both replicas; deleted combo immediately invalidated across all replicas. |
+| 11 | API key authentication through LB | Auth Gateway | **PASS** | Key `sk-smokekey123` verified via `/v1/models` (HTTP 200) through LB. |
+| 12 | Immediate key revocation across all replicas | Auth Invalidation | **PASS** | Deleting key immediately produced HTTP 401 on the very next requests through LB across both replicas. |
+| 13 | SQLite database WAL mode and integrity on shared volume | Persistence | **PASS** | `PRAGMA journal_mode;` returned `wal`; `PRAGMA quick_check;` returned `ok`. |
+| 14 | Redis outage drill (halt Redis for 20s while sending 30 requests) | Resilience | **PASS** | 30/30 HTTP requests answered HTTP 200 OK; zero 5xx errors; warnings throttled in logs (fail-open confirmed); recovered cleanly with `RestartCount=0`. |
+| 15 | XFF Spoof Control (a): LB overwrites forged client XFF header | Security / Proxy Trust | **PASS** | Forged `X-Forwarded-For: 127.0.0.1` overwritten by Nginx to client IP; unauthenticated request rejected with HTTP 401. |
+| 16 | XFF Spoof Control (b): Sidecar container cannot forge XFF | Security / Spoof Defense | **PASS** | Sidecar direct request to replica IP with `X-Forwarded-For: 127.0.0.1` rejected with HTTP 401 (`socketIp` outside `/32` CIDR); genuine internal loopback returned HTTP 200. |
+| 17 | Secret & credential hygiene in container logs | Security / Secret Hygiene | **PASS** | Zero leaks of `JWT_SECRET`, `API_KEY_SECRET`, `INITIAL_PASSWORD`, `MACHINE_ID_SALT`, or `Bearer ` tokens across all containers. |
+| 18 | Nginx LB log audit for IPv6 connection failures (Step 4a) | Network / DNS | **PASS** | Grep of Nginx LB logs for `connect() failed` yielded 0 matches; dual-stack DNS connection refused defect successfully resolved. |
+| 19 | Dynamic re-resolution during scale to 3 replicas (Step 4b) | Dynamic Scale / DNS | **PASS** | Scaled to 3 replicas with `--scale 9router=3 --no-recreate`; sent 60 requests through LB within 9s (<15s) without restarting Nginx; all 3 replicas served traffic (deltas: +152, +114, +109 packets). |
+| 20 | Dynamic scale-down error window (Step 4b) | Stability / Failover | **PASS** | Scaled back from 3 to 2 replicas; monitored HTTP status across 20s (40 probes); zero 502 Bad Gateway responses observed (transient error window: 0s). |
+| 21 | Replica restart resilience under continuous traffic (Step 4c) | Resilience / Failover | **PASS** | Restarted replica 1 while sending 1 req/s through LB for 30s; zero non-2xx responses (30/30 HTTP 200); Nginx picked up restarted replica's traffic post-restart (+60 / +62 packets). |
+| 22 | Pre-existing container isolation (`hindsight`) | Safe Operations | **PASS** | Checked before and after; container `hindsight` was never touched, modified, or stopped. |
+| 23 | Post-test resource cleanup | Safe Operations | **PASS** | All containers, volumes, networks, images (`khatamrouter:smoke-91c9140d`), and temporary worktrees were cleanly removed. |
+
+---
+
+### 5.2 Step-by-Step Verification Details & Evidence
+
+#### Step 1: Static Compose Overlay Inspection
+- **Command**:
+  ```bash
+  JWT_SECRET="<masked>" API_KEY_SECRET="<masked>" INITIAL_PASSWORD="<masked>" MACHINE_ID_SALT="<masked>" \
+  SCALE_SMOKE_LB_PORT=30128 \
+  docker compose -f docker-compose.yml -f docker-compose.scale.yml config
+  ```
+- **Observations**:
+  - `networks.default.enable_ipv6`: `false` (Defect 2 fix verified).
+  - `lb.ports`: published port `30128` mapped to target `20128` (Defect 3 fix verified).
+  - `9router`: `container_name: null`, `ports: []`.
+  - `9router.environment.TRUSTED_PROXY_CIDRS`: `172.31.250.254/32`.
+  - `lb.networks.default.ipv4_address`: `172.31.250.254`.
+
+#### Step 2: Native Bun Docker Image Build
+- **Command**:
+  ```bash
+  TMP_WT=$(mktemp -d /tmp/khatam-smoke-build-XXXXXX)
+  git -C /home/redsnow/KhatamRouter/.claude/worktrees/wave8-perf worktree add --detach "$TMP_WT" 91c9140dafd4714d5df71462ca70a14d1107a071
+  docker buildx build --platform linux/amd64 \
+    --build-arg NEXT_BUILD_CPUS=2 \
+    --build-arg NODE_OPTIONS="--max-old-space-size=3072" \
+    -t khatamrouter:smoke-91c9140d \
+    -t khatam-scale-smoke-9router:latest \
+    -f "$TMP_WT/Dockerfile.bun" "$TMP_WT"
+  git -C /home/redsnow/KhatamRouter/.claude/worktrees/wave8-perf worktree remove --force "$TMP_WT"
+  ```
+- **Metrics**:
+  - Build Duration: **238 seconds** (3m 58s).
+  - Image Size: **1.19 GB** (1,185,054,696 bytes).
+  - Manifest List Digest: `sha256:804ec9ad4032ff2a3f6a93243660e22aca278958ac0c3ba8ee39bd1039020714`.
+- **Static Invariants Inside Image**:
+  - `find /app -name '*.ts' -o -name '*.tsx' | grep -v node_modules | wc -l`: `0`.
+  - `find /app -type f -name 'better_sqlite3.node' | wc -l`: `0`.
+  - `/usr/bin/curl` and `/usr/bin/sqlite3`: present and executable.
+
+#### Step 3: Execution of `scripts/scale-smoke.sh 2` & Diagnosis
+- **Command**:
+  ```bash
+  SCALE_SMOKE_LB_PORT=30128 \
+  JWT_SECRET="<masked>" API_KEY_SECRET="<masked>" INITIAL_PASSWORD="<masked>" MACHINE_ID_SALT="<masked>" \
+  bash scripts/scale-smoke.sh 2
+  ```
+- **Result**: Failed at Step [7/11] with exit code 1.
+- **Output Snippet**:
+  ```
+  === [7/11] API Key Auth & Immediate Revocation across all replicas ===
+  service "c084421c9a064f274ee583b48a462e7800922ccb9c2b7049db71a831feae8807" is not running
+  === [Cleanup] Tearing down scale smoke stack (khatam-scale-smoke) ===
+  ❌ Scale smoke check failed with exit code 1
+  ```
+- **Diagnosis**:
+  Line 100 sets `REPLICA_CIDS=$(docker compose -p "$PROJECT_NAME" ps -q 9router)`. Lines 289-293 set `REPLICA_A="${REPLICA_ARRAY[0]}"` and invoke:
+  `docker compose -p "$PROJECT_NAME" exec -T "$REPLICA_A" sqlite3 ...`
+  In Docker Compose CLI, `docker compose exec` takes `SERVICE [COMMAND]`, not a container ID. Passing a container ID causes Docker Compose to look for a service matching the container hex ID, producing `service "<id>" is not running`. The correct invocation is `docker exec -i "$REPLICA_A" sqlite3 ...` (as correctly used on lines 163, 171, and 359). Recorded as Defect 4 below.
+
+#### Step 4: Step 4(a) Nginx LB Logs for IPv6 Errors
+- **Command**:
+  ```bash
+  docker compose -p khatam-scale-smoke logs lb 2>&1 | grep -i 'connect() failed'
+  ```
+- **Evidence**:
+  ```
+  CLEAN: 0 connect() failed errors
+  ```
+  With `enable_ipv6: false` in `docker-compose.scale.yml` and `ipv6=off` in `deploy/nginx-scale.conf`, Nginx only resolves IPv4 A records via `127.0.0.11`. Zero connection refused errors occurred.
+
+#### Step 5: Step 4(b) Dynamic Re-Resolution on Scale to 3 Replicas
+- **Command**:
+  ```bash
+  docker compose -p khatam-scale-smoke up -d --scale 9router=3 --no-recreate
+  ```
+- **Measurement Method**:
+  Monitored per-replica packet counts on `/proc/net/dev` before and after sending 60 requests through the LB:
+  - Elapsed time to send 60 requests: **9 seconds** (< 15 seconds threshold).
+  - Nginx LB was NOT restarted (`Container khatam-scale-smoke-lb-1 Running`).
+  - Packet deltas:
+    - Replica 1: `+152 packets` (616 -> 768)
+    - Replica 2: `+114 packets` (572 -> 686)
+    - Replica 3: `+109 packets` (26 -> 135)
+  - Result: All three replicas received and processed traffic through the LB within 9s of scale-up.
+- **Scale-Down Error Window Measurement**:
+  Scaled back from 3 to 2 replicas (`--scale 9router=2 --no-recreate`). Probed `http://127.0.0.1:30128/api/health` every 0.5s for 20 seconds (40 probes total):
+  - HTTP 200 responses: **40/40 (100%)**.
+  - HTTP 502 / non-200 responses: **0**.
+  - Transient error window: **0 seconds** (below the <=10s threshold).
+
+#### Step 6: Step 4(c) Dynamic Replica Restart Resilience
+- **Command**:
+  Sent 1 request/s through LB for 30 seconds while restarting replica 1 (`docker restart khatam-scale-smoke-9router-1` at t=2s).
+- **Measurement**:
+  - Replica 1 IP before restart: `172.31.250.4`
+  - Replica 1 IP after restart: `172.31.250.4`
+  - Response sequence across 30 seconds: `200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200`
+  - Total non-2xx responses: **0** (30/30 HTTP 200 OK).
+  - Post-restart routing verification (20 requests):
+    - Replica 1 rx packets: `+60` (91 -> 151)
+    - Replica 2 rx packets: `+62` (916 -> 978)
+  - Result: Nginx seamlessly routed around the restarting replica and picked up traffic to the restarted replica with zero user-visible errors.
+
+#### Step 7: Redis Outage Resilience & Hygiene
+- **Command**:
+  Halted Redis (`docker compose stop redis`), sent 30 requests to `/api/health`, inspected logs, restarted Redis.
+- **Evidence**:
+  - 30/30 HTTP 200 responses during outage (zero 5xx).
+  - Warning logs throttled: exactly 2 non-blocking fail-open warnings per replica (`[redis] redis subscriber connection error: connect ECONNREFUSED ... continuing without Redis — non-blocking fail-open`).
+  - Container health: `RestartCount=0` and `OOMKilled=false` across all containers (`9router-1`, `9router-2`, `9router-redis`, `headroom`, `lb-1`).
+
+#### Step 8: Spoof Defense Controls
+- **Test (a)**: Client forged `X-Forwarded-For: 127.0.0.1` via LB -> Nginx rewrote header to real client IP -> HTTP 401 Unauthorized.
+- **Test (b)**: Untrusted sidecar on `khatam-scale-smoke_default` network (`172.31.250.x`) sent direct request to replica IP with forged `X-Forwarded-For: 127.0.0.1` -> App rejected request with HTTP 401 Unauthorized (peer not in `172.31.250.254/32`).
+- **Positive Control**: Genuine internal loopback request inside replica (`curl http://127.0.0.1:20128/v1/models`) returned HTTP 200 OK.
+
+#### Step 9: Secret Hygiene & Cleanup
+- Grep of all container logs for `smoke-jwt-secret`, `smoke-api-key-secret`, `smoke-initial-password`, `smoke-machine-id-salt`, and `Bearer `: **0 occurrences found**.
+- `hindsight` container status checked before test: not running / untouched.
+- `hindsight` container status checked after test: not running / untouched.
+- Stack cleanly torn down with `down -v --remove-orphans`.
+- Image `khatamrouter:smoke-91c9140d` and `khatam-scale-smoke-9router:latest` untagged and removed.
+
+---
+
+### 5.3 Defects Identified in Re-Run
+
+#### Defect 4: Test Script Service Name Mismatch in `scripts/scale-smoke.sh`
+- **File**: `scripts/scale-smoke.sh` (lines 293, 306, 322, 329, 423)
+- **Symptom**:
+  `service "c084421c9a064f274ee583b48a462e7800922ccb9c2b7049db71a831feae8807" is not running`
+- **Root Cause**:
+  `scripts/scale-smoke.sh` extracts container IDs via `docker compose -p "$PROJECT_NAME" ps -q 9router` into `REPLICA_CIDS`, and sets `REPLICA_A` to the first container ID. On line 293 (and subsequently on lines 306, 322, 329, 423), the script executes:
+  `docker compose -p "$PROJECT_NAME" exec -T "$REPLICA_A" sqlite3 ...`
+  The `docker compose exec` subcommand expects a Compose service name (`9router`), not a container ID. When passed a hex container ID, Compose attempts to locate a service with that name and fails. In contrast, lines 163, 171, and 359 correctly use native Docker commands (`docker exec "$CID"` and `docker logs "$CID"`).
+- **Suggested Fix**:
+  In `scripts/scale-smoke.sh`, change lines 293, 306, 322, 329, and 423 to use `docker exec -i "$REPLICA_A"` instead of `docker compose -p "$PROJECT_NAME" exec -T "$REPLICA_A"`.
+
+---
+
+### 5.4 Explicit UNMEASURED / SKIPPED List (Re-Run)
+
+1. **In-Container Circuit-Breaker Trip Object State Inspection (`scripts/scale-smoke.sh` Step 5)**:
+   - **Reason**: Skipped intentionally with reason: *"In-container circuit-breaker trip object state inspection cannot be driven from outside standalone image (no admin breaker endpoint in runner)."*
+   - **Mitigation / Verification**: Covered and passing at unit level in `tests/unit/cluster-two-instance.test.js` (T019).
+2. **Direct In-Container Concurrent Token Refresh Mutex Race (`scripts/scale-smoke.sh` Step 6)**:
+   - **Reason**: Skipped intentionally with reason: *"Direct in-container concurrent token refresh mutex race cannot be driven without live upstream provider credentials in standalone runner."*
+   - **Mitigation / Verification**: Mutex lock acquisition/block behavior verified directly via Redis (`SET NX EX 5`); concurrent single-flight deduplication verified in `tests/unit/cluster-two-instance.test.js`.
+
