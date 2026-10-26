@@ -57,12 +57,13 @@ description: "Task list for 008-bun-perf-scale"
 - [ ] T008 [US1] Write `tests/unit/model-info-cache.test.js` first. It asserts that alias/combo/provider-node reads are cached. Invalidation happens on local write and on a `khatam:events:config_reload` message. A 5 s hard TTL bounds staleness when pub/sub is lost. A revoked, expired or banned API key is rejected on the next request (auth is never cached across requests). Results are identical to the uncached path. Strictly begins only after T007 baseline gate passes. Depends on T007. Owns: `tests/unit/model-info-cache.test.js`
 - [ ] T009 [US1] Add TTL caches to `src/lib/db/repos/aliasRepo.js` (`getModelAliases`), `src/lib/db/repos/combosRepo.js` (`getComboByName`) and `src/lib/db/repos/nodesRepo.js` (`getProviderNodes` keyed by type). Follow the `settingsCache` pattern at `src/lib/db/repos/settingsRepo.js:175-213`. Invalidate on create/update/delete and on `config_reload`. Make T008 pass. Depends on T008. Owns: `src/lib/db/repos/aliasRepo.js`, `src/lib/db/repos/combosRepo.js`, `src/lib/db/repos/nodesRepo.js`
 - [ ] T010 [P] [US1] Build a module-load `Map<modelId, entry>` in `open-sse/config/providerModels.js` and use it for `findModel`. Replace the repeated linear lookups in `open-sse/handlers/chatCore.js` (`getModelSupportedFormats`, `resolveTransport`, `getModelStrip`, `getModelUpstreamId`, `getModelType`). Behavior is identical, including the `baseModelId` fallback. Strictly begins only after T007 baseline gate passes. Depends on T007. Owns: `open-sse/config/providerModels.js`, `open-sse/handlers/chatCore.js`
-- [ ] T011 [P] [US1] Translation short-circuits, only if T007 shows translation is a top-2 phase. Early-return in `ensureToolCallIds`/`fixMissingToolResponses` when no message has tool activity. Add a clean-content fast path in `filterToOpenAIFormat`. The four golden suites must be byte-identical. If T007 says skip, mark the task `skipped (measured: <share>%)`. Strictly begins only after T007 baseline gate passes. Depends on T007. Owns: `open-sse/translator/concerns/toolCall.js`, `open-sse/translator/formats/openai.js`
+- [ ] T010b [P] [US1] Memoize compiled regex in `matchPattern` (`open-sse/providers/pricing.js`). Write `tests/unit/pattern-match-cache.test.js` first. Must be behaviour-identical including case-insensitivity, wildcard globbing, and regex special-character escaping; bounded cache. Eliminates the ~15.0% (0.37 ms/req) regex recompilation bottleneck across capability detection, thinking normalization, and pricing. Strictly begins only after T007 baseline gate passes. Depends on T007. Owns: `open-sse/providers/pricing.js`, `tests/unit/pattern-match-cache.test.js`
+- [ ] T011 [P] [US1] Translation short-circuits. Skipped (measured: translation exclusive of matchPattern is 2.73% / 0.068 ms/req, and targeted functions ensureToolCallIds/fixMissingToolResponses/filterToOpenAIFormat account for only 0.25% / 0.006 ms/req; real translation cost is matchPattern regex compilation, captured in T010b). Strictly begins only after T007 baseline gate passes. Depends on T007. Owns: `open-sse/translator/concerns/toolCall.js`, `open-sse/translator/formats/openai.js`
 - [ ] T012 [US1] Request-scoped reuse. Resolve `keyRecord` once in `handleChat` and pass it into `handleSingleModelChat`. Pass the already-resolved combo so `getComboModels` and `getModelInfo` do not re-query. Skip the provider-node lookups when the provider prefix is known. Auth stays fail-closed, and the key is read fresh on every request. Depends on T009. Owns: `src/sse/handlers/chat.js`, `src/sse/services/model.js`
 
 ### Phase B exit
 
-- [ ] T013 [US1] Re-run the T004 guard into `specs/008-bun-perf-scale/results/guard-after.txt`. `diff guard-before.txt guard-after.txt` must show no regressions (new test files excluded). Any new red test blocks T014. Depends on T009, T010, T011, T012. Owns: `specs/008-bun-perf-scale/results/guard-after.txt`
+- [ ] T013 [US1] Re-run the T004 guard into `specs/008-bun-perf-scale/results/guard-after.txt`. `diff guard-before.txt guard-after.txt` must show no regressions (new test files excluded). Any new red test blocks T014. Depends on T009, T010, T010b, T011, T012. Owns: `specs/008-bun-perf-scale/results/guard-after.txt`
 - [ ] T014 [US1] Measure after slimming (`--label after-slim`, same workload and `--runs`). Write `specs/008-bun-perf-scale/results/l1-after.json` and a short `specs/008-bun-perf-scale/results/l1-compare.md` with the before/after per-phase table. State the result against research D7 thresholds (p50 reduction ≥35%, p95 reduction ≥25%) honestly; any missed threshold is reported as a miss. Any unmeasured, invalid, or noisy profile cannot certify improvement and must be rejected or re-run (FR-008, SC-002). Completes US1. Depends on T013. Owns: `specs/008-bun-perf-scale/results/l1-after.json`, `specs/008-bun-perf-scale/results/l1-compare.md`
 
 **Checkpoint**: Strict US1 complete (baseline, slim, guard, after-measure). All US1 tasks T005–T014 must be complete, verified, and shippable before any US2 task begins.
@@ -123,6 +124,7 @@ T001 → T002 → T003, T004
 T005 → T006 → T007 (baseline gate)
                ├─ T008 → T009 ─┬─→ T012 ─→ T013 → T014 (US1 complete gate)
                ├─ T010 ────────┤
+               ├─ T010b ───────┤
                └─ T011 ────────┘
 
 → [US2 Complete] (T015..T020, strictly begins after T014 completes)
@@ -149,11 +151,12 @@ T025 → T026 → T027
 | Leaf | Tasks | Owns | Allowed concurrency |
 |---|---|---|---|
 | a-harness | T005, T006, T007 | `tests/unit/perf-harness.test.js`, `scripts/perf-l1-harness.mjs`, `specs/008-bun-perf-scale/results/l1-baseline.json` | Sequential within US1 Phase A; blocks all Phase B slim tasks |
-| b1-caches | T008, T009 | `tests/unit/model-info-cache.test.js`, `src/lib/db/repos/{aliasRepo,combosRepo,nodesRepo}.js` | Parallel with b2, b3 once T007 baseline gate passes |
-| b2-models | T010 | `open-sse/config/providerModels.js`, `open-sse/handlers/chatCore.js` | Parallel with b1, b3 once T007 baseline gate passes |
-| b3-translator | T011 | `open-sse/translator/concerns/toolCall.js`, `open-sse/translator/formats/openai.js` | Parallel with b1, b2 once T007 baseline gate passes |
+| b1-caches | T008, T009 | `tests/unit/model-info-cache.test.js`, `src/lib/db/repos/{aliasRepo,combosRepo,nodesRepo}.js` | Parallel with b2, b2b, b3 once T007 baseline gate passes |
+| b2-models | T010 | `open-sse/config/providerModels.js`, `open-sse/handlers/chatCore.js` | Parallel with b1, b2b, b3 once T007 baseline gate passes |
+| b2b-pattern-cache | T010b | `open-sse/providers/pricing.js`, `tests/unit/pattern-match-cache.test.js` | Parallel with b1, b2, b3 once T007 baseline gate passes |
+| b3-translator | T011 | `open-sse/translator/concerns/toolCall.js`, `open-sse/translator/formats/openai.js` | Parallel with b1, b2, b2b once T007 baseline gate passes |
 | b4-handler | T012 | `src/sse/handlers/chat.js`, `src/sse/services/model.js` | Sequential after b1 (needs cache repo API) |
-| b-exit | T013, T014 | `specs/008-bun-perf-scale/results/guard-after.txt`, `specs/008-bun-perf-scale/results/l1-after.json`, `specs/008-bun-perf-scale/results/l1-compare.md` | Sequential after b2, b3, b4; completes US1 |
+| b-exit | T013, T014 | `specs/008-bun-perf-scale/results/guard-after.txt`, `specs/008-bun-perf-scale/results/l1-after.json`, `specs/008-bun-perf-scale/results/l1-compare.md` | Sequential after b2, b2b, b3, b4; completes US1 |
 | c-proxy | T015, T016 | `tests/unit/trusted-proxy.test.js`, `custom-server.js`, `custom-server.ts` | Strictly after US1 complete (T014); parallel with c-overlay, d-two-instance |
 | c-overlay | T017 | `docker-compose.scale.yml`, `deploy/nginx-scale.conf`, `.env.example`, `DOCKER.md` | Strictly after US1 complete (T014); parallel with c-proxy, d-two-instance |
 | d-smoke | T018 | `scripts/scale-smoke.sh` | Sequential after c-overlay (T017) |
