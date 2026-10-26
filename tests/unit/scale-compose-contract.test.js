@@ -286,5 +286,32 @@ describe("Wave 8: Multi-Replica Scale Compose & Trusted Proxy Contract (T017, T0
       // Spoof control test
       expect(script).toMatch(/spoof|X-Forwarded-For/i);
     });
+
+    it("never uses docker compose exec with container ID variables (must use docker exec)", () => {
+      const script = loadSmokeScript();
+      // compose exec expects a service name, not a hex container ID.
+      // Commands targeting replica containers like $REPLICA_A or $CID must use docker exec.
+      expect(script).not.toMatch(/docker\s+compose\b.*exec\s+(-[a-zA-Z]+\s+)*\$REPLICA/);
+      expect(script).not.toMatch(/docker\s+compose\b.*exec\s+(-[a-zA-Z]+\s+)*\$CID\b/);
+    });
+
+    it("never uses pass-defaulting fallback patterns like || echo '200' or || echo '401'", () => {
+      const script = loadSmokeScript();
+      expect(script).not.toMatch(/\|\|\s*echo\s*["']200["']/);
+      expect(script).not.toMatch(/\|\|\s*echo\s*["']401["']/);
+    });
+
+    it("prints final summary tally with PASS, FAIL, and SKIPPED counts", () => {
+      const script = loadSmokeScript();
+      expect(script).toMatch(/Summary:.*PASSED.*FAILED.*SKIPPED/i);
+      expect(script).toContain("SCALE_SMOKE_OK");
+    });
+
+    it("observes real client IP and asserts absence of forged IP in spoof controls via Redis", () => {
+      const script = loadSmokeScript();
+      expect(script).toMatch(/khatam:ratelimit:login:/);
+      expect(script).toMatch(/FORGED_MARKER/);
+      expect(script).toMatch(/redis-cli\s+EXISTS/);
+    });
   });
 });

@@ -44,6 +44,7 @@ export INITIAL_PASSWORD="${INITIAL_PASSWORD:-smoke-initial-password-scale-test}"
 export MACHINE_ID_SALT="${MACHINE_ID_SALT:-smoke-machine-id-salt-scale-test}"
 
 PASSED_CHECKS=0
+FAILED_CHECKS=0
 SKIPPED_CHECKS=0
 
 record_pass() {
@@ -61,6 +62,9 @@ cleanup() {
   echo "=== [Cleanup] Tearing down scale smoke stack ($PROJECT_NAME) ==="
   docker compose -p "$PROJECT_NAME" -f docker-compose.yml -f docker-compose.scale.yml down -v --remove-orphans >/dev/null 2>&1 || true
   if [ "$exit_code" -ne 0 ]; then
+    FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    echo ""
+    echo "=== Summary: $PASSED_CHECKS check(s) PASSED, $FAILED_CHECKS check(s) FAILED, $SKIPPED_CHECKS check(s) SKIPPED ==="
     echo "❌ Scale smoke check failed with exit code $exit_code"
   fi
 }
@@ -120,7 +124,7 @@ record_pass
 echo "=== [4/11] Probing HTTP endpoints via Load Balancer (http://127.0.0.1:${LB_PORT}) ==="
 LB_READY=0
 for i in $(seq 1 30); do
-  HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${LB_PORT}/api/health" || true)
+  HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${LB_PORT}/api/health" || echo "000")
   if [ "$HTTP_STATUS" = "200" ]; then
     LB_READY=1
     echo "LB /api/health answered 200 after ${i}s"
@@ -135,21 +139,21 @@ if [ "$LB_READY" -ne 1 ]; then
   exit 1
 fi
 
-HEALTH_BODY=$(curl -s "http://127.0.0.1:${LB_PORT}/api/health")
+HEALTH_BODY=$(curl -s "http://127.0.0.1:${LB_PORT}/api/health" || echo "")
 echo "LB /api/health response: $HEALTH_BODY"
 if ! echo "$HEALTH_BODY" | grep -q '"ok":true'; then
   echo "Error: Expected {\"ok\":true} from /api/health"
   exit 1
 fi
 
-VERSION_BODY=$(curl -s "http://127.0.0.1:${LB_PORT}/api/version")
+VERSION_BODY=$(curl -s "http://127.0.0.1:${LB_PORT}/api/version" || echo "")
 if ! echo "$VERSION_BODY" | grep -q '"currentVersion"'; then
   echo "Error: Expected currentVersion in /api/version, got: $VERSION_BODY"
   exit 1
 fi
 echo "LB /api/version verified: $VERSION_BODY"
 
-MODELS_UNAUTH_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${LB_PORT}/v1/models" || true)
+MODELS_UNAUTH_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${LB_PORT}/v1/models" || echo "000")
 if [ "$MODELS_UNAUTH_CODE" != "401" ]; then
   echo "Error: Expected unauthenticated /v1/models to return 401 via LB, got: $MODELS_UNAUTH_CODE"
   exit 1
@@ -171,6 +175,10 @@ for CID in $REPLICA_CIDS; do
   RX_AFTER["$CID"]=$(docker exec "$CID" awk -F'[: ]+' '/eth[0-9]/ {for(i=1;i<=NF;i++) if($i~/eth[0-9]/) {print $(i+1); exit}}' /proc/net/dev 2>/dev/null || echo "0")
   DIFF=$(( ${RX_AFTER["$CID"]} - ${RX_BEFORE["$CID"]} ))
   echo "Replica $CID traffic delta: $DIFF bytes"
+  if [ "$DIFF" -le 0 ]; then
+    echo "Error: Replica $CID received no traffic ($DIFF bytes) during round-robin test"
+    exit 1
+  fi
 done
 record_pass
 
@@ -200,16 +208,16 @@ record_skip "In-container circuit-breaker trip object state inspection cannot be
 echo "=== [6/11] Token refresh mutex, rotation counter, and cross-replica shared state ==="
 # Test distributed mutex lock mechanism via Redis
 LOCK_KEY="khatam:lock:refresh:token-smoke-test"
-ACQUIRED=$(docker compose -p "$PROJECT_NAME" exec -T redis redis-cli SET "$LOCK_KEY" "holder-a" NX EX 5 2>/dev/null | tr -d '\r\n' || true)
+ACQUIRED=$(docker compose -p "$PROJECT_NAME" exec -T redis redis-cli SET "$LOCK_KEY" "holder-a" NX EX 5 2>/dev/null | tr -d '\r\n' || echo "ERR")
 if [ "$ACQUIRED" != "OK" ]; then
   echo "Error: Failed to acquire distributed token refresh lock in Redis"
   exit 1
 fi
 echo "Verified: Distributed token refresh lock acquired."
 
-BLOCKED=$(docker compose -p "$PROJECT_NAME" exec -T redis redis-cli SET "$LOCK_KEY" "holder-b" NX EX 5 2>/dev/null | tr -d '\r\n' || true)
-if [ "$BLOCKED" = "OK" ]; then
-  echo "Error: Token refresh lock should not have been acquired concurrently"
+BLOCKED=$(docker compose -p "$PROJECT_NAME" exec -T redis redis-cli SET "$LOCK_KEY" "holder-b" NX EX 5 2>/dev/null | tr -d '\r\n' || echo "ERR_REDIS")
+if [ "$BLOCKED" = "OK" ] || [ "$BLOCKED" = "ERR_REDIS" ]; then
+  echo "Error: Token refresh lock should not have been acquired concurrently (result: $BLOCKED)"
   exit 1
 fi
 echo "Verified: Concurrent lock acquisition blocked by Redis mutex."
@@ -290,12 +298,12 @@ REPLICA_ARRAY=($REPLICA_CIDS)
 REPLICA_A="${REPLICA_ARRAY[0]}"
 
 # Insert test key into shared SQLite database
-docker compose -p "$PROJECT_NAME" exec -T "$REPLICA_A" sqlite3 /app/data/db/data.sqlite "
+docker exec -i "$REPLICA_A" sqlite3 /app/data/db/data.sqlite "
   INSERT OR REPLACE INTO apiKeys (id, key, name, isActive, createdAt)
   VALUES ('smoke-scale-key-1', 'sk-smokekey123', 'Smoke Scale Key', 1, datetime('now'));
 "
 
-KEY_AUTH_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer sk-smokekey123" "http://127.0.0.1:${LB_PORT}/v1/models" || true)
+KEY_AUTH_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer sk-smokekey123" "http://127.0.0.1:${LB_PORT}/v1/models" || echo "000")
 if [ "$KEY_AUTH_CODE" != "200" ]; then
   echo "Error: API key authorization failed via LB (expected 200, got: $KEY_AUTH_CODE)"
   exit 1
@@ -303,13 +311,13 @@ fi
 echo "Verified: API key authenticated successfully via LB (HTTP 200)."
 
 # Revoke key immediately in SQLite
-docker compose -p "$PROJECT_NAME" exec -T "$REPLICA_A" sqlite3 /app/data/db/data.sqlite "
+docker exec -i "$REPLICA_A" sqlite3 /app/data/db/data.sqlite "
   DELETE FROM apiKeys WHERE id = 'smoke-scale-key-1';
 "
 
 # Next requests must immediately fail closed with 401 across all replicas
-REV_CODE_1=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer sk-smokekey123" "http://127.0.0.1:${LB_PORT}/v1/models" || true)
-REV_CODE_2=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer sk-smokekey123" "http://127.0.0.1:${LB_PORT}/v1/models" || true)
+REV_CODE_1=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer sk-smokekey123" "http://127.0.0.1:${LB_PORT}/v1/models" || echo "000")
+REV_CODE_2=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer sk-smokekey123" "http://127.0.0.1:${LB_PORT}/v1/models" || echo "000")
 
 if [ "$REV_CODE_1" != "401" ] || [ "$REV_CODE_2" != "401" ]; then
   echo "Error: Revoked key returned non-401 status: probe 1=$REV_CODE_1, probe 2=$REV_CODE_2"
@@ -319,14 +327,14 @@ echo "Verified: Immediate key revocation produced 401 on next requests across re
 record_pass
 
 echo "=== [8/11] SQLite database WAL mode and integrity on shared volume ==="
-JOURNAL_MODE=$(docker compose -p "$PROJECT_NAME" exec -T "$REPLICA_A" sqlite3 /app/data/db/data.sqlite "PRAGMA journal_mode;" 2>/dev/null | tr -d '\r\n' || echo "")
+JOURNAL_MODE=$(docker exec -i "$REPLICA_A" sqlite3 /app/data/db/data.sqlite "PRAGMA journal_mode;" 2>/dev/null | tr -d '\r\n' || echo "ERR")
 echo "SQLite journal_mode: $JOURNAL_MODE"
 if [ "$JOURNAL_MODE" != "wal" ]; then
   echo "Error: Expected journal_mode=wal, got: $JOURNAL_MODE"
   exit 1
 fi
 
-QUICK_CHECK=$(docker compose -p "$PROJECT_NAME" exec -T "$REPLICA_A" sqlite3 /app/data/db/data.sqlite "PRAGMA quick_check;" 2>/dev/null | tr -d '\r\n' || echo "")
+QUICK_CHECK=$(docker exec -i "$REPLICA_A" sqlite3 /app/data/db/data.sqlite "PRAGMA quick_check;" 2>/dev/null | tr -d '\r\n' || echo "ERR")
 echo "SQLite quick_check: $QUICK_CHECK"
 if [ "$QUICK_CHECK" != "ok" ]; then
   echo "Error: Expected quick_check=ok, got: $QUICK_CHECK"
@@ -342,7 +350,7 @@ docker compose -p "$PROJECT_NAME" stop redis
 # Verify 30 HTTP requests through LB return 200 during Redis outage
 OUTAGE_FAILS=0
 for _ in $(seq 1 30); do
-  OUTAGE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${LB_PORT}/api/health" || true)
+  OUTAGE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${LB_PORT}/api/health" || echo "000")
   if [ "$OUTAGE_STATUS" != "200" ]; then
     OUTAGE_FAILS=$((OUTAGE_FAILS + 1))
   fi
@@ -367,7 +375,7 @@ echo "Restarting Redis service..."
 docker compose -p "$PROJECT_NAME" start redis
 sleep 2
 
-POST_OUTAGE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${LB_PORT}/api/health" || true)
+POST_OUTAGE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${LB_PORT}/api/health" || echo "000")
 if [ "$POST_OUTAGE_STATUS" != "200" ]; then
   echo "Error: Post-recovery health probe failed with status $POST_OUTAGE_STATUS"
   exit 1
@@ -378,11 +386,11 @@ echo "Verified: Stack recovered cleanly after Redis restart."
 ALL_CIDS=$(docker compose -p "$PROJECT_NAME" ps -q)
 for CID in $ALL_CIDS; do
   CNAME=$(docker inspect --format='{{.Name}}' "$CID" 2>/dev/null || echo "$CID")
-  RESTART_COUNT=$(docker inspect --format='{{.State.RestartCount}}' "$CID" 2>/dev/null || echo "0")
-  OOM_KILLED=$(docker inspect --format='{{.State.OOMKilled}}' "$CID" 2>/dev/null || echo "false")
+  RESTART_COUNT=$(docker inspect --format='{{.State.RestartCount}}' "$CID" 2>/dev/null || echo "ERR")
+  OOM_KILLED=$(docker inspect --format='{{.State.OOMKilled}}' "$CID" 2>/dev/null || echo "ERR")
   echo "Container $CNAME: RestartCount=$RESTART_COUNT, OOMKilled=$OOM_KILLED"
-  if [ "$RESTART_COUNT" -ne 0 ] || [ "$OOM_KILLED" = "true" ]; then
-    echo "Error: Container $CNAME experienced crash/restart during outage drill"
+  if [ "$RESTART_COUNT" != "0" ] || [ "$OOM_KILLED" != "false" ]; then
+    echo "Error: Container $CNAME experienced crash/restart during outage drill (restarts=$RESTART_COUNT, oom=$OOM_KILLED)"
     exit 1
   fi
 done
@@ -390,37 +398,134 @@ echo "Verified: Zero container crashes/restarts throughout outage drill."
 record_pass
 
 echo "=== [10/11] Spoof control: X-Forwarded-For overwrite and untrusted peer defense ==="
-# Test (a): Client sends forged loopback XFF through LB
-# Nginx LB must overwrite X-Forwarded-For with real client IP ($remote_addr)
+# Test (a): Client sends forged XFF through LB
+# Nginx LB must overwrite X-Forwarded-For with real client IP ($remote_addr).
+# The app resolves client IP to real client IP, ignoring the forged marker header.
+# Observable: Dashboard login rate limiter keys failed attempts under khatam:ratelimit:login:<hash(ip)>.
+# Assert that the forged marker IP's hash is ABSENT in Redis and the real peer's hash is PRESENT.
+FORGED_MARKER_A="203.0.113.195"
+FORGED_HASH_A=$(echo -n "$FORGED_MARKER_A" | sha256sum | awk '{print substr($1,1,16)}')
+GATEWAY_IP=$(docker network inspect "${PROJECT_NAME}_default" --format='{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || echo "172.31.250.1")
+if [ -z "$GATEWAY_IP" ]; then
+  GATEWAY_IP="172.31.250.1"
+fi
+REAL_HASH_A=$(echo -n "$GATEWAY_IP" | sha256sum | awk '{print substr($1,1,16)}')
+echo "Test (a) marker forged IP: $FORGED_MARKER_A (hash: $FORGED_HASH_A), expected real peer: $GATEWAY_IP (hash: $REAL_HASH_A)"
+
+# Pre-cleanup any prior rate-limit entries for these hashes
+docker compose -p "$PROJECT_NAME" exec -T redis redis-cli DEL "khatam:ratelimit:login:${FORGED_HASH_A}" "khatam:ratelimit:login:${REAL_HASH_A}" >/dev/null 2>&1 || true
+
 STATUS_XFF_LB=$(curl -s -o /dev/null -w "%{http_code}" \
-  -H "X-Forwarded-For: 127.0.0.1" \
-  -H "X-Real-IP: 127.0.0.1" \
-  "http://127.0.0.1:${LB_PORT}/v1/models" || true)
+  -X POST "http://127.0.0.1:${LB_PORT}/api/auth/login" \
+  -H "Content-Type: application/json" \
+  -H "X-Forwarded-For: ${FORGED_MARKER_A}" \
+  -H "X-Real-IP: ${FORGED_MARKER_A}" \
+  -d '{"password":"wrong-password-probe-lb"}' || echo "000")
 if [ "$STATUS_XFF_LB" != "401" ]; then
-  echo "Error: Forged XFF through LB was not blocked (expected 401, got: $STATUS_XFF_LB)"
+  echo "Error: Probe login request through LB did not return 401 (got: $STATUS_XFF_LB)"
   exit 1
 fi
-echo "Verified: Forged XFF header through LB overwritten by Nginx to client IP; unauthenticated request rejected (401)."
+
+STATUS_MODELS_LB=$(curl -s -o /dev/null -w "%{http_code}" \
+  -H "X-Forwarded-For: 127.0.0.1" \
+  -H "X-Real-IP: 127.0.0.1" \
+  "http://127.0.0.1:${LB_PORT}/v1/models" || echo "000")
+if [ "$STATUS_MODELS_LB" != "401" ]; then
+  echo "Error: Forged loopback XFF through LB bypassed remote API auth (expected 401, got: $STATUS_MODELS_LB)"
+  exit 1
+fi
+
+# Wait up to 3s for Redis async rate-limit write to settle
+REAL_A_EXISTS=0
+for _ in $(seq 1 10); do
+  REAL_A_EXISTS=$(docker compose -p "$PROJECT_NAME" exec -T redis redis-cli EXISTS "khatam:ratelimit:login:${REAL_HASH_A}" 2>/dev/null | tr -d '\r\n' || echo "0")
+  if [ "$REAL_A_EXISTS" = "1" ]; then
+    break
+  fi
+  sleep 0.3
+done
+FORGED_A_EXISTS=$(docker compose -p "$PROJECT_NAME" exec -T redis redis-cli EXISTS "khatam:ratelimit:login:${FORGED_HASH_A}" 2>/dev/null | tr -d '\r\n' || echo "ERR")
+
+if [ "$FORGED_A_EXISTS" != "0" ]; then
+  echo "Error: App honoured forged XFF marker ${FORGED_MARKER_A} through LB (Redis key khatam:ratelimit:login:${FORGED_HASH_A} present)"
+  exit 1
+fi
+if [ "$REAL_A_EXISTS" != "1" ]; then
+  echo "Error: App failed to key on real client IP ${GATEWAY_IP} through LB (Redis key khatam:ratelimit:login:${REAL_HASH_A} missing)"
+  exit 1
+fi
+echo "Verified: Forged header ${FORGED_MARKER_A} absent from Redis rate-limit keys; app keyed strictly on real client IP ${GATEWAY_IP}."
+docker compose -p "$PROJECT_NAME" exec -T redis redis-cli DEL "khatam:ratelimit:login:${REAL_HASH_A}" >/dev/null 2>&1 || true
 
 # Test (b): Direct request to replica from untrusted container on internal docker network
+# Replicas trust ONLY the LB (/32 address). Any sidecar socket IP is untrusted.
 REPLICA_A_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$REPLICA_A" 2>/dev/null || echo "")
 APP_IMAGE=$(docker inspect -f '{{.Config.Image}}' "$REPLICA_A" 2>/dev/null || echo "")
 echo "Replica A internal IP: $REPLICA_A_IP, image: $APP_IMAGE"
 
-if [ -n "$REPLICA_A_IP" ] && [ -n "$APP_IMAGE" ]; then
-  SIDECAR_STATUS=$(docker run --rm --network "${PROJECT_NAME}_default" --entrypoint curl "$APP_IMAGE" \
-    -s -o /dev/null -w "%{http_code}" \
-    -H "X-Forwarded-For: 127.0.0.1" \
-    "http://${REPLICA_A_IP}:20128/v1/models" 2>/dev/null || echo "401")
-  if [ "$SIDECAR_STATUS" != "401" ]; then
-    echo "Error: Direct request from untrusted sidecar bypassed proxy trust (expected 401, got: $SIDECAR_STATUS)"
-    exit 1
-  fi
-  echo "Verified: Direct request from untrusted internal sidecar with forged XFF rejected (401)."
+if [ -z "$REPLICA_A_IP" ] || [ -z "$APP_IMAGE" ]; then
+  echo "Error: Could not inspect replica IP or image for untrusted sidecar check"
+  exit 1
 fi
 
+FORGED_MARKER_B="203.0.113.210"
+FORGED_HASH_B=$(echo -n "$FORGED_MARKER_B" | sha256sum | awk '{print substr($1,1,16)}')
+docker compose -p "$PROJECT_NAME" exec -T redis redis-cli DEL "khatam:ratelimit:login:${FORGED_HASH_B}" >/dev/null 2>&1 || true
+
+# Execute sidecar curl: sends loopback-spoofed request to /v1/models and marker-spoofed login request directly to replica
+SIDECAR_RESULT=$(docker run --rm --network "${PROJECT_NAME}_default" --entrypoint sh "$APP_IMAGE" -c '
+  SIP=$(grep -E "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" /etc/hosts | awk "END{print \$1}")
+  M_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "X-Forwarded-For: 127.0.0.1" "http://'"${REPLICA_A_IP}"':20128/v1/models" 2>/dev/null || echo "000")
+  L_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://'"${REPLICA_A_IP}"':20128/api/auth/login" \
+    -H "Content-Type: application/json" \
+    -H "X-Forwarded-For: '"${FORGED_MARKER_B}"'" \
+    -H "X-Real-IP: '"${FORGED_MARKER_B}"'" \
+    -d "{\"password\":\"wrong-password-probe-sidecar\"}" 2>/dev/null || echo "000")
+  echo "${SIP}:${M_CODE}:${L_CODE}"
+' 2>/dev/null || echo "ERR:000:000")
+
+SIDECAR_IP=$(echo "$SIDECAR_RESULT" | cut -d: -f1)
+SIDECAR_MODELS_STATUS=$(echo "$SIDECAR_RESULT" | cut -d: -f2)
+SIDECAR_LOGIN_STATUS=$(echo "$SIDECAR_RESULT" | cut -d: -f3)
+echo "Sidecar executed: IP=$SIDECAR_IP, models_code=$SIDECAR_MODELS_STATUS, login_code=$SIDECAR_LOGIN_STATUS"
+
+if [ -z "$SIDECAR_IP" ] || [ "$SIDECAR_IP" = "ERR" ]; then
+  echo "Error: Untrusted sidecar container execution failed (output: $SIDECAR_RESULT)"
+  exit 1
+fi
+if [ "$SIDECAR_MODELS_STATUS" != "401" ]; then
+  echo "Error: Direct request from untrusted sidecar bypassed proxy trust on /v1/models (expected 401, got: $SIDECAR_MODELS_STATUS)"
+  exit 1
+fi
+if [ "$SIDECAR_LOGIN_STATUS" != "401" ]; then
+  echo "Error: Direct login probe from untrusted sidecar failed to reach /api/auth/login (expected 401, got: $SIDECAR_LOGIN_STATUS)"
+  exit 1
+fi
+
+REAL_HASH_B=$(echo -n "$SIDECAR_IP" | sha256sum | awk '{print substr($1,1,16)}')
+REAL_B_EXISTS=0
+for _ in $(seq 1 10); do
+  REAL_B_EXISTS=$(docker compose -p "$PROJECT_NAME" exec -T redis redis-cli EXISTS "khatam:ratelimit:login:${REAL_HASH_B}" 2>/dev/null | tr -d '\r\n' || echo "0")
+  if [ "$REAL_B_EXISTS" = "1" ]; then
+    break
+  fi
+  sleep 0.3
+done
+FORGED_B_EXISTS=$(docker compose -p "$PROJECT_NAME" exec -T redis redis-cli EXISTS "khatam:ratelimit:login:${FORGED_HASH_B}" 2>/dev/null | tr -d '\r\n' || echo "ERR")
+
+if [ "$FORGED_B_EXISTS" != "0" ]; then
+  echo "Error: Sidecar forged IP ${FORGED_MARKER_B} was honoured in Redis (key khatam:ratelimit:login:${FORGED_HASH_B} present)"
+  exit 1
+fi
+if [ "$REAL_B_EXISTS" != "1" ]; then
+  echo "Error: App failed to key on real untrusted sidecar IP ${SIDECAR_IP} (key khatam:ratelimit:login:${REAL_HASH_B} missing)"
+  exit 1
+fi
+echo "Verified: Direct request from untrusted sidecar rejected forged IP ${FORGED_MARKER_B} and keyed on real peer ${SIDECAR_IP}."
+docker compose -p "$PROJECT_NAME" exec -T redis redis-cli DEL "khatam:ratelimit:login:${REAL_HASH_B}" >/dev/null 2>&1 || true
+
 # Positive control: Genuine loopback request inside replica container allowed without key
-LOOPBACK_STATUS=$(docker compose -p "$PROJECT_NAME" exec -T "$REPLICA_A" curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:20128/v1/models" 2>/dev/null || echo "200")
+LOOPBACK_STATUS=$(docker exec -i "$REPLICA_A" curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:20128/v1/models" 2>/dev/null || echo "000")
 if [ "$LOOPBACK_STATUS" != "200" ]; then
   echo "Error: Genuine loopback request inside replica failed (expected 200, got: $LOOPBACK_STATUS)"
   exit 1
@@ -439,5 +544,5 @@ echo "Verified: Zero leaked secrets or Bearer tokens in container logs."
 record_pass
 
 echo ""
-echo "=== Summary: $PASSED_CHECKS check(s) PASSED, $SKIPPED_CHECKS check(s) SKIPPED ==="
+echo "=== Summary: $PASSED_CHECKS check(s) PASSED, $FAILED_CHECKS check(s) FAILED, $SKIPPED_CHECKS check(s) SKIPPED ==="
 echo "SCALE_SMOKE_OK"
