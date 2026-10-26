@@ -142,7 +142,7 @@ export async function DELETE() {
 
     return NextResponse.json({
       success: true,
-      message: "9Router removed from Copilot config",
+      message: "KhatamRouter removed from Copilot config",
     });
   } catch (error) {
     console.log("Error resetting copilot settings:", error);

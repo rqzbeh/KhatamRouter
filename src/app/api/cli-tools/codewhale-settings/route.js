@@ -136,7 +136,7 @@ export async function DELETE() {
       await fs.writeFile(configPath, stringifyTOML(existing), "utf-8");
     }
 
-    return NextResponse.json({ success: true, message: "9Router removed from CodeWhale" });
+    return NextResponse.json({ success: true, message: "KhatamRouter removed from CodeWhale" });
   } catch (err) {
     return NextResponse.json({ error: { message: err.message } }, { status: 500 });
   }

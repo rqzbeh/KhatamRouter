@@ -157,7 +157,7 @@ export async function DELETE() {
         }
 
         await fs.writeFile(configPath, DEFAULT_CONFIG);
-        return NextResponse.json({ success: true, message: `${PROVIDER_NAME} config reset to DeepSeek defaults` });
+        return NextResponse.json({ success: true, message: "KhatamRouter config reset to DeepSeek defaults" });
     } catch (error) {
         console.log("Error resetting deepseek-tui settings:", error);
         return NextResponse.json({ error: "Failed to reset deepseek-tui settings" }, { status: 500 });
