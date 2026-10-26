@@ -1,6 +1,6 @@
 {
   "name": "9router",
-  "version": "0.5.104",
+  "version": "0.5.111",
   "description": "KhatamRouter CLI - Start and manage KhatamRouter server (requires Bun runtime)",
   "bin": {
     "9router": "./cli.js",
