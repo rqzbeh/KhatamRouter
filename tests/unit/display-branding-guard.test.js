@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import * as parser from "@babel/parser";
 
 const REPO_ROOT = path.resolve(__dirname, "../../");
@@ -161,11 +162,15 @@ export const ALLOWLIST = [
     id: "legacy-docs-mapping",
     justification: "Dual-matching sidebar title mapping for docs content backward compatibility",
     pattern: /^Welcome to 9Router$/,
+    // Scoped: this exact title may appear ONLY in the docs sidebar mapper. Anywhere
+    // else it is a user-visible leak and must fail the guard.
+    files: /^gitbook\/utils\/markdown\.js$/,
   },
 ];
 
-export function isAllowlisted(val) {
+export function isAllowlisted(val, relPath = "") {
   for (const entry of ALLOWLIST) {
+    if (entry.files && !entry.files.test(relPath.replace(/\\/g, "/"))) continue;
     if (entry.pattern.test(val)) return true;
   }
   return false;
@@ -224,7 +229,7 @@ export function scanFile(filePath) {
     if (typeof val !== "string") return;
     const trimmed = val.trim();
     if (/9\s?router/i.test(trimmed)) {
-      if (!isAllowlisted(trimmed)) {
+      if (!isAllowlisted(trimmed, relPath)) {
         violations.push({
           file: relPath,
           line: node.loc ? node.loc.start.line : 0,
@@ -245,7 +250,7 @@ export function scanFile(filePath) {
       check(node.value && node.value.raw, node);
     } else if (node.type === "Identifier") {
       // Check identifier names against allowlist
-      if (/9\s?router/i.test(node.name) && !isAllowlisted(node.name)) {
+      if (/9\s?router/i.test(node.name) && !isAllowlisted(node.name, relPath)) {
         violations.push({
           file: relPath,
           line: node.loc ? node.loc.start.line : 0,
@@ -297,6 +302,27 @@ describe("Display Branding Guard", () => {
       expect.fail(
         `Found ${allViolations.length} unallowlisted 9Router branding occurrence(s):\n${summary}`
       );
+    }
+  });
+
+  it("scopes the legacy docs-title allowance to gitbook/utils/markdown.js only", () => {
+    expect(isAllowlisted("Welcome to 9Router", "gitbook/utils/markdown.js")).toBe(true);
+    // The same literal anywhere else is a user-visible leak.
+    expect(isAllowlisted("Welcome to 9Router", "src/test_mutation.js")).toBe(false);
+    expect(isAllowlisted("Welcome to 9Router", "src/app/page.js")).toBe(false);
+    expect(isAllowlisted("Welcome to 9Router", "")).toBe(false);
+  });
+
+  it("scanFile flags a planted 'Welcome to 9Router' outside the allowed file", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "kh-guard-"));
+    try {
+      const planted = path.join(dir, "planted.js");
+      fs.writeFileSync(planted, 'export const hello = "Welcome to 9Router";\n');
+      const found = scanFile(planted);
+      expect(found.length).toBe(1);
+      expect(found[0].value).toBe("Welcome to 9Router");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 });
