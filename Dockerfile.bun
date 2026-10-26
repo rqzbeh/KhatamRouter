@@ -90,6 +90,7 @@ COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/custom-server.js ./custom-server.js
 COPY --from=builder /app/runtime-secrets.cjs ./runtime-secrets.cjs
+COPY --from=builder /app/trusted-proxy.cjs ./trusted-proxy.cjs
 
 # Wave 7.5 / SC-009: bun:sqlite is built into the Bun binary, so the image must
 # ship no Node-only SQLite addon. If output tracing ever drags one in, fail the
