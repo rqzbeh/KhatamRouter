@@ -66,6 +66,28 @@ const pkg = require("./package.json");
 const { ensureTrayRuntime, getRuntimeNodeModules } = require("./hooks/trayRuntime");
 const args = process.argv.slice(2);
 
+// Optional opt-in delegation to consolidated TypeScript CLI core.
+// Kept behind opt-in env flag KHATAM_TS_CLI to guarantee published CLI byte-identical
+// flag, command, exit code, help text, and ensureBun() prerequisite compatibility without risk.
+if (process.env.KHATAM_TS_CLI === "1") {
+  try {
+    const distPath = path.join(__dirname, "dist", "index.js");
+    const tsPath = path.join(__dirname, "src", "ts", "index.ts");
+    const targetModule = fs.existsSync(distPath)
+      ? distPath
+      : process.versions?.bun && fs.existsSync(tsPath)
+      ? tsPath
+      : null;
+    if (targetModule) {
+      const { dispatch } = require(targetModule);
+      dispatch(args)
+        .then((res) => process.exit(res.exitCode))
+        .catch(() => {});
+      return;
+    }
+  } catch {}
+}
+
 // Subcommands (`9router xai video …`) run against an already-running gateway
 // and bypass the launcher flow (no runtime self-heal, no server spawn).
 if (args[0] === "xai" && args[1] === "video") {

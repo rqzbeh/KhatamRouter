@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect } from "react";
 import PropTypes from "prop-types";
 import Modal from "./Modal";
 import ProviderIcon from "./ProviderIcon";
-import CapacityBadges from "./CapacityBadges";
+import CapacityBadges from "./CapacityBadges.tsx";
 import { useModelCaps } from "@/shared/hooks/useModelCaps";
 import { getModelsByProviderId, getModelKind } from "@/shared/constants/models";
 import { OAUTH_PROVIDERS, APIKEY_PROVIDERS, FREE_PROVIDERS, FREE_TIER_PROVIDERS, AI_PROVIDERS, isOpenAICompatibleProvider, isAnthropicCompatibleProvider, getProviderAlias } from "@/shared/constants/providers";
@@ -742,7 +742,8 @@ export default function ModelSelectModal({
                     {addedModelValues.includes(combo.name) && (
                       <span className="material-symbols-outlined leading-none" style={{ fontSize: "10px" }}>check</span>
                     )}
-                    {combo.name}
+                    <span>{combo.name}</span>
+                    <CapacityBadges comboModels={combo.models} size={12} />
                   </button>
                 );
               })}
@@ -829,12 +830,12 @@ export default function ModelSelectModal({
                         <>
                           {model.name}
                           <span className="text-[9px] opacity-60 font-normal">custom</span>
-                          <CapacityBadges caps={getCaps(model.value)} />
+                          <CapacityBadges caps={model.capabilities || model.caps || getCaps(model.value)} />
                         </>
                       ) : (
                         <>
                           {model.name}
-                          <CapacityBadges caps={getCaps(model.value)} />
+                          <CapacityBadges caps={model.capabilities || model.caps || getCaps(model.value)} />
                         </>
                       )}
                     </span>
