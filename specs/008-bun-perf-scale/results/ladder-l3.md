@@ -321,3 +321,137 @@ All 4 master ladder rows achieved full certification under the rigorous certific
   - Status before benchmark execution: Unmatched / non-existent.
   - Status after benchmark execution: Unmatched / untouched.
   - Zero interactions, inspections, or modifications to container `hindsight`.
+
+---
+
+## 10. Attribution Experiment: 2-Replica Scaling & Limiting Factor Isolation (2026-10-27)
+
+**Scope**: Rigorous attribution experiment to isolate the root cause of the sub-linear 2-replica scaling ratio ($1.46\times$ vs. D7 target $\ge 1.60\times$) observed in the initial L3 container benchmarks.  
+**Execution Subagent**: `SUBAGENT_DELEGATION=container-subagent` (Exclusively executed by isolated Docker subagent).  
+**Date**: 2026-10-27  
+**Git HEAD**: `dc10ad3d5cadff57bcddc0a3935371279979a683` (`dc10ad3d`)  
+**Production Image Tag**: `khatamrouter:smoke-dc10ad3d`  
+**Container Isolation**: Container `hindsight` verified untouched and unmanaged before and after all runs. Zero prune operations executed.
+
+---
+
+### 10.1 Attribution Experiment Ladder Results Table
+
+All rows executed against a freshly warmed stack, 5 measured runs of 1,000 requests each (5,000 requests total per row, preceded by a 100-request warmup phase), evaluated under `evaluateLadderCertification`:
+
+| Row | Variant Description | Replicas | Concurrency ($C$) | p50 (ms) | p95 (ms) | p99 (ms) | req/s | CV (%) | Noisy | Errors | Command |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| **A1** | Baseline Variable LB ($C=10$) | 1 | 10 | 52.65 | 72.83 | 88.31 | 183.5 | 8.99% | false | 0 | `scripts/perf-ladder.sh 1 --url http://127.0.0.1:30128 --concurrency 10` |
+| **A2** | High-Load Variable LB ($C=40$) | 1 | 40 | 209.90 | 253.81 | 260.23 | 186.5 | 9.18% | false | 0 | `scripts/perf-ladder.sh 1 --url http://127.0.0.1:30128 --concurrency 40` |
+| **A3** | Baseline Variable LB ($C=10$) | 2 | 10 | 35.80 | 65.57 | 85.50 | 273.4 | 12.84% | false | 0 | `scripts/perf-ladder.sh 2 --url http://127.0.0.1:30128 --concurrency 10` |
+| **A4** | High-Load Variable LB ($C=40$) | 2 | 40 | 129.22 | 267.06 | 302.27 | 275.9 | 13.62% | false | 0 | `scripts/perf-ladder.sh 2 --url http://127.0.0.1:30128 --concurrency 40` |
+| **B1** | Nginx Upstream Keepalive 64 | 1 | 10 | 45.06 | 89.99 | 111.55 | 195.4 | 9.76% | false | 0 | `scripts/perf-ladder.sh 1 --url http://127.0.0.1:30128 --concurrency 10` (override: keepalive 64) |
+| **B2** | Nginx Upstream Keepalive 64 | 2 | 10 | 29.13 | 71.43 | 88.17 | 301.2 | 14.08% | false | 0 | `scripts/perf-ladder.sh 2 --url http://127.0.0.1:30128 --concurrency 10` (override: keepalive 64) |
+| **B2-info** | Nginx Keepalive ($C=40$, info) | 2 | 40 | 125.58 | 243.34 | 294.22 | 297.4 | 14.06% | false | 0 | `scripts/perf-ladder.sh 2 --url http://127.0.0.1:30128 --concurrency 40` (override: keepalive 64) |
+| **C1** | Direct LB-Bypass | 1 | 20 | 90.75 | 136.01 | 193.32 | 207.0 | 9.66% | false | 0 | `scripts/perf-ladder.sh 1 --url http://172.31.250.4:20128 --concurrency 20` (in-net driver) |
+| **C2** | Direct LB-Bypass (2x Parallel) | 2 | 40 (2x20) | 110.42* | 158.78* | 237.90* | 341.6 | 9.68%* | false | 0 | Parallel in-net drivers: W1 `http://172.31.250.4:20128` + W2 `http://172.31.250.5:20128` |
+
+*\*C2 Detail*: Driven by two parallel one-shot containers on `khatam-scale-perf_default` concurrently targeting each replica directly:  
+- Worker 1 (`172.31.250.4`): `171.3 req/s` (p50: 110.78 ms, p95: 153.43 ms, p99: 236.99 ms, CV: 9.31%, 0 errors)  
+- Worker 2 (`172.31.250.5`): `170.3 req/s` (p50: 110.06 ms, p95: 164.12 ms, p99: 238.81 ms, CV: 10.05%, 0 errors)  
+- **Sum Total Throughput**: $171.3 + 170.3 = \mathbf{341.6\text{ req/s}}$.
+
+---
+
+### 10.2 Scaling Evaluation: Ratios vs. D7 Target ($\ge 1.60\times$)
+
+| Variant | 1-Replica Throughput | 2-Replica Throughput | Scaling Ratio | D7 Target | Verdict |
+|---|---|---|---|---|---|
+| **A. Variable `proxy_pass` LB ($C=10$)** | 183.5 req/s | 273.4 req/s | $\mathbf{1.49\times}$ | $\ge 1.60\times$ | **MISSED TARGET** (LB & connection churn) |
+| **A. Variable `proxy_pass` LB ($C=40$)** | 186.5 req/s | 275.9 req/s | $\mathbf{1.48\times}$ | $\ge 1.60\times$ | **MISSED TARGET** (Concludes client not limiter) |
+| **B. Static Upstream Keepalive 64 ($C=10$)** | 195.4 req/s | 301.2 req/s | $\mathbf{1.54\times}$ | $\ge 1.60\times$ | **MISSED TARGET** (96.3% of target, +10.2% raw req/s) |
+| **C. Direct LB-Bypass (No Nginx)** | 207.0 req/s | 341.6 req/s | $\mathbf{1.65\times}$ | $\ge 1.60\times$ | **PASS TARGET MET** ($\mathbf{1.65\times \ge 1.60\times}$) |
+
+---
+
+### 10.3 Resource Utilization and CPU Cost per Request
+
+Continuous 1s sampling across all containers and host client processes during benchmark runs:
+
+| Row | Variant | 9router CPU (per rep) | Total 9router CPU % | Nginx LB CPU % | Mock Upstream CPU % | Redis CPU % | Total Container CPU % | 9router CPU-ms / req | Total System CPU-ms / req |
+|---|---|---|---|---|---|---|---|---|---|
+| **A1** | 1-rep Variable ($C=10$) | 119.0% | 119.0% | 11.0% | 4.8% | 4.2% | 139.0% | **6.49 ms** | 7.57 ms |
+| **A2** | 1-rep Variable ($C=40$) | 118.9% | 118.9% | 10.4% | 4.9% | 3.7% | 137.9% | **6.38 ms** | 7.40 ms |
+| **A3** | 2-rep Variable ($C=10$) | 79.5% / 68.0% | 147.4% | 10.3% | 4.3% | 4.1% | 166.1% | **5.39 ms** | 6.08 ms |
+| **A4** | 2-rep Variable ($C=40$) | 75.9% / 71.4% | 147.2% | 10.7% | 4.7% | 3.7% | 166.3% | **5.34 ms** | 6.03 ms |
+| **B1** | 1-rep Keepalive ($C=10$) | 120.1% | 120.1% | 7.8% | 5.0% | 4.4% | 137.3% | **6.15 ms** | 7.03 ms |
+| **B2** | 2-rep Keepalive ($C=10$) | 117.6% / 116.1% | 233.7% | 12.8% | 7.8% | 6.8% | 261.1% | **7.76 ms** | 8.67 ms |
+| **C1** | 1-rep Direct ($C=20$) | 120.3% | 120.3% | 0.0% | 5.1% | 3.8% | 129.2% | **5.81 ms** | 6.24 ms |
+| **C2** | 2-rep Direct ($2\times C=20$) | 116.3% / 120.3% | 236.5% | 0.0% | 8.2% | 6.4% | 251.1% | **6.92 ms** | 7.35 ms |
+
+*Note on CPU-ms per request formula*: Computed as $\frac{\text{CPU \%} \times 10}{\text{req/s}}$ (equivalent to $\frac{\text{core-seconds}}{\text{requests}} \times 1000\text{ ms}$).
+
+---
+
+### 10.4 Shared-State Contention Profiling (Part D)
+
+During the 2-replica benchmark runs (Rows A3 and A4), detailed sampling was captured before vs. after execution:
+
+1. **Redis Contention & Command Profiling**:
+   - `INFO commandstats` Delta: Exactly 5,355 calls to `PUBLISH` executed across 5,355 requests.
+   - Total Redis CPU execution time across 5,355 calls: `30,685 µs` (30.69 ms).
+   - Average execution latency per command: **5.73 microseconds** (`usec_per_call=5.73`).
+   - Redis SLOWLOG (`SLOWLOG get 10`): **0 entries** (zero slow operations).
+   - Redis Failed/Rejected Calls: **0** (`failed_calls=0`, `rejected_calls=0`).
+   - *Conclusion*: Redis state coordination introduces negligible overhead (<0.01 ms per request) and zero lock contention.
+
+2. **SQLite Concurrent Write Lock Contention**:
+   - In Rows A3 and A4 (2 replicas behind Nginx), **114 occurrences of SQLite write lock contention** were logged in replica container stderr:
+     - `Failed to save usage stats: SQLiteError: database is locked (code: SQLITE_BUSY)`
+     - `Failed to save usage stats: SQLiteError: database is locked (code: SQLITE_BUSY_SNAPSHOT)`
+   - *Impact*: 9router replicas fail open cleanly when usage stats cannot be persisted (zero 5xx responses returned to client, 0.00% error rate). However, write lock retries under concurrent replica write pressure on `usage.db` in the shared Docker volume create minor intermittent execution stalls.
+
+3. **Linux Kernel Pressure Stall Information (`/proc/pressure`)**:
+   - CPU Pressure: `some avg10 = 5.12%`, `full avg10 = 0.00%`. Delta total stall: `1.33s` over a 22s run. Zero `full` CPU starvation stalls.
+   - IO Pressure: `some avg10 = 0.18%`, `full avg10 = 0.00%`. Delta total stall: `0.13s`.
+   - Memory Pressure: `some avg10 = 0.00%`, `full avg10 = 0.00%` (zero memory stalls).
+   - *Conclusion*: Host hardware (AMD Ryzen 7 4800H, 8 physical cores / 16 threads) has ample CPU capacity (~2.7–3.0 cores active out of 8/16), ruling out host CPU starvation.
+
+---
+
+### 10.5 Root-Cause Attribution Verdict
+
+The empirical data systematically isolates the four hypothesized factors:
+
+1. **Client Concurrency ($C=10$ vs. $C=40$)**: **DISPROVEN AS LIMITER**
+   - *Hypothesis*: The earlier subagent asserted that client concurrency $C=10$ artificially bottlenecked throughput via Little's Law identity.
+   - *Finding*: Quadrupling client offered load from $C=10$ to $C=40$ produced **+1.6% throughput** on 1 replica (183.5 $\to$ 186.5 req/s) and **+0.9% throughput** on 2 replicas (273.4 $\to$ 275.9 req/s). Meanwhile, p50 latency quadrupled ($52\text{ ms} \to 210\text{ ms}$ on 1 rep; $35\text{ ms} \to 129\text{ ms}$ on 2 reps) solely due to queueing delays in the closed-loop worker pool.
+   - *Verdict*: The backend replicas were already operating at their maximum capacity under $C=10$. The client driver was not the limiting bottleneck.
+
+2. **Nginx Upstream Connection Churn (Variable `proxy_pass`)**: **CONFIRMED CONTRIBUTING BOTTLENECK**
+   - *Hypothesis*: `deploy/nginx-scale.conf` uses `set $khatam_upstream http://9router:20128; proxy_pass $khatam_upstream;` to enable dynamic runtime DNS re-resolution via Docker DNS (`127.0.0.11`). This disables Nginx upstream HTTP keepalive pooling, forcing a TCP handshake and socket teardown on every request.
+   - *Finding*: Replacing variable proxy_pass with a static `upstream` block with `keepalive 64;` in Variant B:
+     - Boosted 1-replica throughput from 183.5 to **195.4 req/s (+6.5%)** and reduced p50 latency by **-14.4%** (52.65 $\to$ 45.06 ms).
+     - Boosted 2-replica throughput from 273.4 to **301.2 req/s (+10.2%)** and reduced p50 latency by **-18.6%** (35.80 $\to$ 29.13 ms).
+     - Reduced Nginx CPU consumption from 11.0% to 7.8% (-29% CPU reduction on 1 replica).
+     - Raised 2-replica scaling ratio from $1.49\times$ to **$1.54\times$** (96.3% of the $1.60\times$ D7 target).
+   - *Verdict*: TCP connection churn accounts for ~10% throughput suppression and 6–7 ms of latency overhead per request.
+
+3. **Nginx Load Balancer Overhead vs. Direct Bypassing**: **PRIMARY BOTTLENECK PREVENTING $1.60\times$**
+   - *Hypothesis*: The presence of Nginx as an intermediary process on the same host imposes multiplexing and socket scheduling overhead.
+   - *Finding*: In Variant C, when Nginx is completely bypassed and requests are dispatched directly to replica container IPs:
+     - 1 replica direct throughput reached **207.0 req/s**.
+     - 2 replicas direct throughput reached **341.6 req/s** (171.3 req/s on replica 1 + 170.3 req/s on replica 2).
+     - **Scaling Ratio**: $\frac{341.6}{207.0} = \mathbf{1.65\times}$!
+   - *Verdict*: **D7 TARGET MET EXCLUSIVELY UNDER LB-BYPASS ($\mathbf{1.65\times \ge 1.60\times}$)**. The 9router application engine itself scales cleanly at $1.65\times$ when load is distributed directly. The bottleneck capping compose scaling below $1.60\times$ resides entirely within the single-host Nginx load balancer proxy layer.
+
+4. **Shared-State Contention (SQLite vs. Redis)**: **CONFIRMED SECONDARY FACTOR**
+   - Redis adds virtually zero latency (5.7 µs/command).
+   - SQLite concurrent write transactions on `usage.db` produce `SQLITE_BUSY` contention (~114 instances per 5,000 requests) during peak multi-replica bursts. While failing open prevents request errors, it adds write lock retry CPU overhead.
+
+---
+
+### 10.6 UNMEASURED Inventory and Defects Logged
+
+1. **UNMEASURED Cells**: **ZERO**.
+   - Every single cell across all variants (A1–A4, B1–B2, C1–C2) achieved certified, non-noisy status ($CV < 15\%$, 0 errors).
+2. **Defect Correction**:
+   - The earlier conclusion in Section 4.2 / Defect 1 ("Client Concurrency Ceiling ($C=10$) is the Primary Limiter") is formally **REFUTED** by Variant A empirical data.
+   - Defect 2 ("Missing Nginx Upstream Keepalive Connection Pooling") is formally **CONFIRMED** by Variant B empirical data (+10.2% throughput gain, ratio improvement from 1.49x to 1.54x).
+   - New Architectural Finding: Nginx reverse proxy single-host loopback overhead is the primary constraint capping compose scaling below $1.60\times$; the backend engine itself demonstrates $1.65\times$ linear capacity growth.
+
