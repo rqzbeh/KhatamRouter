@@ -2,10 +2,11 @@
  * Connection Limit Overrides Parser and Sanitizer.
  *
  * Strictly parses and sanitizes provider_connections.rate_limit_overrides_json:
- *  - Supported keys: rpm, rpd, tpm, tpd, minTime, maxConcurrent, maxWaitMs, executionMaxWaitMs, modelConcurrency
+ *  - Supported keys: rpm, rpd, tpm, tpd, minTime, maxConcurrent, maxWaitMs, executionMaxWaitMs, modelConcurrency, maxBudgetUsd
  *  - Unknown keys are dropped
- *  - Non-positive or non-finite numbers are rejected
+ *  - Non-positive or non-finite numbers are rejected (maxBudgetUsd allows non-negative finite numbers >= 0)
  *  - modelConcurrency is strictly validated as a map of modelId -> positive integer
+ *  - maxBudgetUsd is stored and displayed (request-time budget enforcement is an out-of-scope follow-up)
  */
 
 export const ALLOWED_NUM_FIELDS = Object.freeze([
@@ -93,6 +94,13 @@ export function sanitizeConnectionLimitOverrides(raw) {
     }
   }
 
+  if (Object.hasOwn(parsed, "maxBudgetUsd")) {
+    const val = parsed.maxBudgetUsd;
+    if (typeof val === "number" && Number.isFinite(val) && val >= 0) {
+      result.maxBudgetUsd = val;
+    }
+  }
+
   return result;
 }
 
@@ -111,7 +119,7 @@ export function validateConnectionLimitOverrides(raw) {
     };
   }
 
-  const allowedSet = new Set([...ALLOWED_NUM_FIELDS, "modelConcurrency"]);
+  const allowedSet = new Set([...ALLOWED_NUM_FIELDS, "modelConcurrency", "maxBudgetUsd"]);
 
   for (const key of Object.keys(parsed)) {
     if (!allowedSet.has(key)) {
@@ -129,6 +137,14 @@ export function validateConnectionLimitOverrides(raw) {
             errors.push(`modelConcurrency["${m}"] must be a positive integer`);
           }
         }
+      }
+      continue;
+    }
+
+    if (key === "maxBudgetUsd") {
+      const val = parsed[key];
+      if (typeof val !== "number" || !Number.isFinite(val) || val < 0) {
+        errors.push(`Field "maxBudgetUsd" must be a non-negative finite number`);
       }
       continue;
     }
