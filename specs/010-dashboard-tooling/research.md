@@ -60,7 +60,7 @@ On `/dashboard/quota`, introduce a top-level tab switcher (`SegmentedControl`) t
 ## 4. Capability Modality Badges Architecture
 
 ### Decision
-Create `src/shared/constants/capacityMeta.ts` and `src/shared/components/CapacityBadges.tsx` to supersede `src/shared/components/CapacityBadges.js` with backward-compatible re-exports. Expand badge definitions from just `vision` and `reasoning` to all 9 supported modalities and features in `open-sse/providers/capabilities.js`:
+Create `src/shared/constants/capacityMeta.js` and update `src/shared/components/CapacityBadges.js` (merged into the pre-existing component) with backward-compatible re-exports in `src/shared/components/index.js`. Expand badge definitions from just `vision` and `reasoning` to all 9 supported modalities and features in `open-sse/providers/capabilities.js`:
 - `vision`: Visibility icon (`visibility`), blue (`text-blue-500`)
 - `pdf`: Document icon (`description`), orange (`text-orange-500`)
 - `audioInput`: Mic icon (`mic`), purple (`text-purple-500`)

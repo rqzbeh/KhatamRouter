@@ -1,5 +1,7 @@
 # Feature Specification: Dashboard and Tooling
 
+> **Note**: This work is 'Dashboard tooling' (PRs #71/#72), NOT Wave 8. The real Wave 8 is the Bun performance and scale work (specs/008-bun-perf-scale, planned).
+
 **Feature Branch**: `spec/010-wave8-dashboard-tooling`  
 **Created**: 2026-10-26  
 **Status**: Completed (PR #71, PR #72; converted to plain JavaScript)  
@@ -25,7 +27,7 @@ As an API gateway administrator, I need a dedicated React dialog (`ConnectionLim
 1. **Given** an existing provider connection on `/dashboard/providers/[id]`, **When** the administrator clicks the "Limits" action on a connection row, **Then** the `ConnectionLimitsModal` opens, displaying current values populated from `connection.rate_limit_overrides_json` (or empty defaults when no overrides are set).
 2. **Given** numeric inputs for `rpm`, `rpd`, `tpm`, `tpd`, `minTime`, `maxWaitMs`, `executionMaxWaitMs`, and `maxConcurrent`, **When** positive finite values are entered and saved, **Then** the gateway updates `rate_limit_overrides_json` with integer-floored values for counts and millisecond timestamps for timeouts.
 3. **Given** a per-model concurrency requirement, **When** the administrator adds entries to the model concurrency sub-table (e.g. `gpt-5.6-sol`: 2), **Then** `modelConcurrency` is saved as an object mapping model IDs to positive integers.
-4. **Given** a budget ceiling, **When** `maxBudgetUsd` is specified, **Then** the modal validates and persists the cap in `providerConnections.rate_limit_overrides_json` and displays the configured budget cap in connection views; connection-level request-time budget enforcement against `request_cost_ledger` is explicitly out-of-scope for Wave 8 (rate limits, minTime, and concurrency are enforced in-flight; connection-level cost aggregation requires adding connection attribution to `request_cost_ledger` in a follow-up wave).
+4. **Given** a budget ceiling, **When** `maxBudgetUsd` is specified, **Then** the modal validates and persists the cap in `providerConnections.rate_limit_overrides_json` and displays the configured budget cap in connection views; connection-level request-time budget enforcement against `request_cost_ledger` is explicitly out-of-scope for dashboard tooling (rate limits, minTime, and concurrency are enforced in-flight; connection-level cost aggregation requires adding connection attribution to `request_cost_ledger` in a follow-up wave).
 5. **Given** blank or zero inputs, **When** saved, **Then** those specific limits are cleared from `rate_limit_overrides_json` without affecting other configured fields.
 6. **Given** unauthorized or unauthenticated requests to the connection limits API, **Then** the request is rejected with `401 Unauthorized`.
 
@@ -85,7 +87,9 @@ As an API user and administrator configuring provider connections and model comb
 
 ---
 
-### User Story 4 — Standalone CLI Launcher Preservation (Priority: P2)
+### User Story 4 — Standalone CLI Launcher Preservation (Priority: P2) [DROPPED: superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships]
+
+**Status**: [DROPPED: superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships]. The published plain JavaScript CLI launcher (`cli/cli.js`) remains unchanged.
 
 As a developer and system operator using the KhatamRouter command-line interface, I need the CLI launcher routines (`cli/cli.js`), configuration inspectors (`9router show`, `9router connect`), utility subcommands (`9router xai video`), and runtime scripts to remain lightweight plain JavaScript (ESM) per project Principle II, while strictly preserving published `9router` package compatibility, command-line flags, and actionable Bun runtime verification.
 

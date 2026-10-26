@@ -93,13 +93,6 @@ KhatamRouter/
     ├── src/shared/components/ModelSelectModal.js
     ├── src/shared/components/ComboFormModal.js
     ├── src/app/(dashboard)/dashboard/combos/page.js
-    └── tests/unit/wave8-integration.test.js
-```
-    ├── src/app/(dashboard)/dashboard/providers/[id]/ConnectionRow.js
-    ├── src/app/(dashboard)/dashboard/providers/[id]/ModelRow.js
-    ├── src/shared/components/ModelSelectModal.js
-    ├── src/shared/components/ComboFormModal.js
-    ├── src/app/(dashboard)/dashboard/combos/page.js
     ├── src/app/(dashboard)/dashboard/quota/page.js
     ├── cli/cli.js
     └── tests/unit/wave8-integration.test.js
@@ -109,7 +102,7 @@ KhatamRouter/
 
 ## Detailed Component Designs
 
-### 1. `ConnectionLimitsModal.tsx`
+### 1. `src/shared/components/ConnectionLimitsModal.js`
 - Dialog displaying tabs/sections for:
   - **Rate Limits**: `rpm`, `rpd`
   - **Token Limits**: `tpm`, `tpd`
@@ -117,19 +110,21 @@ KhatamRouter/
   - **Concurrency**: `maxConcurrent` (connection in-flight ceiling)
   - **Model Concurrency**: Dynamic table mapping model name -> concurrency integer
   - **Budget Cap**: `maxBudgetUsd` (stored and displayed; request-time budget enforcement against request_cost_ledger is an explicit out-of-scope follow-up)
+- Uses `src/shared/types/connectionLimits.js` for shape definitions.
 - Fetches initial values from `connection.rate_limit_overrides_json`.
 - Submits sanitized values to `PUT /api/providers/[id]/limits` (or `PUT /api/providers/[id]`).
 
-### 2. `KeyQuotaView.tsx` & `SpendTrendsChart.tsx`
+### 2. `KeyQuotaView.js` & `SpendTrendsChart.js` (`src/app/(dashboard)/dashboard/quota/components/*.js`)
 - Tab in `/dashboard/quota` rendered via `SegmentedControl` ("Provider Limits" vs "API Key Quotas").
 - Displays:
   - Top summary cards: Active keys, keys at >80% quota, total spend today/7d/30d.
   - Per-key cards with progress bars for active window limits.
-  - Spend Trends chart (`SpendTrendsChart.tsx`) plotting daily/hourly cost and token volume.
+  - Spend Trends chart (`SpendTrendsChart.js`) plotting daily/hourly cost and token volume.
 - Queries `GET /api/keys/[id]/quota` for real-time data with fail-open error handling.
+- Uses `src/shared/types/keyQuota.js` for shape definitions.
 
-### 3. `CapacityBadges.tsx` & `capacityMeta.ts`
-- Typed constant `CAPACITY_META` mapping 9 modalities to Material Symbols Outlined icons and Tailwind color tokens:
+### 3. `CapacityBadges.js` (merged) & `src/shared/constants/capacityMeta.js`
+- Plain JavaScript constant `CAPACITY_META` in `src/shared/constants/capacityMeta.js` mapping 9 modalities to Material Symbols Outlined icons and Tailwind color tokens:
   - `vision` (visibility, blue)
   - `pdf` (description, orange)
   - `audioInput` (mic, purple)
@@ -139,13 +134,12 @@ KhatamRouter/
   - `search` (travel_explore, cyan)
   - `tools` (build, green)
   - `reasoning` (neurology, amber)
+- `src/shared/components/CapacityBadges.js` (merged into the pre-existing legacy component) renders badge elements.
 - Integrates with `aggregateComboCapabilities` to display accurate combo modality tags.
 
-### 4. `cli/src/ts/` Consolidated CLI
-- Clean TypeScript modules compiled via `esbuild`.
-- Standardized typed options (`CliServerOptions`, `CliRuntimeStatus`).
-- Wraps launcher, `show`, `connect`, `status`, `ping`, and `stop` subcommands.
-- Delegates from `cli/cli.js` while keeping the `ensureBun()` check front and center.
+### 4. Consolidated CLI (DROPPED)
+- DROPPED: The consolidated TypeScript CLI under `cli/src/ts/` compiled with `esbuild` was DROPPED because the project is plain JavaScript only (PR #64, CLAUDE.md Principle II).
+- The published plain JavaScript CLI (`cli/cli.js`) remains unchanged under Bun with the `ensureBun()` runtime guard.
 
 ---
 
@@ -155,5 +149,5 @@ Every leaf must pass its dedicated Vitest test suite using temporary `DATA_DIR` 
 1. **Leaf 1.1**: `bun x vitest run unit/connection-limits-modal.test.js`
 2. **Leaf 1.2**: `bun x vitest run unit/key-quota-tabs.test.js`
 3. **Leaf 1.3**: `bun x vitest run unit/capability-badges.test.js`
-4. **Leaf 1.4**: `bun x vitest run unit/cli-consolidated.test.js`
+4. **Leaf 1.4**: DROPPED (`cli-consolidated.test.js` deleted; TS CLI dropped)
 5. **Leaf 1.5**: `bun x vitest run unit/wave8-integration.test.js`, `node tests/__baseline__/verify-providers.mjs`, and `node tests/__baseline__/verify-alias.mjs`

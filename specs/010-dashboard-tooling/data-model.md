@@ -1,4 +1,4 @@
-# Data Model: Wave 8 — Dashboard and Tooling
+# Data Model: Dashboard and Tooling
 
 **Branch**: `spec/010-wave8-dashboard-tooling`  
 **Date**: 2026-10-26  
@@ -44,7 +44,7 @@ export interface ConnectionLimitOverrides {
 
 ### Enforcement Invariant & Scope
 - In-flight gateway enforcement (`connectionLimiter.js`) checks `minTime`, `maxConcurrent`, `modelConcurrency`, `rpm`, `rpd`, `tpm`, and `tpd`.
-- Connection-level budget enforcement does NOT exist at runtime today because `request_cost_ledger` currently aggregates costs by `api_key_id` and does not record connection IDs. Wave 8 scopes `maxBudgetUsd` strictly to STORING and DISPLAYING in the dashboard and backend validator (`overrides.js`). Request-time budget blocking is an explicit out-of-scope follow-up.
+- Connection-level budget enforcement does NOT exist at runtime today because `request_cost_ledger` currently aggregates costs by `api_key_id` and does not record connection IDs. Dashboard tooling scopes `maxBudgetUsd` strictly to STORING and DISPLAYING in the dashboard and backend validator (`overrides.js`). Request-time budget blocking is an explicit out-of-scope follow-up.
 
 ---
 
@@ -143,34 +143,6 @@ export interface CapacityBadgeMeta {
 
 ---
 
-## 4. CLI Consolidated Types Data Model
+## 4. CLI Types (DROPPED)
 
-```typescript
-export interface CliServerOptions {
-  port: number;
-  host: string;
-  noBrowser: boolean;
-  dataDir?: string;
-}
-
-export interface CliRuntimeStatus {
-  online: boolean;
-  pid?: number;
-  port: number;
-  host: string;
-  uptimeSeconds?: number;
-  version: string;
-  bunVersion?: string;
-  activeConnectionsCount?: number;
-  redisConnected?: boolean;
-}
-
-export type CliCommandName =
-  | "start"
-  | "status"
-  | "ping"
-  | "stop"
-  | "show"
-  | "connect"
-  | "xai";
-```
+DROPPED: The consolidated TypeScript CLI was superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships. The published CLI remains unchanged in `cli/cli.js`.

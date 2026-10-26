@@ -6,29 +6,28 @@ description: "Task list for Dashboard and Tooling implementation"
 
 **Input**: Design documents from `/specs/010-dashboard-tooling/` (`spec.md`, `plan.md`, `research.md`, `data-model.md`, `quickstart.md`, `contracts/`)  
 **Prerequisites**: `spec.md`, `plan.md`, `research.md`, `data-model.md`, `quickstart.md`, `contracts/`  
-**Tests**: Bun-hosted Vitest unit test suites (`tests/unit/connection-limits-modal.test.js`, `tests/unit/key-quota-tabs.test.js`, `tests/unit/capability-badges.test.js`, `tests/unit/cli-consolidated.test.js`, `tests/unit/wave8-integration.test.js`), baseline checks (`node tests/__baseline__/verify-providers.mjs`, `node tests/__baseline__/verify-alias.mjs`)  
-**Organization**: Tasks are grouped by User Story and Phase with strictly disjoint file ownership to enable independent, parallel subagent execution across Wave 1 (Leaves 1.1.1, 1.1.2, 1.1.3, 1.1.4) and sequential integration in Wave 2 (Leaf 1.1.5).
+**Tests**: Bun-hosted Vitest unit test suites (`tests/unit/connection-limits-modal.test.js`, `tests/unit/key-quota-tabs.test.js`, `tests/unit/capability-badges.test.js`, `tests/unit/wave8-integration.test.js`), baseline checks (`node tests/__baseline__/verify-providers.mjs`, `node tests/__baseline__/verify-alias.mjs`)  
+**Organization**: Tasks are grouped by User Story and Phase with strictly disjoint file ownership to enable independent, parallel subagent execution across Wave 1 (Leaves 1.1.1, 1.1.2, 1.1.3) and sequential integration in Wave 2 (Leaf 1.1.5).
 
 ---
 
 ## Phase 1: Setup & Environment Validation
 
-**Purpose**: Verify repository, TypeScript configuration, and isolated test runtime.
+**Purpose**: Verify repository and isolated test runtime.
 
 - [ ] T001 [P] Verify Bun `v1.4.3+` and Vitest test environment  
   *Leaf*: leaf-1.1.1 (Wave 1)  
   *Files owned*: `tests/unit/connection-limits-modal.test.js`  
   *Check oracle*: `bun x vitest --version && bun --version`
 
-- [ ] T002 [P] Verify TypeScript compiler options for React JSX and `@/*` alias in root `tsconfig.json`  
+- [ ] T002 [P] [DROPPED: superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships] Verify TypeScript compiler options for React JSX and `@/*` alias in root `tsconfig.json`  
   *Leaf*: leaf-1.1.4 (Wave 1)  
-  *Files owned*: `cli/tsconfig.json`  
-  *Check oracle*: `node -e 'const c = require("./tsconfig.json"); if (!c.compilerOptions.paths["@/*"]) process.exit(1); console.log("TSCONFIG_OK");'`
+  *Files owned*: `cli/cli.js`  
 
-- [ ] T003 [P] Verify directory scaffolding for new dashboard and CLI components under `src/app/(dashboard)/dashboard/quota/components/` and `cli/src/ts/`  
+- [ ] T003 [P] [DROPPED: superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships] Verify directory scaffolding for new dashboard components under `src/app/(dashboard)/dashboard/quota/components/`  
   *Leaf*: leaf-1.1.4 (Wave 1)  
-  *Files owned*: `cli/src/ts/**`  
-  *Check oracle*: `node -e 'const fs = require("fs"); fs.mkdirSync("src/app/(dashboard)/dashboard/quota/components", {recursive: true}); fs.mkdirSync("cli/src/ts/commands", {recursive: true}); console.log("SCAFFOLD_OK");'`
+  *Files owned*: `src/app/(dashboard)/dashboard/quota/components/**`  
+  *Check oracle*: `node -e 'const fs = require("fs"); fs.mkdirSync("src/app/(dashboard)/dashboard/quota/components", {recursive: true}); console.log("SCAFFOLD_OK");'`
 
 ---
 
@@ -46,7 +45,7 @@ description: "Task list for Dashboard and Tooling implementation"
   *Files owned*: `src/shared/types/keyQuota.js`  
   *Check oracle*: `bun x vitest run unit/key-quota-tabs.test.js -t "Types|Interfaces"`
 
-- [ ] T006 [P] Note: CLI TypeScript interfaces removed per Principle II (plain JavaScript ESM)  
+- [ ] T006 [P] [DROPPED: superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships] CLI TypeScript interfaces dropped  
   *Leaf*: leaf-1.1.4 (Wave 1)  
   *Files owned*: `cli/cli.js`  
 
@@ -149,24 +148,19 @@ description: "Task list for Dashboard and Tooling implementation"
   *Check oracle*: `node -e 'const b = require("./src/shared/components"); console.log(typeof b.CapacityBadges);'`
   *Check oracle*: `bun x vitest run unit/capability-badges.test.js -t "BadgeRendering|Tooltips|ComboAggregation"`
 
-- [ ] T019 [US3] Re-export `CapacityBadges.tsx` in `src/shared/components/index.js` preserving backward compatibility with legacy JavaScript callers  
-  *Leaf*: leaf-1.1.3 (Wave 1)  
-  *Files owned*: `src/shared/components/index.js`  
-  *Check oracle*: `node -e 'const b = require("./src/shared/components"); console.log(typeof b.CapacityBadges);'`
-
 **Checkpoint**: User Story 3 is fully functional and testable independently via `tests/unit/capability-badges.test.js`.
 
 ---
 
-## Phase 6: User Story 4 — Standalone CLI Launcher Preservation (Priority: P2)
+## Phase 6: User Story 4 — Standalone CLI Launcher Preservation (Priority: P2) [DROPPED: superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships]
 
-**Goal**: Preserve standalone launcher CLI (`cli/cli.js`) as plain JavaScript (ESM) per Principle II. TypeScript CLI core removed.
+**Goal**: [DROPPED: superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships] Preserve standalone launcher CLI (`cli/cli.js`) as plain JavaScript (ESM) per Principle II. The published CLI is unchanged.
 
-- [ ] T020 [P] [US4] Note: TypeScript CLI consolidation removed per Principle II (NO TypeScript)
-- [ ] T021 [P] [US4] Note: `cli/tsconfig.json` removed
-- [ ] T022 [P] [US4] Note: `cli/src/ts/` removed
-- [ ] T023 [US4] Note: TS CLI dispatcher removed
-- [ ] T024 [US4] Note: `cli/scripts/build-cli.js` plain JS build preserved
+- [ ] T020 [P] [US4] [DROPPED: superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships] Consolidated TypeScript CLI core dropped
+- [ ] T021 [P] [US4] [DROPPED: superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships] `cli/tsconfig.json` dropped
+- [ ] T022 [P] [US4] [DROPPED: superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships] `cli/src/ts/` dropped
+- [ ] T023 [US4] [DROPPED: superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships] TS CLI dispatcher dropped
+- [ ] T024 [US4] [DROPPED: superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships] `cli/scripts/build-cli.js` plain JS build preserved
 
 ---
 
@@ -206,10 +200,10 @@ description: "Task list for Dashboard and Tooling implementation"
   *Files owned*: `src/app/(dashboard)/dashboard/combos/page.js`  
   *Check oracle*: `bun x vitest run unit/wave8-integration.test.js -t "CombosPage|CapabilityBadges"`
 
-- [ ] T031 [US4] Preserve plain JavaScript launcher in `cli/cli.js` with `ensureBun()` check  
+- [ ] T031 [US4] [DROPPED: superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships] Published plain JavaScript launcher in `cli/cli.js` is unchanged under Bun  
   *Leaf*: leaf-1.1.5 (Wave 2)  
   *Files owned*: `cli/cli.js`  
-  *Check oracle*: `bun x vitest run unit/cli-consolidated.test.js -t "EnsureBun|Prerequisite"`
+  *Check oracle*: `bun x vitest run unit/wave8-integration.test.js`
 
 - [ ] T032 [P] Implement end-to-end integration test in `tests/unit/wave8-integration.test.js`  
   *Leaf*: leaf-1.1.5 (Wave 2)  
@@ -236,12 +230,12 @@ Phase 1 (Setup)
     │
 Phase 2 (Foundational Types)
     │
-    ├───────────────────────┬───────────────────────┬───────────────────────┐
-    ▼                       ▼                       ▼                       ▼
-Phase 3 (US1 - Limits)   Phase 4 (US2 - Quotas)   Phase 5 (US3 - Badges)   Phase 6 (US4 - CLI)
-[Wave 1 Leaf 1.1.1]     [Wave 1 Leaf 1.1.2]     [Wave 1 Leaf 1.1.3]     [Wave 1 Leaf 1.1.4]
-    │                       │                       │                       │
-    └───────────────────────┴───────────────────────┴───────────────────────┘
+    ├───────────────────────┬───────────────────────┐
+    ▼                       ▼                       ▼
+Phase 3 (US1 - Limits)   Phase 4 (US2 - Quotas)   Phase 5 (US3 - Badges)
+[Wave 1 Leaf 1.1.1]     [Wave 1 Leaf 1.1.2]     [Wave 1 Leaf 1.1.3]
+    │                       │                       │
+    └───────────────────────┴───────────────────────┘
                                     │
                                     ▼
                       Phase 7 (Integration & Baselines)
@@ -249,10 +243,10 @@ Phase 3 (US1 - Limits)   Phase 4 (US2 - Quotas)   Phase 5 (US3 - Badges)   Phase
 ```
 
 ### Parallel Wave Opportunities
-- **Wave 1 (4 parallel subagents)**:
-  - Agent 1: Leaf 1.1.1 (Tasks T001, T004, T007 - T011) — `src/shared/types/connectionLimits.ts`, `open-sse/services/rateLimitManager/overrides.js`, `src/shared/components/ConnectionLimitsModal.tsx`, `src/app/api/providers/[id]/limits/**`, `tests/unit/connection-limits-modal.test.js`
-  - Agent 2: Leaf 1.1.2 (Tasks T005, T012 - T015) — `src/shared/types/keyQuota.ts`, `src/app/(dashboard)/dashboard/quota/components/**`, `src/app/api/keys/[id]/quota/**`, `tests/unit/key-quota-tabs.test.js`
-  - Agent 3: Leaf 1.1.3 (Tasks T016 - T019) — `src/shared/constants/capacityMeta.ts`, `src/shared/components/CapacityBadges.tsx`, `src/shared/components/index.js`, `tests/unit/capability-badges.test.js`
-  - Agent 4: Leaf 1.1.4 (Tasks T002, T003, T006, T020 - T024) — `cli/src/ts/**`, `cli/tsconfig.json`, `cli/scripts/build-cli.js`, `tests/unit/cli-consolidated.test.js`
+- **Wave 1 (3 parallel subagents; CLI TS subagent dropped)**:
+  - Agent 1: Leaf 1.1.1 (Tasks T001, T004, T007 - T011) — `src/shared/types/connectionLimits.js`, `open-sse/services/rateLimitManager/overrides.js`, `src/shared/components/ConnectionLimitsModal.js`, `src/app/api/providers/[id]/limits/**`, `tests/unit/connection-limits-modal.test.js`
+  - Agent 2: Leaf 1.1.2 (Tasks T005, T012 - T015) — `src/shared/types/keyQuota.js`, `src/app/(dashboard)/dashboard/quota/components/**`, `src/app/api/keys/[id]/quota/**`, `tests/unit/key-quota-tabs.test.js`
+  - Agent 3: Leaf 1.1.3 (Tasks T016 - T019) — `src/shared/constants/capacityMeta.js`, `src/shared/components/CapacityBadges.js`, `src/shared/components/index.js`, `tests/unit/capability-badges.test.js`
+  - Agent 4: Leaf 1.1.4 (Tasks T002, T003, T006, T020 - T024) — [DROPPED: superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships]
 - **Wave 2 (1 subagent)**:
   - Agent 5: Leaf 1.1.5 (Tasks T025 - T034) — `src/app/(dashboard)/dashboard/providers/[id]/ConnectionRow.js`, `src/app/(dashboard)/dashboard/providers/[id]/ModelRow.js`, `src/shared/components/ModelSelectModal.js`, `src/shared/components/ComboFormModal.js`, `src/app/(dashboard)/dashboard/combos/page.js`, `src/app/(dashboard)/dashboard/quota/page.js`, `cli/cli.js`, `tests/unit/wave8-integration.test.js`, baseline snapshot verification (`verify-providers.mjs`, `verify-alias.mjs`).
