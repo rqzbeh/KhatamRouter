@@ -291,6 +291,144 @@ describe("Pi CLI Settings & Model Caps (72cb589e)", () => {
       expect(exact.contextWindow).toBe(2000000);
       expect(exact.maxTokens).toBe(200000);
     });
+
+    describe("model name preservation across Apply (50dcaa0c)", () => {
+      it("preserves hand-set display name when card sends name === id", async () => {
+        const agentDir = path.join(tempDir, ".pi", "agent");
+        fs.mkdirSync(agentDir, { recursive: true });
+        const modelsFile = path.join(agentDir, "models.json");
+
+        const initial = {
+          providers: {
+            "9router": {
+              baseUrl: "http://localhost:20128/v1",
+              apiKey: "test-key",
+              models: [
+                {
+                  id: "anthropic/claude-3-7-sonnet",
+                  name: "Claude 3.7 Sonnet (Hand-Crafted Alias)",
+                  contextWindow: 200000,
+                  maxTokens: 64000,
+                },
+              ],
+            },
+          },
+        };
+        fs.writeFileSync(modelsFile, JSON.stringify(initial, null, 2), "utf-8");
+
+        // The card sends name === id for each model
+        const req = new Request("http://localhost/api/cli-tools/pi-settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            baseUrl: "http://localhost:20128",
+            models: [
+              {
+                id: "anthropic/claude-3-7-sonnet",
+                name: "anthropic/claude-3-7-sonnet", // card format
+                contextWindow: 400000,
+                maxTokens: 64000,
+              },
+            ],
+          }),
+        });
+
+        const res = await POST(req);
+        expect(res.status).toBe(200);
+
+        const updated = JSON.parse(fs.readFileSync(modelsFile, "utf-8"));
+        const model = updated.providers["9router"].models[0];
+        expect(model.id).toBe("anthropic/claude-3-7-sonnet");
+        // Hand-set display name is retained because name === id is treated as "unset"
+        expect(model.name).toBe("Claude 3.7 Sonnet (Hand-Crafted Alias)");
+        // But caps update took effect
+        expect(model.contextWindow).toBe(400000);
+      });
+
+      it("preserves hand-set display name when caller sends bare model id string", async () => {
+        const agentDir = path.join(tempDir, ".pi", "agent");
+        fs.mkdirSync(agentDir, { recursive: true });
+        const modelsFile = path.join(agentDir, "models.json");
+
+        const initial = {
+          providers: {
+            "9router": {
+              baseUrl: "http://localhost:20128/v1",
+              models: [
+                {
+                  id: "openai/gpt-4o",
+                  name: "GPT-4o Custom Label",
+                  contextWindow: 128000,
+                  maxTokens: 16384,
+                },
+              ],
+            },
+          },
+        };
+        fs.writeFileSync(modelsFile, JSON.stringify(initial, null, 2), "utf-8");
+
+        const req = new Request("http://localhost/api/cli-tools/pi-settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            baseUrl: "http://localhost:20128",
+            models: ["openai/gpt-4o"],
+          }),
+        });
+
+        const res = await POST(req);
+        expect(res.status).toBe(200);
+
+        const updated = JSON.parse(fs.readFileSync(modelsFile, "utf-8"));
+        const model = updated.providers["9router"].models[0];
+        expect(model.name).toBe("GPT-4o Custom Label");
+      });
+
+      it("allows an explicitly different name to override previous name", async () => {
+        const agentDir = path.join(tempDir, ".pi", "agent");
+        fs.mkdirSync(agentDir, { recursive: true });
+        const modelsFile = path.join(agentDir, "models.json");
+
+        const initial = {
+          providers: {
+            "9router": {
+              baseUrl: "http://localhost:20128/v1",
+              models: [
+                {
+                  id: "google/gemini-2.5-pro",
+                  name: "Old Display Name",
+                  contextWindow: 1000000,
+                  maxTokens: 64000,
+                },
+              ],
+            },
+          },
+        };
+        fs.writeFileSync(modelsFile, JSON.stringify(initial, null, 2), "utf-8");
+
+        // Caller provides an explicit new name that is different from id
+        const req = new Request("http://localhost/api/cli-tools/pi-settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            baseUrl: "http://localhost:20128",
+            models: [
+              {
+                id: "google/gemini-2.5-pro",
+                name: "Updated Gemini 2.5 Pro",
+              },
+            ],
+          }),
+        });
+
+        const res = await POST(req);
+        expect(res.status).toBe(200);
+
+        const updated = JSON.parse(fs.readFileSync(modelsFile, "utf-8"));
+        const model = updated.providers["9router"].models[0];
+        expect(model.name).toBe("Updated Gemini 2.5 Pro");
+      });
+    });
   });
 
   describe("GET and DELETE /api/cli-tools/pi-settings", () => {
