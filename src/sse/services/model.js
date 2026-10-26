@@ -9,11 +9,34 @@ const LOCAL_PROVIDER_ALIASES = {
   "xiaomi-tokenplan": "xiaomi-tokenplan",
 };
 
-const RESERVED_PROVIDER_PREFIXES = new Set(Object.keys(LOCAL_PROVIDER_ALIASES));
+const MEDIA_ONLY_ALIASES = {
+  el: "elevenlabs",
+  jina: "jina-ai",
+  "jina-ai": "jina-ai",
+  polly: "aws-polly",
+  "aws-polly": "aws-polly",
+};
+
+const RESERVED_PROVIDER_PREFIXES = new Set([
+  ...Object.keys(LOCAL_PROVIDER_ALIASES),
+  ...Object.values(LOCAL_PROVIDER_ALIASES),
+  ...Object.keys(MEDIA_ONLY_ALIASES),
+  ...Object.values(MEDIA_ONLY_ALIASES),
+]);
+
 for (const entry of REGISTRY) {
-  RESERVED_PROVIDER_PREFIXES.add(entry.id);
-  if (entry.alias) RESERVED_PROVIDER_PREFIXES.add(entry.alias);
-  for (const alias of entry.aliases || []) RESERVED_PROVIDER_PREFIXES.add(alias);
+  if (entry.id) {
+    RESERVED_PROVIDER_PREFIXES.add(entry.id);
+    RESERVED_PROVIDER_PREFIXES.add(entry.id.toLowerCase());
+  }
+  if (entry.alias) {
+    RESERVED_PROVIDER_PREFIXES.add(entry.alias);
+    RESERVED_PROVIDER_PREFIXES.add(entry.alias.toLowerCase());
+  }
+  for (const alias of entry.aliases || []) {
+    RESERVED_PROVIDER_PREFIXES.add(alias);
+    RESERVED_PROVIDER_PREFIXES.add(alias.toLowerCase());
+  }
 }
 
 export function parseModel(modelStr) {
@@ -34,14 +57,21 @@ export async function resolveModelAlias(alias) {
 
 /**
  * Get full model info (parse or resolve)
+ * @param {string} modelStr - Model string (e.g. "provider/model" or alias/combo)
+ * @param {object|null} [preResolvedCombo] - Optional pre-resolved combo object to avoid re-querying
  */
-export async function getModelInfo(modelStr) {
+export async function getModelInfo(modelStr, preResolvedCombo = undefined) {
   const parsed = parseModel(modelStr);
 
   if (!parsed.isAlias) {
     // Provider-node prefixes are user-defined. They must not override built-in
     // provider ids/aliases such as `cf`, `cloudflare-ai`, `openai`, or `hf`.
-    if (!RESERVED_PROVIDER_PREFIXES.has(parsed.providerAlias)) {
+    const prefix = parsed.providerAlias?.toLowerCase();
+    const isBuiltin = RESERVED_PROVIDER_PREFIXES.has(parsed.providerAlias) ||
+      (prefix && RESERVED_PROVIDER_PREFIXES.has(prefix)) ||
+      (parsed.provider && RESERVED_PROVIDER_PREFIXES.has(parsed.provider));
+
+    if (!isBuiltin) {
       const openaiNodes = await getProviderNodes({ type: "openai-compatible" });
       const matchedOpenAI = openaiNodes.find((node) => node.prefix === parsed.providerAlias);
       if (matchedOpenAI) {
@@ -68,7 +98,14 @@ export async function getModelInfo(modelStr) {
 
   // Check if this is a combo name before resolving as alias
   // This prevents combo names from being incorrectly routed to providers
-  const combo = await getComboByName(parsed.model);
+  let combo;
+  if (preResolvedCombo !== undefined) {
+    combo = (preResolvedCombo && (!preResolvedCombo.name || preResolvedCombo.name === parsed.model))
+      ? preResolvedCombo
+      : null;
+  } else {
+    combo = await getComboByName(parsed.model);
+  }
   if (combo) {
     // Return null provider to signal this should be handled as combo
     // The caller (handleChat) will detect this and handle it as combo
@@ -80,13 +117,22 @@ export async function getModelInfo(modelStr) {
 
 /**
  * Check if model is a combo and get models list
+ * @param {string} modelStr - Model string
+ * @param {object|null} [preResolvedCombo] - Optional pre-resolved combo object to avoid re-querying
  * @returns {Promise<string[]|null>} Array of models or null if not a combo
  */
-export async function getComboModels(modelStr) {
+export async function getComboModels(modelStr, preResolvedCombo = undefined) {
   // Only check if it's not in provider/model format
   if (modelStr.includes("/")) return null;
 
-  const combo = await getComboByName(modelStr);
+  let combo;
+  if (preResolvedCombo !== undefined) {
+    combo = (preResolvedCombo && (!preResolvedCombo.name || preResolvedCombo.name === modelStr))
+      ? preResolvedCombo
+      : null;
+  } else {
+    combo = await getComboByName(modelStr);
+  }
   if (combo && combo.models && combo.models.length > 0) {
     return combo.models;
   }

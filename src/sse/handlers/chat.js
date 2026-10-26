@@ -8,7 +8,7 @@ import {
   isValidApiKey,
 } from "../services/auth.js";
 import { handleAntigravityQuotaError, clearAntigravityStrikes } from "../services/antigravityQuota.js";
-import { getSettings } from "@/lib/localDb";
+import { getSettings, getComboByName } from "@/lib/localDb";
 import { getModelInfo, getComboModels } from "../services/model.js";
 import { handleChatCore } from "open-sse/handlers/chatCore.js";
 import { DEFAULT_HEADROOM_URL } from "@/lib/headroom/detect";
@@ -28,13 +28,53 @@ import { getProjectIdForConnection } from "open-sse/services/projectId.js";
 import { stripModelContextMarker } from "open-sse/utils/modelMarkers.js";
 import { getKeyAccessContext, enforceKeyAccess, filterAdapterModels, extractClientApiKey } from "../services/keyAccess.js";
 import { isTrustedInternalRequest } from "../services/internalTrust.js";
-import { enforceUnifiedAcl } from "../services/allowedModels.js";
+import { enforceUnifiedAcl, resolveKeyAcl } from "../services/allowedModels.js";
 import { getApiKeyByKey } from "@/lib/db/repos/apiKeysRepo.js";
 import { checkApiKeyUsageLimits, formatQuotaErrorResponse } from "@/lib/usage/apiKeyUsageLimits.js";
 import { gateTarget, observeFailure, observeSuccess, isResilienceEnabled } from "@/domain/fallbackResilience.js";
 import { isStickinessEnabled, computeSessionKey, getStickyConnection, setStickyConnection, clearStickyConnection } from "@/lib/stealth/stickiness.js";
 import { handleIdempotencyPreRequest, handleIdempotencyPostRequest } from "@/lib/idempotency/index.js";
 import { resolveSmartChoice } from "../services/systemoneRouter.js";
+
+/**
+ * Helper to build KeyAccessContext from an already-resolved API key record
+ * without re-querying SQLite. Returns null for unrestricted access or missing record.
+ */
+function buildKeyAccessFromRecord(record) {
+  if (!record) return null;
+
+  const hasNewFields =
+    record.allowedKinds !== undefined ||
+    record.allowedProviders !== undefined ||
+    record.allowedCombos !== undefined ||
+    record.allowedModels !== undefined;
+
+  if (hasNewFields && (
+    record.allowedKinds !== null ||
+    record.allowedProviders !== null ||
+    record.allowedCombos !== null ||
+    record.allowedModels !== null
+  )) {
+    const acl = resolveKeyAcl(record);
+    return {
+      keyId: record.id,
+      keyName: record.name || record.id,
+      acl,
+      allow: record.access?.allow || [],
+      _sets: null,
+    };
+  }
+
+  if (!record.access?.restricted && !record.accessRestricted) return null;
+
+  return {
+    keyId: record.id,
+    keyName: record.name || record.id,
+    acl: null,
+    allow: record.access?.allow || [],
+    _sets: null,
+  };
+}
 
 /**
  * Handle chat completion request
@@ -83,6 +123,9 @@ export async function handleChat(request, clientRawRequest = null) {
     log.debug("AUTH", "No API key provided (local mode)");
   }
 
+  // Resolve keyRecord ONCE per request (read fresh from SQLite, never cached across requests)
+  const keyRecord = (!isTrustedInternal && apiKey) ? await getApiKeyByKey(apiKey) : null;
+
   // Enforce API key if enabled in settings (bypassed if trusted internal)
   const settings = await getSettings();
   if (!isTrustedInternal && settings.requireApiKey) {
@@ -90,7 +133,7 @@ export async function handleChat(request, clientRawRequest = null) {
       log.warn("AUTH", "Missing API key (requireApiKey=true)");
       return errorResponse(HTTP_STATUS.UNAUTHORIZED, "Missing API key");
     }
-    const valid = await isValidApiKey(apiKey);
+    const valid = Boolean(keyRecord && keyRecord.isActive);
     if (!valid) {
       log.warn("AUTH", "Invalid API key (requireApiKey=true)");
       return errorResponse(HTTP_STATUS.UNAUTHORIZED, "Invalid API key");
@@ -163,7 +206,6 @@ export async function handleChat(request, clientRawRequest = null) {
   let aclEvaluated = false;
   // 3-5. Unified Tri-State ACL check: kind ("llm") -> combo/provider -> model
   if (!isTrustedInternal) {
-    const keyRecord = apiKey ? await getApiKeyByKey(apiKey) : null;
     if (keyRecord) {
       const aclDenied = await enforceUnifiedAcl({
         request,
@@ -193,7 +235,7 @@ export async function handleChat(request, clientRawRequest = null) {
   // models. Checked once on the requested target, before bypass, combo expansion
   // and any credential lookup; an allowed combo grants the members it routes to.
   // When unified ACL has already evaluated this key, skip the redundant legacy check.
-  const keyAccess = await getKeyAccessContext(request);
+  const keyAccess = isTrustedInternal ? null : (keyRecord ? buildKeyAccessFromRecord(keyRecord) : await getKeyAccessContext(request));
   if (!aclEvaluated) {
     const keyAccessDenied = await enforceKeyAccess(keyAccess, modelStr);
     if (keyAccessDenied) return await finishResponse(keyAccessDenied);
@@ -207,7 +249,16 @@ export async function handleChat(request, clientRawRequest = null) {
   const requiredCapabilities = detectRequiredCapabilities(body);
 
   // Check if model is a combo (has multiple models with fallback)
-  const comboModels = await getComboModels(modelStr);
+  const combo = modelStr.includes("/") ? null : await getComboByName(modelStr);
+  const comboModels = combo && combo.models && combo.models.length > 0 ? combo.models : null;
+
+  const requestScope = {
+    keyRecord,
+    keyAccess,
+    isTrustedInternal,
+    combo,
+  };
+
   if (comboModels) {
     // Check for combo-specific strategy first, fallback to global
     const comboStrategies = settings.comboStrategies || {};
@@ -227,7 +278,7 @@ export async function handleChat(request, clientRawRequest = null) {
             const { tools, tool_choice, ...cleanBody } = clientRawRequest.body || {};
             cleanRawReq = { ...clientRawRequest, body: cleanBody };
           }
-          return handleSingleModelChat(b, m, cleanRawReq, request, apiKey);
+          return handleSingleModelChat(b, m, cleanRawReq, request, apiKey, null, requestScope);
         },
         log,
         comboName: modelStr,
@@ -245,7 +296,7 @@ export async function handleChat(request, clientRawRequest = null) {
       body,
       models: augmentedModels,
       handleSingleModel: withCapacityAdapterStripping(
-        (b, m) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey),
+        (b, m) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey, null, requestScope),
         adapterAdded
       ),
       log,
@@ -277,7 +328,7 @@ export async function handleChat(request, clientRawRequest = null) {
       body,
       models: soloAugmented,
       handleSingleModel: withCapacityAdapterStripping(
-        (b, m) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey),
+        (b, m) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey, null, requestScope),
         adapterAdded
       ),
       log,
@@ -286,19 +337,24 @@ export async function handleChat(request, clientRawRequest = null) {
     }));
   }
 
-  return await finishResponse(handleSingleModelChat(body, modelStr, clientRawRequest, request, apiKey, contextMarker ? `${modelStr.slice(modelStr.indexOf("/") + 1)}[${contextMarker}]` : null));
+  return await finishResponse(handleSingleModelChat(body, modelStr, clientRawRequest, request, apiKey, contextMarker ? `${modelStr.slice(modelStr.indexOf("/") + 1)}[${contextMarker}]` : null, requestScope));
 }
 
 /**
  * Handle single model chat request
  */
-async function handleSingleModelChat(body, modelStr, clientRawRequest = null, request = null, apiKey = null, requestedModel = null) {
-  const keyRecord = apiKey ? await getApiKeyByKey(apiKey) : null;
-  const modelInfo = await getModelInfo(modelStr);
+async function handleSingleModelChat(body, modelStr, clientRawRequest = null, request = null, apiKey = null, requestedModel = null, requestScope = null) {
+  const keyRecord = requestScope?.keyRecord !== undefined
+    ? requestScope.keyRecord
+    : (apiKey ? await getApiKeyByKey(apiKey) : null);
+  const resolvedCombo = (requestScope?.combo && (!requestScope.combo.name || requestScope.combo.name === modelStr))
+    ? requestScope.combo
+    : undefined;
+  const modelInfo = await getModelInfo(modelStr, resolvedCombo);
 
   // If provider is null, this might be a combo name - check and handle
   if (!modelInfo.provider) {
-    const comboModels = await getComboModels(modelStr);
+    const comboModels = await getComboModels(modelStr, resolvedCombo);
     if (comboModels) {
       const chatSettings = await getSettings();
       // Check for combo-specific strategy first, fallback to global
@@ -308,9 +364,18 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       const requiredCapabilities = detectRequiredCapabilities(body);
       // Nested combo (a combo member that is itself a combo): the access decision
       // was made on the outer target; only drop adapter models the key may not call.
-      const keyAccess = await getKeyAccessContext(request);
+      const keyAccess = requestScope?.keyAccess !== undefined
+        ? requestScope.keyAccess
+        : await getKeyAccessContext(request);
       const augmentedModels = await filterAdapterModels(keyAccess, augmentModelsWithCapacityAdapter(comboModels, requiredCapabilities, chatSettings), comboModels);
       const adapterAdded = augmentedModels.filter((m) => !comboModels.includes(m));
+
+      const nestedScope = {
+        keyRecord,
+        keyAccess,
+        isTrustedInternal: requestScope?.isTrustedInternal,
+        combo: (requestScope?.combo && (!requestScope.combo.name || requestScope.combo.name === modelStr)) ? requestScope.combo : null,
+      };
 
       if (comboStrategy === "fusion") {
         log.info("CHAT", `Combo "${modelStr}" with ${comboModels.length} models (strategy: fusion)`);
@@ -321,9 +386,9 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
             let cleanRawReq = clientRawRequest;
             if (isPanel && clientRawRequest) {
               const { tools, tool_choice, ...cleanBody } = clientRawRequest.body || {};
-              cleanRawReq = { ...clientRawRequest, body: cleanBody };
+              cleanRawReq = { ...cleanRawReq, body: cleanBody };
             }
-            return handleSingleModelChat(b, m, cleanRawReq, request, apiKey);
+            return handleSingleModelChat(b, m, cleanRawReq, request, apiKey, null, nestedScope);
           },
           log,
           comboName: modelStr,
@@ -343,7 +408,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         body,
         models: augmentedModels,
         handleSingleModel: withCapacityAdapterStripping(
-          (b, m) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey),
+          (b, m) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey, null, nestedScope),
           adapterAdded
         ),
         log,
