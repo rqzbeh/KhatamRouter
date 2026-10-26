@@ -104,6 +104,7 @@ export function TtsExampleCard({ providerId }) {
   const [connectionCount, setConnectionCount] = useState(0);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLocalEndpoint(window.location.origin);
     fetch("/api/keys")
       .then((r) => r.json())
@@ -171,6 +172,7 @@ export function TtsExampleCard({ providerId }) {
   useEffect(() => {
     if (!config.voicesPerModel || !selectedModel) return;
     const voices = getTtsVoicesForModel(providerId, selectedModel) || [];
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCountryVoices(voices);
     if (voices.length) {
       setSelectedVoice(voices[0].id);
