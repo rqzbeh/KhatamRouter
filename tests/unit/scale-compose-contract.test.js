@@ -122,6 +122,9 @@ describe("Wave 8: Multi-Replica Scale Compose & Trusted Proxy Contract (T017, T0
 
       // Verify ip_range is configured so dynamic allocation cannot collide with static lbIp
       expect(subnetConfig.ip_range).toBeDefined();
+
+      // Verify IPv6 is explicitly disabled on the compose bridge network
+      expect(net.enable_ipv6).toBe(false);
     });
 
     it("requires runtime secrets via ${VAR:?...} and commits no literal secrets", () => {
@@ -139,13 +142,13 @@ describe("Wave 8: Multi-Replica Scale Compose & Trusted Proxy Contract (T017, T0
       expect(raw).not.toContain("change-me-to-a-long-random-secret");
     });
 
-    it("configures lb service with nginx:alpine publishing 20128 and depending on 9router health", () => {
+    it("configures lb service with nginx:alpine publishing SCALE_SMOKE_LB_PORT and depending on 9router health", () => {
       const { parsed } = loadScaleOverlay();
       const lb = parsed.services?.lb;
       expect(lb).toBeDefined();
       expect(lb.image).toMatch(/^nginx/);
       expect(lb.ports).toBeDefined();
-      expect(lb.ports.some((p) => String(p).includes("20128:20128"))).toBe(true);
+      expect(lb.ports.some((p) => String(p).includes("${SCALE_SMOKE_LB_PORT:-20128}:20128"))).toBe(true);
 
       // Mounts nginx-scale.conf
       expect(lb.volumes).toBeDefined();
@@ -163,10 +166,11 @@ describe("Wave 8: Multi-Replica Scale Compose & Trusted Proxy Contract (T017, T0
   });
 
   describe("deploy/nginx-scale.conf load balancer configuration", () => {
-    it("exists and defines upstream round-robin to 9router:20128", () => {
+    it("exists and defines dynamic upstream resolution with ipv6=off to 9router:20128", () => {
       const conf = loadNginxConf();
-      expect(conf).toContain("upstream");
-      expect(conf).toMatch(/server\s+9router:20128/);
+      expect(conf).toMatch(/resolver\s+127\.0\.0\.11\s+valid=5s\s+ipv6=off\s*;/);
+      expect(conf).toMatch(/set\s+\$khatam_upstream\s+http:\/\/9router:20128\s*;/);
+      expect(conf).toMatch(/proxy_pass\s+\$khatam_upstream\s*;/);
       expect(conf).toMatch(/listen\s+20128/);
     });
 
@@ -190,10 +194,11 @@ describe("Wave 8: Multi-Replica Scale Compose & Trusted Proxy Contract (T017, T0
       }
     });
 
-    it("configures HTTP/1.1 upstream keepalive", () => {
+    it("configures HTTP/1.1 and documents variable proxy_pass keepalive behavior", () => {
       const conf = loadNginxConf();
       expect(conf).toMatch(/proxy_http_version\s+1\.1\s*;/);
-      expect(conf).toMatch(/keepalive\s+[0-9]+/);
+      expect(conf).toMatch(/proxy_set_header\s+Connection\s+""\s*;/);
+      expect(conf).toMatch(/keepalive/i);
     });
 
     it("never contains prune commands", () => {

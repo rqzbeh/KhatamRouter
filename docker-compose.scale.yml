@@ -35,7 +35,7 @@ services:
     image: nginx:alpine
     restart: always
     ports:
-      - "20128:20128"
+      - "${SCALE_SMOKE_LB_PORT:-20128}:20128"
     volumes:
       - ./deploy/nginx-scale.conf:/etc/nginx/nginx.conf:ro
     networks:
@@ -51,6 +51,7 @@ volumes:
 
 networks:
   default:
+    enable_ipv6: false
     ipam:
       driver: default
       config:
