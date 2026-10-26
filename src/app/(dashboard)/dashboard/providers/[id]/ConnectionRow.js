@@ -6,13 +6,30 @@ import { getStatusVariant as getConnectionStatusVariant } from "@/shared/utils/c
 import PropTypes from "prop-types";
 import { Badge, Toggle, Tooltip } from "@/shared/components";
 import CooldownTimer from "./CooldownTimer";
+import ConnectionLimitsModal from "@/shared/components/ConnectionLimitsModal.tsx";
 
 export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst, isLast, onMoveUp, onMoveDown, onToggleActive, onUpdateProxy, onEdit, onDelete, oneByOneStatus = null, autoPing = null }) {
   const [showProxyDropdown, setShowProxyDropdown] = useState(false);
   const [updatingProxy, setUpdatingProxy] = useState(false);
+  const [showLimitsModal, setShowLimitsModal] = useState(false);
   const proxyDropdownRef = useRef(null);
   const proxyBtnRef = useRef(null);
   const [proxyDropdownStyle, setProxyDropdownStyle] = useState(null);
+
+  const connectionLimits = (() => {
+    if (!connection?.rate_limit_overrides_json) return null;
+    if (typeof connection.rate_limit_overrides_json === "string") {
+      try {
+        return JSON.parse(connection.rate_limit_overrides_json);
+      } catch {
+        return null;
+      }
+    }
+    if (typeof connection.rate_limit_overrides_json === "object") {
+      return connection.rate_limit_overrides_json;
+    }
+    return null;
+  })();
 
   const proxyPoolMap = new Map((proxyPools || []).map((pool) => [pool.id, pool]));
   const boundProxyPoolId = connection.providerSpecificData?.proxyPoolId || null;
@@ -236,6 +253,13 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
                 {getOneByOneLabel()}
               </Badge>
             )}
+            {connectionLimits && Object.keys(connectionLimits).length > 0 && (
+              <span data-testid="connection-limits-badge" title="Connection rate limits & overrides active" className="inline-flex">
+                <Badge variant="default" size="sm">
+                  Limits
+                </Badge>
+              </span>
+            )}
           </div>
           {hasAnyProxy && (
             <div className="mt-1 flex items-center gap-2 flex-wrap">
@@ -309,6 +333,17 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
               </button>
             </Tooltip>
           )}
+          <button
+            type="button"
+            onClick={() => setShowLimitsModal(true)}
+            data-testid="connection-limits-btn"
+            aria-label="Limits"
+            title="Connection Limits & Overrides"
+            className="flex flex-col items-center rounded px-2 py-1 text-text-muted hover:bg-black/5 hover:text-primary dark:hover:bg-white/5 cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-[18px]">tune</span>
+            <span className="text-[10px] leading-tight">Limits</span>
+          </button>
           <button onClick={onEdit} className="flex flex-col items-center rounded px-2 py-1 text-text-muted hover:bg-black/5 hover:text-primary dark:hover:bg-white/5">
             <span className="material-symbols-outlined text-[18px]">edit</span>
             <span className="text-[10px] leading-tight">Edit</span>
@@ -325,6 +360,13 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
           title={(connection.isActive ?? true) ? "Disable connection" : "Enable connection"}
         />
       </div>
+      {showLimitsModal && (
+        <ConnectionLimitsModal
+          isOpen={showLimitsModal}
+          onClose={() => setShowLimitsModal(false)}
+          connection={connection}
+        />
+      )}
     </div>
   );
 }

@@ -5,7 +5,8 @@ import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, us
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { restrictToVerticalAxis, restrictToParentElement } from "@dnd-kit/modifiers";
-import { Card, Button, Modal, Input, CardSkeleton, ModelSelectModal, ConfirmModal, CapacityBadges, Select, Toggle, Badge } from "@/shared/components";
+import { Card, Button, Modal, Input, CardSkeleton, ModelSelectModal, ConfirmModal, Select, Toggle, Badge } from "@/shared/components";
+import CapacityBadges from "@/shared/components/CapacityBadges.tsx";
 import SmartPolicyModal from "@/shared/components/SmartPolicyModal";
 import Link from "next/link";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
@@ -689,7 +690,17 @@ function ComboCard({ combo, getCaps, comboByName = {}, activeProviders = [], cop
             <span className="material-symbols-outlined text-primary text-[18px]">layers</span>
           </div>
           <div className="min-w-0 flex-1">
-            <code className="block truncate font-mono text-sm font-medium">{combo.name}</code>
+            <div className="flex items-center gap-2 flex-wrap">
+              <code className="truncate font-mono text-sm font-medium">{combo.name}</code>
+              {comboCaps && (
+                <span data-testid="combo-caps-badges" className="inline-flex">
+                  <CapacityBadges
+                    caps={comboCaps}
+                    size={14}
+                  />
+                </span>
+              )}
+            </div>
             <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1">
               {combo.models.length === 0 ? (
                 <span className="text-xs text-text-muted italic">No models</span>

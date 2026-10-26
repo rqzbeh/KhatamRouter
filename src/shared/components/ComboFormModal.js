@@ -5,6 +5,7 @@ import Modal from "./Modal";
 import Input from "./Input";
 import Button from "./Button";
 import ModelSelectModal from "./ModelSelectModal";
+import CapacityBadges from "./CapacityBadges.tsx";
 
 const VALID_NAME_REGEX = /^[a-zA-Z0-9_.\-]+$/;
 
@@ -29,8 +30,11 @@ function ModelItem({ index, model, isFirst, isLast, onEdit, onMoveUp, onMoveDown
         <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={handleKeyDown}
           className="min-w-0 flex-1 rounded border border-primary/40 bg-white px-1.5 py-0.5 font-mono text-xs text-text-main outline-none dark:bg-black/20" />
       ) : (
-        <div className="min-w-0 flex-1 cursor-text truncate rounded px-1.5 py-0.5 font-mono text-xs text-text-main hover:bg-black/5 dark:hover:bg-white/5"
-          onClick={() => setEditing(true)} title="Click to edit">{model}</div>
+        <div className="min-w-0 flex-1 flex items-center gap-1.5 overflow-hidden">
+          <div className="min-w-0 truncate cursor-text rounded px-1.5 py-0.5 font-mono text-xs text-text-main hover:bg-black/5 dark:hover:bg-white/5"
+            onClick={() => setEditing(true)} title="Click to edit">{model}</div>
+          <CapacityBadges comboModels={[model]} size={12} className="shrink-0" />
+        </div>
       )}
       <div className="flex shrink-0 items-center gap-0.5">
         <button onClick={onMoveUp} disabled={isFirst}
@@ -132,7 +136,22 @@ export default function ComboFormModal({ isOpen, combo, onClose, onSave, activeP
           </div>
 
           <div>
-            <label className="text-sm font-medium mb-1.5 block">Models</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium block">Models</label>
+                {models.length > 0 && (
+                  <span data-testid="combo-aggregated-badges" className="inline-flex">
+                    <CapacityBadges
+                      comboModels={models}
+                      size={14}
+                    />
+                  </span>
+                )}
+              </div>
+              {models.length > 0 && (
+                <span className="text-[11px] text-text-muted">({models.length} models)</span>
+              )}
+            </div>
             {models.length === 0 ? (
               <div className="text-center py-4 border border-dashed border-black/10 dark:border-white/10 rounded-lg bg-black/[0.01] dark:bg-white/[0.01]">
                 <span className="material-symbols-outlined text-text-muted text-xl mb-1">layers</span>
