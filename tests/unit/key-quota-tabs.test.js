@@ -40,7 +40,7 @@ describe("Key Quota Types & Interfaces", () => {
       VALID_QUOTA_WINDOW_TYPES,
       VALID_QUOTA_ACTIONS,
       validateApiKeyQuotaPayload,
-    } = await import("@/shared/types/keyQuota.ts");
+    } = await import("@/shared/types/keyQuota.js");
 
     expect(VALID_QUOTA_WINDOW_TYPES).toEqual([
       "rpm",
@@ -77,7 +77,7 @@ describe("Key Quota Types & Interfaces", () => {
   });
 
   it("rejects payloads that violate schema rules (negative, zero, NaN, invalid types)", async () => {
-    const { validateApiKeyQuotaPayload } = await import("@/shared/types/keyQuota.ts");
+    const { validateApiKeyQuotaPayload } = await import("@/shared/types/keyQuota.js");
 
     // Missing limits array
     expect(validateApiKeyQuotaPayload(null).ok).toBe(false);
@@ -132,7 +132,7 @@ describe("Key Quota Types & Interfaces", () => {
 
 describe("Key Quota Utilization & Reset Timer", () => {
   it("calculates window reset timestamp and duration for sliding and calendar windows", async () => {
-    const { calculateWindowReset } = await import("@/shared/types/keyQuota.ts");
+    const { calculateWindowReset } = await import("@/shared/types/keyQuota.js");
 
     // Anchor time: 2026-10-26T14:30:15.000Z (Monday)
     const fixedNow = new Date("2026-10-26T14:30:15.000Z").getTime();
@@ -167,7 +167,7 @@ describe("Key Quota Utilization & Reset Timer", () => {
   });
 
   it("formats human-readable reset countdown timers accurately", async () => {
-    const { formatResetTimer } = await import("@/shared/types/keyQuota.ts");
+    const { formatResetTimer } = await import("@/shared/types/keyQuota.js");
 
     expect(formatResetTimer(0)).toBe("0s");
     expect(formatResetTimer(-500)).toBe("0s");
@@ -182,7 +182,7 @@ describe("Key Quota Utilization & Reset Timer", () => {
       calculateUtilizationPercent,
       getQuotaStatus,
       computeKeyQuotaUtilization,
-    } = await import("@/shared/types/keyQuota.ts");
+    } = await import("@/shared/types/keyQuota.js");
 
     // Percentage calculation
     expect(calculateUtilizationPercent(0, 100)).toBe(0);
@@ -243,7 +243,7 @@ describe("Spend Trends Aggregation & Ledger Retrieval", () => {
   });
 
   it("aggregates raw cost ledger entries into hourly and daily trend buckets", async () => {
-    const { aggregateSpendTrends } = await import("@/shared/types/keyQuota.ts");
+    const { aggregateSpendTrends } = await import("@/shared/types/keyQuota.js");
 
     const rawRows = [
       {
@@ -289,7 +289,7 @@ describe("Spend Trends Aggregation & Ledger Retrieval", () => {
   it("queries spend trends directly from SQLite request_cost_ledger with bounded limits", async () => {
     const { getAdapter } = await import("@/lib/db/driver.js");
     const { insertRequestCostLedger } = await import("@/lib/db/keyQuota.js");
-    const { getSpendTrendsFromLedger } = await import("@/shared/types/keyQuota.ts");
+    const { getSpendTrendsFromLedger } = await import("@/shared/types/keyQuota.js");
 
     const db = await getAdapter();
     const apiKeyId = "key-test-trends-1";
@@ -350,7 +350,7 @@ describe("Spend Trends Aggregation & Ledger Retrieval", () => {
   });
 
   it("fails open when database errors occur on spend trends query", async () => {
-    const { getSpendTrendsFromLedger } = await import("@/shared/types/keyQuota.ts");
+    const { getSpendTrendsFromLedger } = await import("@/shared/types/keyQuota.js");
 
     const faultyDb = {
       all: vi.fn(() => {
@@ -364,7 +364,7 @@ describe("Spend Trends Aggregation & Ledger Retrieval", () => {
   });
 
   it("returns degraded fail-open result without throwing when called without a db argument", async () => {
-    const { getSpendTrendsFromLedger } = await import("@/shared/types/keyQuota.ts");
+    const { getSpendTrendsFromLedger } = await import("@/shared/types/keyQuota.js");
 
     const res = await getSpendTrendsFromLedger({ apiKeyId: "no-db-key" });
     expect(res).toEqual({ points: [], degraded: true });
@@ -383,7 +383,7 @@ describe("Key Quota Backend API & FailOpen", () => {
   });
 
   it("enforces authentication and rejects unauthorized GET and PUT requests", async () => {
-    const { GET, PUT } = await import("@/app/api/keys/[id]/quota/route.ts");
+    const { GET, PUT } = await import("@/app/api/keys/[id]/quota/route.js");
 
     // Unauthenticated GET request with requireLogin enabled
     const unauthReq = new Request("http://localhost:20128/api/keys/key-123/quota", {
@@ -408,7 +408,7 @@ describe("Key Quota Backend API & FailOpen", () => {
   });
 
   it("returns 404 when key ID does not exist in database", async () => {
-    const { GET, PUT } = await import("@/app/api/keys/[id]/quota/route.ts");
+    const { GET, PUT } = await import("@/app/api/keys/[id]/quota/route.js");
     const { createDashboardAuthToken } = await import("@/lib/auth/dashboardSession.js");
     const token = await createDashboardAuthToken({ user: "admin" });
 
@@ -438,7 +438,7 @@ describe("Key Quota Backend API & FailOpen", () => {
   });
 
   it("never returns raw API keys or cleartext SHA-256 hashes in GET or PUT responses", async () => {
-    const { GET, PUT } = await import("@/app/api/keys/[id]/quota/route.ts");
+    const { GET, PUT } = await import("@/app/api/keys/[id]/quota/route.js");
     const { createApiKey } = await import("@/lib/localDb");
     const { createDashboardAuthToken } = await import("@/lib/auth/dashboardSession.js");
     const { hashApiKey } = await import("@/lib/db/keyQuota.js");
@@ -498,7 +498,7 @@ describe("Key Quota Backend API & FailOpen", () => {
   });
 
   it("handles unconfigured keys gracefully with zero / unlimited placeholders", async () => {
-    const { GET } = await import("@/app/api/keys/[id]/quota/route.ts");
+    const { GET } = await import("@/app/api/keys/[id]/quota/route.js");
     const { createApiKey } = await import("@/lib/localDb");
     const { createDashboardAuthToken } = await import("@/lib/auth/dashboardSession.js");
 
@@ -523,7 +523,7 @@ describe("Key Quota Backend API & FailOpen", () => {
   });
 
   it("fails open with degraded: true when database or quota store operations fail", async () => {
-    const { GET } = await import("@/app/api/keys/[id]/quota/route.ts");
+    const { GET } = await import("@/app/api/keys/[id]/quota/route.js");
     const { createApiKey } = await import("@/lib/localDb");
     const { createDashboardAuthToken } = await import("@/lib/auth/dashboardSession.js");
 
@@ -555,7 +555,7 @@ describe("Key Quota Backend API & FailOpen", () => {
 describe("UTC Window Boundaries Parity (server vs shared-types)", () => {
   it("enforces exact parity across 18 window types and 25 fixed timestamps", async () => {
     const { getUtcWindowBoundaries: serverGetUtcWindowBoundaries } = await import("@/lib/db/keyQuota.js");
-    const { getUtcWindowBoundaries: sharedGetUtcWindowBoundaries } = await import("@/shared/types/keyQuota.ts");
+    const { getUtcWindowBoundaries: sharedGetUtcWindowBoundaries } = await import("@/shared/types/keyQuota.js");
 
     const windowTypes = [
       "daily",

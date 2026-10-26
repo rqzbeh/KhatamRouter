@@ -2,15 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import { cn } from "@/shared/utils/cn";
-import type {
-  ConnectionLimitOverrides,
-  ConnectionLimitsFormState,
-  ConnectionLimitsValidationErrors,
-  ConnectionLimitsFormValidationResult,
-  ModelConcurrencyRow,
-} from "@/shared/types/connectionLimits";
 
-const INTEGER_KEYS: Array<keyof Pick<ConnectionLimitsFormState, "rpm" | "rpd" | "tpm" | "tpd" | "maxConcurrent">> = [
+const INTEGER_KEYS = [
   "rpm",
   "rpd",
   "tpm",
@@ -18,7 +11,7 @@ const INTEGER_KEYS: Array<keyof Pick<ConnectionLimitsFormState, "rpm" | "rpd" | 
   "maxConcurrent",
 ];
 
-const FLOAT_TIMING_KEYS: Array<keyof Pick<ConnectionLimitsFormState, "minTime" | "maxWaitMs" | "executionMaxWaitMs">> = [
+const FLOAT_TIMING_KEYS = [
   "minTime",
   "maxWaitMs",
   "executionMaxWaitMs",
@@ -26,10 +19,13 @@ const FLOAT_TIMING_KEYS: Array<keyof Pick<ConnectionLimitsFormState, "minTime" |
 
 /**
  * Pure client-side validation helper for Connection Limits Form.
+ *
+ * @param {Object} form
+ * @returns {{ isValid: boolean, errors: Object, sanitized: Object }}
  */
-export function validateLimitsForm(form: ConnectionLimitsFormState): ConnectionLimitsFormValidationResult {
-  const errors: ConnectionLimitsValidationErrors = {};
-  const sanitized: ConnectionLimitOverrides = {};
+export function validateLimitsForm(form) {
+  const errors = {};
+  const sanitized = {};
 
   // Integer positive fields (> 0, floored)
   for (const key of INTEGER_KEYS) {
@@ -75,8 +71,8 @@ export function validateLimitsForm(form: ConnectionLimitsFormState): ConnectionL
 
   // modelConcurrency
   if (Array.isArray(form.modelConcurrency) && form.modelConcurrency.length > 0) {
-    const modelErrors: Record<string, string> = {};
-    const sanitizedModels: Record<string, number> = {};
+    const modelErrors = {};
+    const sanitizedModels = {};
 
     for (let i = 0; i < form.modelConcurrency.length; i++) {
       const row = form.modelConcurrency[i];
@@ -116,11 +112,8 @@ export function validateLimitsForm(form: ConnectionLimitsFormState): ConnectionL
   };
 }
 
-function getInitialFormState(
-  connection?: ConnectionLimitsModalProps["connection"],
-  initialLimits?: ConnectionLimitOverrides | null
-): ConnectionLimitsFormState {
-  let limitsObj: ConnectionLimitOverrides | null = null;
+function getInitialFormState(connection, initialLimits) {
+  let limitsObj = null;
   if (initialLimits) {
     limitsObj = initialLimits;
   } else if (connection?.rate_limit_overrides_json) {
@@ -135,7 +128,7 @@ function getInitialFormState(
     }
   }
 
-  const modelRows: ModelConcurrencyRow[] = [];
+  const modelRows = [];
   if (limitsObj?.modelConcurrency && typeof limitsObj.modelConcurrency === "object") {
     for (const [model, count] of Object.entries(limitsObj.modelConcurrency)) {
       modelRows.push({ model, concurrency: String(count) });
@@ -156,31 +149,6 @@ function getInitialFormState(
   };
 }
 
-export interface ConnectionLimitsModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  connection?: {
-    id: string;
-    name?: string | null;
-    provider?: string | null;
-    rate_limit_overrides_json?: ConnectionLimitOverrides | string | null;
-  } | null;
-  initialLimits?: ConnectionLimitOverrides | null;
-  onSave?: (limits: ConnectionLimitOverrides) => Promise<void> | void;
-}
-
-interface ModalFieldProps {
-  label: string;
-  type?: string;
-  placeholder?: string;
-  value: string;
-  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  error?: string;
-  hint?: string;
-  min?: string;
-  step?: string;
-}
-
 function ModalField({
   label,
   type = "text",
@@ -191,7 +159,7 @@ function ModalField({
   hint,
   min,
   step,
-}: ModalFieldProps) {
+}) {
   return (
     <div className="flex flex-col gap-1.5">
       <label className="text-xs font-medium text-text-main">{label}</label>
@@ -226,16 +194,16 @@ function ConnectionLimitsDialogContent({
   connection,
   initialLimits,
   onSave,
-}: Omit<ConnectionLimitsModalProps, "isOpen">) {
-  const [form, setForm] = useState<ConnectionLimitsFormState>(() =>
+}) {
+  const [form, setForm] = useState(() =>
     getInitialFormState(connection, initialLimits)
   );
-  const [errors, setErrors] = useState<ConnectionLimitsValidationErrors>({});
+  const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState(null);
 
   useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
+    const handleEscape = (e) => {
       if (e.key === "Escape") onClose();
     };
     if (typeof document !== "undefined") {
@@ -244,9 +212,7 @@ function ConnectionLimitsDialogContent({
     }
   }, [onClose]);
 
-  const handleFieldChange = (field: keyof Omit<ConnectionLimitsFormState, "modelConcurrency">) => (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
+  const handleFieldChange = (field) => (e) => {
     const value = e.target.value;
     setForm((prev) => ({ ...prev, [field]: value }));
     if (errors[field]) {
@@ -265,7 +231,7 @@ function ConnectionLimitsDialogContent({
     }));
   };
 
-  const handleRemoveModelRow = (index: number) => {
+  const handleRemoveModelRow = (index) => {
     setForm((prev) => {
       const nextModels = [...prev.modelConcurrency];
       nextModels.splice(index, 1);
@@ -273,7 +239,7 @@ function ConnectionLimitsDialogContent({
     });
   };
 
-  const handleModelChange = (index: number, key: "model" | "concurrency", val: string) => {
+  const handleModelChange = (index, key, val) => {
     setForm((prev) => {
       const nextModels = [...prev.modelConcurrency];
       nextModels[index] = { ...nextModels[index], [key]: val };
@@ -298,7 +264,7 @@ function ConnectionLimitsDialogContent({
     setSubmitError(null);
   };
 
-  const handleSubmit = async (e?: React.FormEvent) => {
+  const handleSubmit = async (e) => {
     if (e) e.preventDefault();
     setSubmitError(null);
 
@@ -328,7 +294,7 @@ function ConnectionLimitsDialogContent({
       }
 
       onClose();
-    } catch (err: any) {
+    } catch (err) {
       setSubmitError(err.message || "Failed to save connection limits");
     } finally {
       setLoading(false);
@@ -349,225 +315,246 @@ function ConnectionLimitsDialogContent({
 
       {/* Dialog window */}
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-title"
         className={cn(
-          "relative w-full max-w-xl bg-surface",
-          "border border-border-subtle",
-          "rounded-[14px] shadow-[var(--shadow-elev)]",
-          "fade-in flex flex-col max-h-[90vh]"
+          "relative z-10 w-full max-w-2xl bg-surface border border-border rounded-2xl shadow-xl",
+          "flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-150"
         )}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-border-subtle">
-          <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-brand-500 text-[20px]">tune</span>
-            <h2 className="text-base font-semibold text-text-main">{title}</h2>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border-subtle bg-surface-2/40">
+          <div>
+            <h2 id="modal-title" className="text-base font-semibold text-text-main flex items-center gap-2">
+              <span className="material-symbols-outlined text-brand-500 text-[20px]">tune</span>
+              {title}
+            </h2>
+            <p className="text-xs text-text-muted mt-0.5">
+              Enforce per-connection dispatch rates, wait timeouts, concurrency caps, and budget ceilings.
+            </p>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            aria-label="Close"
-            className="p-1 rounded-[8px] text-text-muted hover:bg-surface-2 hover:text-text-main transition-colors cursor-pointer"
+            className="p-1 rounded-lg text-text-muted hover:text-text-main hover:bg-surface-2 transition-colors"
+            title="Close dialog"
+            aria-label="Close dialog"
           >
-            <span className="material-symbols-outlined text-[18px]">close</span>
+            <span className="material-symbols-outlined text-[20px]">close</span>
           </button>
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 flex flex-col gap-6 custom-scrollbar">
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-6">
           {submitError && (
-            <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-[10px] text-red-500 text-xs flex items-center gap-2">
-              <span className="material-symbols-outlined text-[16px]">error</span>
+            <div className="p-3 text-xs text-red-500 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center gap-2">
+              <span className="material-symbols-outlined text-[16px] shrink-0">error</span>
               <span>{submitError}</span>
             </div>
           )}
 
-          {/* Section 1: Rate & Token Limits */}
-          <div className="flex flex-col gap-3">
-            <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
-              Rate & Token Limits
-            </h3>
+          {/* Section: Rate Limits */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 pb-1 border-b border-border-subtle">
+              <span className="material-symbols-outlined text-text-muted text-[16px]">speed</span>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+                Request &amp; Token Rates
+              </h3>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <ModalField
-                label="Requests / Minute (RPM)"
-                type="number"
-                min="1"
-                step="1"
+                label="Requests per Minute (RPM)"
                 placeholder="e.g. 60"
                 value={form.rpm}
                 onChange={handleFieldChange("rpm")}
                 error={errors.rpm}
-                hint="Max requests admitted per minute"
-              />
-              <ModalField
-                label="Requests / Day (RPD)"
+                hint="Maximum requests dispatched per minute"
                 type="number"
                 min="1"
-                step="1"
+              />
+              <ModalField
+                label="Requests per Day (RPD)"
                 placeholder="e.g. 5000"
                 value={form.rpd}
                 onChange={handleFieldChange("rpd")}
                 error={errors.rpd}
-                hint="Max requests per UTC calendar day"
-              />
-              <ModalField
-                label="Tokens / Minute (TPM)"
+                hint="Maximum requests admitted per calendar day"
                 type="number"
                 min="1"
-                step="1"
+              />
+              <ModalField
+                label="Tokens per Minute (TPM)"
                 placeholder="e.g. 100000"
                 value={form.tpm}
                 onChange={handleFieldChange("tpm")}
                 error={errors.tpm}
-                hint="Max tokens admitted per minute"
-              />
-              <ModalField
-                label="Tokens / Day (TPD)"
+                hint="Maximum tokens processed per minute"
                 type="number"
                 min="1"
-                step="1"
+              />
+              <ModalField
+                label="Tokens per Day (TPD)"
                 placeholder="e.g. 2000000"
                 value={form.tpd}
                 onChange={handleFieldChange("tpd")}
                 error={errors.tpd}
-                hint="Max tokens per UTC calendar day"
+                hint="Maximum tokens processed per calendar day"
+                type="number"
+                min="1"
               />
             </div>
           </div>
 
-          {/* Section 2: Pacing & Timeouts */}
-          <div className="flex flex-col gap-3">
-            <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
-              Pacing & Queue Timeouts
-            </h3>
+          {/* Section: Timing & Spacing */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 pb-1 border-b border-border-subtle">
+              <span className="material-symbols-outlined text-text-muted text-[16px]">timer</span>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+                Pacing &amp; Timeouts
+              </h3>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <ModalField
-                label="Min Delay (ms)"
-                type="number"
-                min="1"
+                label="Min Inter-request Time (ms)"
                 placeholder="e.g. 250"
                 value={form.minTime}
                 onChange={handleFieldChange("minTime")}
                 error={errors.minTime}
-                hint="Inter-request spacing"
-              />
-              <ModalField
-                label="Queue Timeout (ms)"
+                hint="Minimum delay between dispatches"
                 type="number"
                 min="1"
+              />
+              <ModalField
+                label="Max Queue Wait (ms)"
                 placeholder="e.g. 15000"
                 value={form.maxWaitMs}
                 onChange={handleFieldChange("maxWaitMs")}
                 error={errors.maxWaitMs}
-                hint="Queue wait ceiling"
+                hint="Queue wait timeout before abort"
+                type="number"
+                min="1"
               />
               <ModalField
                 label="Execution Timeout (ms)"
-                type="number"
-                min="1"
                 placeholder="e.g. 60000"
                 value={form.executionMaxWaitMs}
                 onChange={handleFieldChange("executionMaxWaitMs")}
                 error={errors.executionMaxWaitMs}
-                hint="Upstream response timeout"
+                hint="Upstream socket/response timeout"
+                type="number"
+                min="1"
               />
             </div>
           </div>
 
-          {/* Section 3: Concurrency & Budget Ceiling */}
-          <div className="flex flex-col gap-3">
-            <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
-              Concurrency & Budget Ceiling
-            </h3>
+          {/* Section: Concurrency & Budget */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 pb-1 border-b border-border-subtle">
+              <span className="material-symbols-outlined text-text-muted text-[16px]">stacked_line_chart</span>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+                Concurrency &amp; Budget
+              </h3>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <ModalField
                 label="Max In-Flight Concurrency"
-                type="number"
-                min="1"
-                step="1"
                 placeholder="e.g. 5"
                 value={form.maxConcurrent}
                 onChange={handleFieldChange("maxConcurrent")}
                 error={errors.maxConcurrent}
-                hint="Global concurrent request cap"
+                hint="Global in-flight request limit for connection"
+                type="number"
+                min="1"
               />
               <ModalField
-                label="Budget Ceiling (USD) — Stored & Displayed"
-                type="number"
-                min="0"
-                step="any"
-                placeholder="e.g. 100.00"
+                label="Budget Ceiling ($ USD)"
+                placeholder="e.g. 50.00"
                 value={form.maxBudgetUsd}
                 onChange={handleFieldChange("maxBudgetUsd")}
                 error={errors.maxBudgetUsd}
-                hint="Cost threshold displayed in connection views"
+                hint="Stored and displayed connection budget cap"
+                type="number"
+                min="0"
+                step="0.01"
               />
             </div>
           </div>
 
-          {/* Section 4: Per-Model Concurrency */}
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
-                Per-Model Concurrency Overrides
-              </h3>
+          {/* Section: Per-Model Concurrency Map */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between pb-1 border-b border-border-subtle">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-text-muted text-[16px]">account_tree</span>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+                  Per-Model Concurrency Overrides
+                </h3>
+              </div>
               <button
                 type="button"
                 onClick={handleAddModelRow}
-                className="px-2 py-1 text-xs font-medium text-brand-500 hover:text-brand-600 bg-brand-500/10 hover:bg-brand-500/20 rounded-[6px] transition-colors flex items-center gap-1 cursor-pointer"
+                className="inline-flex items-center gap-1 text-xs text-brand-500 hover:text-brand-600 font-medium transition-colors"
               >
-                <span className="material-symbols-outlined text-[14px]">add</span>
-                <span>Add Model Limit</span>
+                <span className="material-symbols-outlined text-[15px]">add</span>
+                Add Model Cap
               </button>
             </div>
 
             {form.modelConcurrency.length === 0 ? (
               <p className="text-xs text-text-muted italic py-1">
-                No per-model concurrency limits configured. Requests share connection-level max concurrency.
+                No per-model concurrency caps configured. All models share the global connection limit.
               </p>
             ) : (
-              <div className="flex flex-col gap-2">
+              <div className="space-y-2">
                 {form.modelConcurrency.map((row, idx) => (
                   <div key={idx} className="flex items-start gap-2">
-                    <div className="flex-1 flex flex-col gap-1">
+                    <div className="flex-1">
                       <input
-                        placeholder="Model ID (e.g. gpt-5.6-sol)"
+                        type="text"
+                        placeholder="Model ID (e.g. gpt-4o, claude-3-5-sonnet)"
                         value={row.model}
                         onChange={(e) => handleModelChange(idx, "model", e.target.value)}
                         className={cn(
                           "w-full py-2 px-3 text-sm text-text-main bg-surface-2 rounded-[10px]",
                           "border border-border-subtle placeholder-text-muted/60",
-                          "focus:outline-none focus:ring-2 focus:ring-brand-500/30",
-                          errors.modelConcurrency?.[`model_${idx}`] && "ring-1 ring-red-500"
+                          "focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500/40",
+                          errors.modelConcurrency?.[`model_${idx}`] && "ring-1 ring-red-500 border-red-500/40"
                         )}
                       />
                       {errors.modelConcurrency?.[`model_${idx}`] && (
-                        <p className="text-[11px] text-red-500">{errors.modelConcurrency[`model_${idx}`]}</p>
+                        <p className="text-[11px] text-red-500 mt-1">
+                          {errors.modelConcurrency[`model_${idx}`]}
+                        </p>
                       )}
                     </div>
-                    <div className="w-28 flex flex-col gap-1">
+
+                    <div className="w-32">
                       <input
-                        placeholder="Cap (e.g. 2)"
                         type="number"
                         min="1"
-                        step="1"
+                        placeholder="Max concurrent"
                         value={row.concurrency}
                         onChange={(e) => handleModelChange(idx, "concurrency", e.target.value)}
                         className={cn(
                           "w-full py-2 px-3 text-sm text-text-main bg-surface-2 rounded-[10px]",
                           "border border-border-subtle placeholder-text-muted/60",
-                          "focus:outline-none focus:ring-2 focus:ring-brand-500/30",
-                          errors.modelConcurrency?.[`concurrency_${idx}`] && "ring-1 ring-red-500"
+                          "focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500/40",
+                          errors.modelConcurrency?.[`concurrency_${idx}`] && "ring-1 ring-red-500 border-red-500/40"
                         )}
                       />
                       {errors.modelConcurrency?.[`concurrency_${idx}`] && (
-                        <p className="text-[11px] text-red-500">{errors.modelConcurrency[`concurrency_${idx}`]}</p>
+                        <p className="text-[11px] text-red-500 mt-1">
+                          {errors.modelConcurrency[`concurrency_${idx}`]}
+                        </p>
                       )}
                     </div>
+
                     <button
                       type="button"
                       onClick={() => handleRemoveModelRow(idx)}
-                      className="p-2 text-text-muted hover:text-red-500 rounded-[8px] hover:bg-surface-2 transition-colors cursor-pointer"
-                      title="Remove model limit"
-                      aria-label="Remove model limit"
+                      className="p-2 text-text-muted hover:text-red-500 transition-colors mt-0.5 rounded-lg hover:bg-surface-2"
+                      title="Remove model cap"
+                      aria-label="Remove model cap"
                     >
                       <span className="material-symbols-outlined text-[18px]">delete</span>
                     </button>
@@ -578,35 +565,40 @@ function ConnectionLimitsDialogContent({
           </div>
         </form>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-3 p-4 border-t border-border-subtle bg-surface-2/40">
+        {/* Footer Actions */}
+        <div className="flex items-center justify-between px-6 py-3.5 border-t border-border-subtle bg-surface-2/30">
           <button
             type="button"
             onClick={handleReset}
-            disabled={loading}
-            className="px-3 py-1.5 text-xs font-medium text-text-muted hover:text-text-main rounded-[8px] hover:bg-surface-2 transition-colors cursor-pointer disabled:opacity-50"
+            className="text-xs text-text-muted hover:text-red-500 transition-colors flex items-center gap-1 px-2 py-1.5 rounded-lg hover:bg-surface-2"
           >
-            Clear All
+            <span className="material-symbols-outlined text-[15px]">restart_alt</span>
+            Reset to Defaults
           </button>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={loading}
-            className="px-3 py-1.5 text-xs font-medium text-text-main bg-surface-2 hover:bg-surface-3 border border-border-subtle rounded-[8px] transition-colors cursor-pointer disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={loading}
-            className="px-4 py-1.5 text-xs font-semibold text-white bg-brand-500 hover:bg-brand-600 rounded-[8px] shadow-sm transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
-          >
-            {loading && (
-              <span className="material-symbols-outlined animate-spin text-[14px]">progress_activity</span>
-            )}
-            <span>Save Limits</span>
-          </button>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={loading}
+              className="px-3.5 py-1.5 text-xs font-medium text-text-main bg-surface-2 hover:bg-surface-3 rounded-lg border border-border-subtle transition-all duration-150"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={loading}
+              className={cn(
+                "px-4 py-1.5 text-xs font-medium text-white bg-brand-500 hover:bg-brand-600 rounded-lg",
+                "shadow-sm transition-all duration-150 flex items-center gap-1.5",
+                loading && "opacity-70 cursor-not-allowed"
+              )}
+            >
+              {loading && <span className="material-symbols-outlined text-[14px] animate-spin">progress_activity</span>}
+              Save Limits
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -614,8 +606,15 @@ function ConnectionLimitsDialogContent({
 }
 
 /**
- * Dedicated TypeScript/React dialog for configuring per-connection rate limits,
+ * Dedicated React dialog for configuring per-connection rate limits,
  * concurrency caps, inter-request pacing, and budget ceilings.
+ *
+ * @param {Object} props
+ * @param {boolean} props.isOpen
+ * @param {() => void} props.onClose
+ * @param {Object} [props.connection]
+ * @param {Object} [props.initialLimits]
+ * @param {(limits: Object) => Promise<void> | void} [props.onSave]
  */
 export default function ConnectionLimitsModal({
   isOpen,
@@ -623,7 +622,7 @@ export default function ConnectionLimitsModal({
   connection,
   initialLimits,
   onSave,
-}: ConnectionLimitsModalProps) {
+}) {
   if (!isOpen) return null;
 
   return (

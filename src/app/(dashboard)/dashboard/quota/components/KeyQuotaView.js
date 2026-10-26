@@ -7,24 +7,13 @@ import Badge from "@/shared/components/Badge";
 import { cn } from "@/shared/utils/cn";
 import SpendTrendsChart from "./SpendTrendsChart";
 import QuotaLimitsModal from "./QuotaLimitsModal";
-import {
-  formatResetTimer,
-  type KeyQuotaApiResponse,
-  type QuotaWindowType,
-} from "@/shared/types/keyQuota.ts";
+import { formatResetTimer } from "@/shared/types/keyQuota";
 
-const CardComponent: any = Card;
-const ButtonComponent: any = Button;
-const BadgeComponent: any = Badge;
+const CardComponent = Card;
+const ButtonComponent = Button;
+const BadgeComponent = Badge;
 
-interface ApiKeySummary {
-  id: string;
-  name: string;
-  key: string;
-  isActive: boolean;
-}
-
-const WINDOW_LABELS: Record<QuotaWindowType, string> = {
+const WINDOW_LABELS = {
   rpm: "Requests / Minute",
   rph: "Requests / Hour",
   rpd: "Requests / Day",
@@ -35,15 +24,18 @@ const WINDOW_LABELS: Record<QuotaWindowType, string> = {
   monthly_usd: "Monthly Budget",
 };
 
+/**
+ * KeyQuotaView component for inspecting and managing API key quotas and spend trends.
+ */
 export default function KeyQuotaView() {
-  const [keys, setKeys] = useState<ApiKeySummary[]>([]);
-  const [selectedKeyId, setSelectedKeyId] = useState<string>("");
-  const [quotaData, setQuotaData] = useState<KeyQuotaApiResponse | null>(null);
+  const [keys, setKeys] = useState([]);
+  const [selectedKeyId, setSelectedKeyId] = useState("");
+  const [quotaData, setQuotaData] = useState(null);
   const [loadingKeys, setLoadingKeys] = useState(true);
   const [loadingQuota, setLoadingQuota] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [period, setPeriod] = useState<"today" | "24h" | "7d" | "30d">("24h");
+  const [period, setPeriod] = useState("24h");
 
   // Load all API keys on mount
   const loadKeys = useCallback(async () => {
@@ -71,7 +63,7 @@ export default function KeyQuotaView() {
   }, [loadKeys]);
 
   // Load quota data for selected key
-  const loadQuota = useCallback(async (keyId: string, currentPeriod: string) => {
+  const loadQuota = useCallback(async (keyId, currentPeriod) => {
     if (!keyId) return;
     setLoadingQuota(true);
     try {
@@ -102,7 +94,7 @@ export default function KeyQuotaView() {
       k.id.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const getStatusBadge = (status?: "healthy" | "warning" | "exceeded") => {
+  const getStatusBadge = (status) => {
     if (status === "exceeded") {
       return (
         <BadgeComponent variant="error" size="sm" dot>
@@ -124,7 +116,7 @@ export default function KeyQuotaView() {
     );
   };
 
-  const getProgressBarColor = (pct: number) => {
+  const getProgressBarColor = (pct) => {
     if (pct > 90) return "bg-red-500";
     if (pct >= 70) return "bg-amber-500";
     return "bg-emerald-500";
@@ -324,7 +316,7 @@ export default function KeyQuotaView() {
                         const isTokens = item.windowType.startsWith("tp");
                         const unit = isUsd ? "$" : isTokens ? "tok" : "req";
 
-                        const formatVal = (v: number) => {
+                        const formatVal = (v) => {
                           if (isUsd) return `$${v.toFixed(2)}`;
                           if (v >= 1000) return `${(v / 1000).toFixed(1)}k`;
                           return String(Math.round(v));

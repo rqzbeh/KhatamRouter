@@ -8,26 +8,14 @@ import Select from "@/shared/components/Select";
 import {
   VALID_QUOTA_WINDOW_TYPES,
   VALID_QUOTA_ACTIONS,
-  type QuotaWindowType,
-  type QuotaAction,
-  type ApiKeyQuotaLimit,
-} from "@/shared/types/keyQuota.ts";
+} from "@/shared/types/keyQuota";
 
-const ModalComponent: any = Modal;
-const ButtonComponent: any = Button;
-const InputComponent: any = Input;
-const SelectComponent: any = Select;
+const ModalComponent = Modal;
+const ButtonComponent = Button;
+const InputComponent = Input;
+const SelectComponent = Select;
 
-export interface QuotaLimitsModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  keyId: string;
-  keyName: string;
-  existingLimits?: ApiKeyQuotaLimit[];
-  onSaved?: () => void;
-}
-
-const WINDOW_LABELS: Record<QuotaWindowType, string> = {
+const WINDOW_LABELS = {
   rpm: "Requests / Minute (RPM)",
   rph: "Requests / Hour (RPH)",
   rpd: "Requests / Day (RPD)",
@@ -38,12 +26,17 @@ const WINDOW_LABELS: Record<QuotaWindowType, string> = {
   monthly_usd: "Monthly Budget ($ USD)",
 };
 
-interface FormLimitRow {
-  windowType: QuotaWindowType;
-  limitValue: string;
-  action: QuotaAction;
-}
-
+/**
+ * QuotaLimitsModal component for configuring sliding-window quotas and USD spend limits.
+ *
+ * @param {Object} props
+ * @param {boolean} props.isOpen
+ * @param {() => void} props.onClose
+ * @param {string} props.keyId
+ * @param {string} props.keyName
+ * @param {Array<Object>} [props.existingLimits]
+ * @param {() => void} [props.onSaved]
+ */
 export default function QuotaLimitsModal({
   isOpen,
   onClose,
@@ -51,10 +44,10 @@ export default function QuotaLimitsModal({
   keyName,
   existingLimits = [],
   onSaved,
-}: QuotaLimitsModalProps) {
-  const [rows, setRows] = useState<FormLimitRow[]>([]);
+}) {
+  const [rows, setRows] = useState([]);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -85,21 +78,17 @@ export default function QuotaLimitsModal({
     setRows([...rows, { windowType: nextType, limitValue: "100", action: "reject" }]);
   };
 
-  const handleRemoveRow = (idx: number) => {
+  const handleRemoveRow = (idx) => {
     setRows(rows.filter((_, i) => i !== idx));
   };
 
-  const handleRowChange = (
-    idx: number,
-    field: keyof FormLimitRow,
-    value: string
-  ) => {
+  const handleRowChange = (idx, field, value) => {
     const updated = [...rows];
     updated[idx] = { ...updated[idx], [field]: value };
     setRows(updated);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
 
@@ -134,7 +123,7 @@ export default function QuotaLimitsModal({
 
       onSaved?.();
       onClose();
-    } catch (err: any) {
+    } catch (err) {
       setError(err?.message || "Failed to update quota limits");
     } finally {
       setSaving(false);
@@ -177,7 +166,7 @@ export default function QuotaLimitsModal({
                   </label>
                   <SelectComponent
                     value={row.windowType}
-                    onChange={(val: any) => handleRowChange(idx, "windowType", val)}
+                    onChange={(val) => handleRowChange(idx, "windowType", val)}
                     options={VALID_QUOTA_WINDOW_TYPES.map((t) => ({
                       value: t,
                       label: WINDOW_LABELS[t],
@@ -194,7 +183,7 @@ export default function QuotaLimitsModal({
                     min="0.001"
                     step="any"
                     value={row.limitValue}
-                    onChange={(e: any) => handleRowChange(idx, "limitValue", e.target.value)}
+                    onChange={(e) => handleRowChange(idx, "limitValue", e.target.value)}
                     required
                   />
                 </div>
@@ -205,7 +194,7 @@ export default function QuotaLimitsModal({
                   </label>
                   <SelectComponent
                     value={row.action}
-                    onChange={(val: any) => handleRowChange(idx, "action", val)}
+                    onChange={(val) => handleRowChange(idx, "action", val)}
                     options={VALID_QUOTA_ACTIONS.map((a) => ({
                       value: a,
                       label: a.charAt(0).toUpperCase() + a.slice(1),

@@ -1,5 +1,5 @@
 import PropTypes from "prop-types";
-import CapacityBadges from "@/shared/components/CapacityBadges.tsx";
+import CapacityBadges from "@/shared/components/CapacityBadges";
 
 export default function ModelRow({ model, fullModel, alias, copied, onCopy, testStatus, isCustom, isFree, onDeleteAlias, onTest, isTesting, onDisable, caps, thinkingSuffix }) {
   const displayModel = thinkingSuffix ? `${fullModel}(${thinkingSuffix})` : fullModel;
