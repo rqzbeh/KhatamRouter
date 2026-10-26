@@ -1,3 +1,25 @@
+# v0.5.111 (2026-10-26) — Upstream Port Window v0.5.109 → v0.5.111
+
+## Security
+- **Translator Tool Images**: port `decolua/9router@9500965` converting `image_url` parts inside tool messages to Claude images with SSRF hardening: strictly restrict to data: URIs, reject remote http(s) URLs, enforce 10 MiB pre-decode base64 size ceiling, allow only safe raster MIME types (`image/jpeg`, `image/png`, `image/gif`, `image/webp`), and fail open by dropping unsupported elements
+- **OpenCode Tool Normalization**: port `decolua/9router@483c10f` normalizing colliding tool definitions in-place with host reconnaissance protection: retain fixed neutral constants (`/home/user/project`, `/var/cache/opencode`, `'linux'`) and omit all references to native binary TLS clients
+- **Headroom Document Safety**: port `decolua/9router@86adae35` preserving native Claude PDFs and tool history with loopback-only binding validation and fail-open invariant
+- **Ollama Local TTS Hardening**: port `decolua/9router@31a9d26` adding Phonon TTS with security hardening: strict URL scheme whitelist (http/https only), credentials embedded in host rejected, 120s synthesis and 10s discovery timeout guards, bounded 50 MiB audio buffer in base handler, and required router ACL enforcement
+- **Ollama Local Embeddings Hardening**: port `decolua/9router@10cd6c0` adding Ollama embeddings with security hardening: URL scheme whitelist, credentials in host rejected, 10s fetch timeouts, admin-configured baseUrl only, and router ACL enforcement
+- **Provider Key Disambiguation**: port `decolua/9router@2924e05` normalizing DeepSeek model IDs to upstream wire expectations (`deepseek-ai/DeepSeek-V3` / `deepseek-ai/DeepSeek-R1`)
+
+## Features
+- **Providers**: add Runcrate provider (`decolua/9router@b9c2722`) serving open models via OpenAI-compatible endpoints with dedicated billing balance key validation
+- **TTS**: add Ollama Local TTS provider support (`decolua/9router@31a9d26`) serving Phonon family models (15 checkpoints, 38 preset voices) with WAV/PCM format support and in-browser preview
+- **Embeddings**: add Ollama Local embedding adapter (`decolua/9router@10cd6c0`) with dynamic dimensions and automated model discovery
+- **Catalogs**: add Kimi K3.1 Pro to OpenCode Go (`decolua/9router@5cd4a75`) and CommandCode (`decolua/9router@a3bdaf6`) catalogs
+- **Codex Image**: drive image generation from `gpt-6-sol` (`decolua/9router@fbac122`)
+
+## Fixes
+- **Thinking**: preserve maximum reasoning effort for GPT-5.6 / GPT-6 on OpenAI Compatible nodes (`decolua/9router@763fb68`)
+- **Claude**: keep adaptive thinking for Haiku 5.5 on passthrough routes (`decolua/9router@0ad0a72`)
+- **CLI Tools**: stop resetting Pi model caps and let users select context caps (`decolua/9router@72cb589`), and retain custom Pi model names across Apply (`decolua/9router@50dcaa0`)
+
 # v0.5.110 (Unreleased) — Pre-Wave 8 Decolua 9router Ports
 
 ## Security
