@@ -1,6 +1,45 @@
 import { v4 as uuidv4 } from "uuid";
 import { getAdapter } from "../driver.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
+import {
+  publishKhatamEvent,
+  subscribeKhatamEvent,
+  KHATAM_EVENTS,
+} from "../../redis/events.js";
+
+export const COMBOS_CACHE_TTL_MS = 5000;
+
+const comboByNameCache = new Map();
+
+export function invalidateCombosCache() {
+  comboByNameCache.clear();
+}
+
+try {
+  subscribeKhatamEvent(KHATAM_EVENTS.CONFIG_RELOAD, (payload) => {
+    if (!payload || payload.scope === "combos" || payload.scope === "all") {
+      invalidateCombosCache();
+    }
+  });
+} catch {
+  // Safe fail-open if events bus cannot hook
+}
+
+async function ensureDbHook() {
+  try {
+    const db = await getAdapter();
+    if (db && !db._combosHooked) {
+      db._combosHooked = true;
+      const origRun = db.run.bind(db);
+      db.run = (sql, ...args) => {
+        if (typeof sql === "string" && sql.trim() === "DELETE FROM combos") {
+          invalidateCombosCache();
+        }
+        return origRun(sql, ...args);
+      };
+    }
+  } catch {}
+}
 
 function rowToCombo(row) {
   if (!row) return null;
@@ -27,9 +66,23 @@ export async function getComboById(id) {
 }
 
 export async function getComboByName(name) {
+  const now = Date.now();
+  const cached = comboByNameCache.get(name);
+  if (cached && now < cached.expiresAt) {
+    return structuredClone(cached.data);
+  }
+
+  await ensureDbHook();
   const db = await getAdapter();
   const row = db.get(`SELECT * FROM combos WHERE name = ?`, [name]);
-  return rowToCombo(row);
+  const combo = rowToCombo(row);
+
+  comboByNameCache.set(name, {
+    data: combo,
+    expiresAt: now + COMBOS_CACHE_TTL_MS,
+  });
+
+  return structuredClone(combo);
 }
 
 export async function createCombo(data) {
@@ -47,6 +100,13 @@ export async function createCombo(data) {
     `INSERT INTO combos(id, name, kind, models, createdAt, updatedAt) VALUES(?, ?, ?, ?, ?, ?)`,
     [combo.id, combo.name, combo.kind, stringifyJson(combo.models), combo.createdAt, combo.updatedAt]
   );
+  invalidateCombosCache();
+  try {
+    publishKhatamEvent(KHATAM_EVENTS.CONFIG_RELOAD, {
+      scope: "combos",
+      timestamp: Date.now(),
+    });
+  } catch {}
   return combo;
 }
 
@@ -63,11 +123,30 @@ export async function updateCombo(id, data) {
     );
     result = merged;
   });
+  if (result) {
+    invalidateCombosCache();
+    try {
+      publishKhatamEvent(KHATAM_EVENTS.CONFIG_RELOAD, {
+        scope: "combos",
+        timestamp: Date.now(),
+      });
+    } catch {}
+  }
   return result;
 }
 
 export async function deleteCombo(id) {
   const db = await getAdapter();
   const res = db.run(`DELETE FROM combos WHERE id = ?`, [id]);
-  return (res?.changes ?? 0) > 0;
+  const deleted = (res?.changes ?? 0) > 0;
+  if (deleted) {
+    invalidateCombosCache();
+    try {
+      publishKhatamEvent(KHATAM_EVENTS.CONFIG_RELOAD, {
+        scope: "combos",
+        timestamp: Date.now(),
+      });
+    } catch {}
+  }
+  return deleted;
 }
