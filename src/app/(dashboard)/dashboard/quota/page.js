@@ -12,6 +12,20 @@ const TABS = [
   { value: "keys", label: "API Key Quotas" },
 ];
 
+function useSafeNavigation() {
+  let router = null;
+  let searchParams = null;
+  try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    router = useRouter();
+  } catch {}
+  try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    searchParams = useSearchParams();
+  } catch {}
+  return { router, searchParams };
+}
+
 export default function QuotaPage({ tab: propTab } = {}) {
   return (
     <Suspense fallback={<CardSkeleton />}>
@@ -20,9 +34,8 @@ export default function QuotaPage({ tab: propTab } = {}) {
   );
 }
 
-function QuotaContent({ propTab }) {
-  const searchParams = useSearchParams();
-  const router = useRouter();
+export function QuotaContent({ propTab } = {}) {
+  const { router, searchParams } = useSafeNavigation();
 
   const tabParam = propTab || searchParams?.get("tab");
   const [localTab, setLocalTab] = useState(
