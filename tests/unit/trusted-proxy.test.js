@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { resolve } from "node:path";
 import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
 
 const require = createRequire(import.meta.url);
 const REPO_ROOT = resolve(__dirname, "../..");
 
 const {
+  ipv6ToBigInt,
   parseTrustedProxyCidrs,
   isTrustedProxyPeer,
   resolveClientIp,
@@ -280,5 +282,182 @@ describe("resolveClientIp & spoof protection", () => {
         parsed: unsetParsed,
       })
     ).toBe("172.18.0.2");
+  });
+
+  // Defect 5: Equivalence note test pinning stricter behavior than master
+  it("deliberately stricter than master: loopback peer with non-IP XFF falls back to socketIp", () => {
+    const unsetParsed = parseTrustedProxyCidrs(undefined);
+
+    // Loopback peer + XFF 'unknown' => socketIp (127.0.0.1) instead of raw header
+    expect(
+      resolveClientIp({
+        socketIp: "127.0.0.1",
+        xff: "unknown",
+        parsed: unsetParsed,
+      })
+    ).toBe("127.0.0.1");
+
+    // Loopback peer + valid XFF => returns extracted XFF
+    expect(
+      resolveClientIp({
+        socketIp: "127.0.0.1",
+        xff: "203.0.113.195",
+        parsed: unsetParsed,
+      })
+    ).toBe("203.0.113.195");
+  });
+});
+
+describe("Defect 2: IPv6 zone IDs and non-throwing robustness", () => {
+  it("strips %zone suffix in ipv6ToBigInt and does not throw RangeError", () => {
+    expect(() => ipv6ToBigInt("fe80::%eth0")).not.toThrow();
+    expect(() => ipv6ToBigInt("fe80::%1")).not.toThrow();
+    expect(() => ipv6ToBigInt("::%eth0")).not.toThrow();
+    expect(() => ipv6ToBigInt("fe80::1%eth0")).not.toThrow();
+    expect(() => ipv6ToBigInt("[fe80::1%eth0]")).not.toThrow();
+    expect(ipv6ToBigInt("fe80::1%eth0")).toBe(ipv6ToBigInt("fe80::1"));
+    expect(ipv6ToBigInt("::%eth0")).toBe(0n);
+  });
+
+  it("handles zone-id peers with and without matching CIDR in isTrustedProxyPeer", () => {
+    const parsed = parseTrustedProxyCidrs("fe80::/10, 172.18.0.0/16");
+
+    // Matching IPv6 CIDR with zone id
+    expect(isTrustedProxyPeer("fe80::1%eth0", parsed)).toBe(true);
+    expect(isTrustedProxyPeer("fe80::%eth0", parsed)).toBe(true);
+    expect(isTrustedProxyPeer("fe80::1%1", parsed)).toBe(true);
+    expect(isTrustedProxyPeer("[fe80::1%eth0]", parsed)).toBe(true);
+
+    // Non-matching peer with zone id
+    const nonMatchingParsed = parseTrustedProxyCidrs("172.18.0.0/16");
+    expect(isTrustedProxyPeer("fe80::1%eth0", nonMatchingParsed)).toBe(false);
+    expect(isTrustedProxyPeer("fe80::%eth0", nonMatchingParsed)).toBe(false);
+  });
+
+  it("safely handles malformed IPv6 groups without throwing", () => {
+    const malformed = [
+      "fe80::1::2",
+      "fe80:::1",
+      "fe80::12345",
+      "fe80::gggg",
+      "fe80:1:2:3:4:5:6:7:8:9",
+      "::1::",
+      "1:2:3:4:5:6:7",
+      "",
+      null,
+      undefined,
+    ];
+
+    const parsed = parseTrustedProxyCidrs("fe80::/10");
+    for (const item of malformed) {
+      expect(() => ipv6ToBigInt(item)).not.toThrow();
+      expect(() => isTrustedProxyPeer(item, parsed)).not.toThrow();
+      expect(isTrustedProxyPeer(item, parsed)).toBe(false);
+    }
+  });
+
+  it("rejects CIDR strings with zone IDs without throwing", () => {
+    const errorLogs = [];
+    const logError = (msg) => errorLogs.push(msg);
+
+    const parsed = parseTrustedProxyCidrs("fe80::%eth0/10, fe80::1%eth0/64, 10.0.0.0/8", logError);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].raw).toBe("10.0.0.0/8");
+    expect(errorLogs.some((l) => l.includes("zone"))).toBe(true);
+  });
+
+  it("fuzz test: ~2000 random/hostile inputs assert resolveClientIp never throws and spoof protection holds", () => {
+    const parsed = parseTrustedProxyCidrs("172.18.0.0/16, fd00::/8");
+    const hostilePool = [
+      "",
+      "   ",
+      null,
+      undefined,
+      "127.0.0.1",
+      "::1",
+      "172.18.0.1",
+      "172.18.254.254",
+      "172.19.0.1",
+      "203.0.113.195",
+      "fe80::%eth0",
+      "fe80::%1",
+      "::%eth0",
+      "fe80::1%eth0",
+      "[fe80::1%eth0]",
+      "fe80::%eth0/10",
+      "[fe80::1]:8080",
+      "1.2.3.4:80",
+      "0.0.0.0/0",
+      "::/0",
+      "not-an-ip",
+      "attacker.com",
+      "1.2.3.4.5",
+      ":::",
+      "::ffff:192.168.1.1",
+      "::ffff:172.18.0.5",
+      "fe80::1::2",
+      "fe80::12345",
+      "NaN",
+      "Infinity",
+      "-Infinity",
+      "true",
+      "false",
+      "\x00\x01\x02",
+      "\n\r\t",
+      "0".repeat(500),
+      "f".repeat(500),
+      "127.0.0.1, 10.0.0.1",
+      "unknown",
+      "[::1]:443",
+    ];
+
+    for (let i = 0; i < 2000; i++) {
+      const socketIp = hostilePool[i % hostilePool.length];
+      const xff = hostilePool[(i * 3 + 1) % hostilePool.length];
+      const xRealIp = hostilePool[(i * 7 + 2) % hostilePool.length];
+      const envCidr = hostilePool[(i * 11 + 3) % hostilePool.length];
+
+      expect(() => {
+        const fuzzParsed = parseTrustedProxyCidrs(envCidr, () => {});
+        const trusted = isTrustedProxyPeer(socketIp, fuzzParsed);
+        const resolved = resolveClientIp({
+          socketIp,
+          xff,
+          xRealIp,
+          parsed,
+        });
+
+        // Spoof negative control invariant:
+        // If peer is definitely untrusted (e.g., 203.0.113.195), resolved MUST equal socketIp
+        if (socketIp === "203.0.113.195") {
+          expect(trusted).toBe(false);
+          expect(resolved).toBe("203.0.113.195");
+        }
+      }).not.toThrow();
+    }
+  });
+});
+
+describe("Defect 3: Elimination of NEGATIVE_CONTROL backdoor", () => {
+  it("ensures the string 'NEGATIVE_CONTROL' does not appear in trusted-proxy.cjs", () => {
+    const content = readFileSync(resolve(REPO_ROOT, "trusted-proxy.cjs"), "utf8");
+    expect(content).not.toContain("NEGATIVE_CONTROL");
+  });
+
+  it("ensures setting TRUSTED_PROXY_NEGATIVE_CONTROL=1 has no effect on peer trust", () => {
+    const prevEnv = process.env.TRUSTED_PROXY_NEGATIVE_CONTROL;
+    try {
+      process.env.TRUSTED_PROXY_NEGATIVE_CONTROL = "1";
+      const parsed = parseTrustedProxyCidrs("172.18.0.0/16");
+      // Untrusted peer MUST remain untrusted even when the env var is set
+      expect(isTrustedProxyPeer("203.0.113.195", parsed)).toBe(false);
+      expect(isTrustedProxyPeer("10.0.0.1", parsed)).toBe(false);
+    } finally {
+      if (prevEnv === undefined) {
+        delete process.env.TRUSTED_PROXY_NEGATIVE_CONTROL;
+      } else {
+        process.env.TRUSTED_PROXY_NEGATIVE_CONTROL = prevEnv;
+      }
+    }
   });
 });

@@ -138,12 +138,17 @@ http.createServer = (...args) => {
     // Trust forwarding headers only when the TCP peer is a local reverse proxy or
     // matches a configured TRUSTED_PROXY_CIDRS entry.
     // Direct/public sockets remain keyed by the unspoofable peer address.
-    const ip = resolveClientIp({
-      socketIp,
-      xff,
-      xRealIp,
-      parsed: trustedProxyCidrs,
-    });
+    let ip = socketIp;
+    try {
+      ip = resolveClientIp({
+        socketIp,
+        xff,
+        xRealIp,
+        parsed: trustedProxyCidrs,
+      });
+    } catch {
+      ip = socketIp;
+    }
     delete req.headers["x-9r-real-ip"];
     delete req.headers["x-forwarded-for"];
     delete req.headers["x-9r-via-proxy"];

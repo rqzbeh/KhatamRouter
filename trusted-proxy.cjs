@@ -1,5 +1,14 @@
 "use strict";
 
+/**
+ * Trusted proxy CIDR parsing and client IP resolution for reverse proxy topologies.
+ *
+ * Equivalence note: with TRUSTED_PROXY_CIDRS unset, resolveClientIp additionally validates
+ * that the forwarded value is a syntactically valid IP and otherwise falls back to the
+ * socket IP (master used the raw header value); this is deliberately stricter to prevent
+ * non-IP tokens from polluting client address tracking.
+ */
+
 const net = require("node:net");
 
 /**
@@ -14,14 +23,37 @@ function ipv4ToNum(ip) {
 
 /**
  * Converts an IPv6 address string into a 128-bit BigInt.
- * Safely strips outer brackets and expands embedded IPv4 suffixes (::ffff:127.0.0.1).
+ * Safely strips outer brackets, zone IDs (%eth0, %1), and expands embedded IPv4 suffixes (::ffff:127.0.0.1).
+ * Validates each group is 1-4 hex digits with exactly 8 groups after expansion.
+ * Returns null if the string is not a syntactically valid IPv6 address.
+ *
  * @param {string} ip
- * @returns {bigint}
+ * @returns {bigint|null}
  */
 function ipv6ToBigInt(ip) {
+  if (!ip || typeof ip !== "string") {
+    return null;
+  }
+
   let cleaned = ip.trim();
-  if (cleaned.startsWith("[") && cleaned.endsWith("]")) {
-    cleaned = cleaned.slice(1, -1);
+  if (cleaned.startsWith("[")) {
+    const closeBracket = cleaned.indexOf("]");
+    if (closeBracket !== -1) {
+      cleaned = cleaned.slice(1, closeBracket);
+    } else if (cleaned.endsWith("]")) {
+      cleaned = cleaned.slice(1, -1);
+    }
+  }
+
+  // Strip zone ID if present (%eth0, %1, etc.)
+  const pctIndex = cleaned.indexOf("%");
+  if (pctIndex !== -1) {
+    cleaned = cleaned.slice(0, pctIndex);
+  }
+
+  cleaned = cleaned.trim();
+  if (!cleaned) {
+    return null;
   }
 
   // Handle embedded IPv4 dot notation in IPv6 (e.g., ::ffff:192.168.1.1)
@@ -30,28 +62,52 @@ function ipv6ToBigInt(ip) {
     const tail = cleaned.slice(lastColon + 1);
     if (tail.includes(".")) {
       const parts = tail.split(".").map(Number);
-      if (parts.length === 4 && parts.every((n) => n >= 0 && n <= 255)) {
+      if (parts.length === 4 && parts.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) {
         const hi = ((parts[0] << 8) | parts[1]).toString(16);
         const lo = ((parts[2] << 8) | parts[3]).toString(16);
         cleaned = cleaned.slice(0, lastColon) + ":" + hi + ":" + lo;
+      } else {
+        return null;
       }
     }
   }
 
   const parts = cleaned.split("::");
+  if (parts.length > 2) {
+    return null;
+  }
+
   let groups = [];
   if (parts.length === 1) {
     groups = parts[0].split(":");
+    if (groups.length !== 8) {
+      return null;
+    }
   } else if (parts.length === 2) {
     const left = parts[0] ? parts[0].split(":") : [];
     const right = parts[1] ? parts[1].split(":") : [];
     const missing = 8 - (left.length + right.length);
+    if (missing < 1) {
+      return null;
+    }
     groups = [...left, ...Array(missing).fill("0"), ...right];
   }
 
+  if (groups.length !== 8) {
+    return null;
+  }
+
+  const hexGroupRegex = /^[0-9a-fA-F]{1,4}$/;
   let res = 0n;
   for (const g of groups) {
-    res = (res << 16n) | BigInt(parseInt(g || "0", 16));
+    if (!hexGroupRegex.test(g)) {
+      return null;
+    }
+    const val = parseInt(g, 16);
+    if (Number.isNaN(val)) {
+      return null;
+    }
+    res = (res << 16n) | BigInt(val);
   }
   return res;
 }
@@ -129,88 +185,104 @@ function extractIp(candidate) {
  * @returns {Array<object>}
  */
 function parseTrustedProxyCidrs(envValue, logError = console.error) {
-  if (envValue === undefined || envValue === null) {
-    return [];
-  }
-  if (typeof envValue !== "string") {
-    logError("[trusted-proxy] TRUSTED_PROXY_CIDRS must be a string");
-    return [];
-  }
-  if (envValue.trim() === "") {
-    return [];
-  }
-
-  const segments = envValue.split(",");
-  const parsed = [];
-
-  for (const segment of segments) {
-    const trimmed = segment.trim();
-    if (trimmed.length === 0) {
-      logError("[trusted-proxy] Ignoring empty CIDR segment in TRUSTED_PROXY_CIDRS");
-      continue;
+  try {
+    if (envValue === undefined || envValue === null) {
+      return [];
+    }
+    if (typeof envValue !== "string") {
+      logError("[trusted-proxy] TRUSTED_PROXY_CIDRS must be a string");
+      return [];
+    }
+    if (envValue.trim() === "") {
+      return [];
     }
 
-    const slashIndex = trimmed.indexOf("/");
-    if (slashIndex === -1 || slashIndex !== trimmed.lastIndexOf("/")) {
-      logError(`[trusted-proxy] Ignoring malformed entry '${trimmed}': expected <ip>/<prefix> CIDR notation`);
-      continue;
-    }
+    const segments = envValue.split(",");
+    const parsed = [];
 
-    let ipStr = trimmed.slice(0, slashIndex).trim();
-    if (ipStr.startsWith("[") && ipStr.endsWith("]")) {
-      ipStr = ipStr.slice(1, -1);
-    }
-    const prefixStr = trimmed.slice(slashIndex + 1).trim();
-
-    if (!/^\d+$/.test(prefixStr)) {
-      logError(`[trusted-proxy] Ignoring malformed entry '${trimmed}': prefix must be an unsigned integer`);
-      continue;
-    }
-
-    const prefix = parseInt(prefixStr, 10);
-
-    // Strictest choice for /0: reject and log
-    if (prefix === 0) {
-      logError(`[trusted-proxy] Rejecting /0 CIDR entry '${trimmed}': 0.0.0.0/0 and ::/0 are not permitted as they defeat proxy trust control`);
-      continue;
-    }
-
-    const ipType = net.isIP(ipStr);
-    if (ipType === 4) {
-      if (prefix < 1 || prefix > 32) {
-        logError(`[trusted-proxy] Ignoring malformed IPv4 CIDR entry '${trimmed}': prefix /${prefix} must be between 1 and 32`);
+    for (const segment of segments) {
+      const trimmed = segment.trim();
+      if (trimmed.length === 0) {
+        logError("[trusted-proxy] Ignoring empty CIDR segment in TRUSTED_PROXY_CIDRS");
         continue;
       }
-      const mask = prefix === 32 ? 0xffffffff : ((0xffffffff << (32 - prefix)) >>> 0);
-      const baseNum = ipv4ToNum(ipStr);
-      parsed.push({
-        type: 4,
-        base: (baseNum & mask) >>> 0,
-        mask: mask >>> 0,
-        raw: trimmed,
-      });
-    } else if (ipType === 6) {
-      if (prefix < 1 || prefix > 128) {
-        logError(`[trusted-proxy] Ignoring malformed IPv6 CIDR entry '${trimmed}': prefix /${prefix} must be between 1 and 128`);
+
+      const slashIndex = trimmed.indexOf("/");
+      if (slashIndex === -1 || slashIndex !== trimmed.lastIndexOf("/")) {
+        logError(`[trusted-proxy] Ignoring malformed entry '${trimmed}': expected <ip>/<prefix> CIDR notation`);
         continue;
       }
-      const mask = prefix === 128
-        ? (1n << 128n) - 1n
-        : (((1n << 128n) - 1n) ^ ((1n << BigInt(128 - prefix)) - 1n));
-      const baseBig = ipv6ToBigInt(ipStr);
-      parsed.push({
-        type: 6,
-        base: baseBig & mask,
-        mask,
-        raw: trimmed,
-      });
-    } else {
-      logError(`[trusted-proxy] Ignoring malformed CIDR entry '${trimmed}': '${ipStr}' is not a valid IP address`);
-      continue;
-    }
-  }
 
-  return parsed;
+      let ipStr = trimmed.slice(0, slashIndex).trim();
+      if (ipStr.startsWith("[") && ipStr.endsWith("]")) {
+        ipStr = ipStr.slice(1, -1);
+      }
+
+      // Zone IDs are not permitted in CIDR notation
+      if (ipStr.includes("%")) {
+        logError(`[trusted-proxy] Ignoring malformed CIDR entry '${trimmed}': zone IDs are not permitted in CIDR notation`);
+        continue;
+      }
+
+      const prefixStr = trimmed.slice(slashIndex + 1).trim();
+
+      if (!/^\d+$/.test(prefixStr)) {
+        logError(`[trusted-proxy] Ignoring malformed entry '${trimmed}': prefix must be an unsigned integer`);
+        continue;
+      }
+
+      const prefix = parseInt(prefixStr, 10);
+
+      // Strictest choice for /0: reject and log
+      if (prefix === 0) {
+        logError(`[trusted-proxy] Rejecting /0 CIDR entry '${trimmed}': 0.0.0.0/0 and ::/0 are not permitted as they defeat proxy trust control`);
+        continue;
+      }
+
+      const ipType = net.isIP(ipStr);
+      if (ipType === 4) {
+        if (prefix < 1 || prefix > 32) {
+          logError(`[trusted-proxy] Ignoring malformed IPv4 CIDR entry '${trimmed}': prefix /${prefix} must be between 1 and 32`);
+          continue;
+        }
+        const mask = prefix === 32 ? 0xffffffff : ((0xffffffff << (32 - prefix)) >>> 0);
+        const baseNum = ipv4ToNum(ipStr);
+        parsed.push({
+          type: 4,
+          base: (baseNum & mask) >>> 0,
+          mask: mask >>> 0,
+          raw: trimmed,
+        });
+      } else if (ipType === 6) {
+        if (prefix < 1 || prefix > 128) {
+          logError(`[trusted-proxy] Ignoring malformed IPv6 CIDR entry '${trimmed}': prefix /${prefix} must be between 1 and 128`);
+          continue;
+        }
+        const baseBig = ipv6ToBigInt(ipStr);
+        if (baseBig === null) {
+          logError(`[trusted-proxy] Ignoring malformed IPv6 CIDR entry '${trimmed}': unable to parse IPv6 address`);
+          continue;
+        }
+        const mask = prefix === 128
+          ? (1n << 128n) - 1n
+          : (((1n << 128n) - 1n) ^ ((1n << BigInt(128 - prefix)) - 1n));
+        parsed.push({
+          type: 6,
+          base: baseBig & mask,
+          mask,
+          raw: trimmed,
+        });
+      } else {
+        logError(`[trusted-proxy] Ignoring malformed CIDR entry '${trimmed}': '${ipStr}' is not a valid IP address`);
+        continue;
+      }
+    }
+
+    return parsed;
+  } catch (err) {
+    logError(`[trusted-proxy] Unexpected error parsing TRUSTED_PROXY_CIDRS: ${err && err.message ? err.message : err}`);
+    return [];
+  }
 }
 
 /**
@@ -221,66 +293,78 @@ function parseTrustedProxyCidrs(envValue, logError = console.error) {
  * 2. If TRUSTED_PROXY_CIDRS parsed list is non-empty, peers matching any CIDR are trusted.
  * 3. IPv4-mapped IPv6 peers (::ffff:a.b.c.d) match their IPv4 CIDR.
  * 4. IPv6 CIDRs use 128-bit prefix math.
- * 5. If TRUSTED_PROXY_NEGATIVE_CONTROL === '1', returns true for all peers (mutation oracle test).
  *
  * @param {string|undefined|null} socketIp
  * @param {Array<object>} parsed
  * @returns {boolean}
  */
 function isTrustedProxyPeer(socketIp, parsed) {
-  // Mutation testing hook for negative-control-proxy verification:
-  // Disables CIDR scoping to verify that spoof test cases actively discriminate.
-  if (process.env.TRUSTED_PROXY_NEGATIVE_CONTROL === "1") {
-    return true;
-  }
+  try {
+    if (!socketIp || typeof socketIp !== "string") {
+      return false;
+    }
 
-  if (!socketIp || typeof socketIp !== "string") {
-    return false;
-  }
-
-  let ip = socketIp.trim();
-  if (ip.startsWith("[") && ip.endsWith("]")) {
-    ip = ip.slice(1, -1);
-  }
-
-  const lower = ip.toLowerCase();
-  // Master loopback addresses
-  if (lower === "127.0.0.1" || lower === "::1" || lower === "::ffff:127.0.0.1") {
-    return true;
-  }
-
-  if (!parsed || !Array.isArray(parsed) || parsed.length === 0) {
-    return false;
-  }
-
-  const ipType = net.isIP(ip);
-  if (ipType === 4) {
-    const num = ipv4ToNum(ip);
-    for (const cidr of parsed) {
-      if (cidr.type === 4 && ((num & cidr.mask) >>> 0) === cidr.base) {
-        return true;
+    let ip = socketIp.trim();
+    if (ip.startsWith("[")) {
+      const closeBracket = ip.indexOf("]");
+      if (closeBracket !== -1) {
+        ip = ip.slice(1, closeBracket);
+      } else if (ip.endsWith("]")) {
+        ip = ip.slice(1, -1);
       }
     }
-  } else if (ipType === 6) {
-    const big = ipv6ToBigInt(ip);
-    // Detect IPv4-mapped IPv6: ::ffff:a.b.c.d
-    const isMapped = (big >> 32n) === 0xffffn;
-    const ipv4Part = isMapped ? Number(big & 0xffffffffn) >>> 0 : null;
 
-    for (const cidr of parsed) {
-      if (cidr.type === 4 && isMapped) {
-        if (((ipv4Part & cidr.mask) >>> 0) === cidr.base) {
-          return true;
-        }
-      } else if (cidr.type === 6) {
-        if ((big & cidr.mask) === cidr.base) {
+    // Strip zone ID for loopback and CIDR comparison (e.g. fe80::1%eth0)
+    let ipWithoutZone = ip;
+    const pctIndex = ip.indexOf("%");
+    if (pctIndex !== -1) {
+      ipWithoutZone = ip.slice(0, pctIndex);
+    }
+
+    const lower = ipWithoutZone.toLowerCase();
+    // Master loopback addresses
+    if (lower === "127.0.0.1" || lower === "::1" || lower === "::ffff:127.0.0.1") {
+      return true;
+    }
+
+    if (!parsed || !Array.isArray(parsed) || parsed.length === 0) {
+      return false;
+    }
+
+    const ipType = net.isIP(ipWithoutZone);
+    if (ipType === 4) {
+      const num = ipv4ToNum(ipWithoutZone);
+      for (const cidr of parsed) {
+        if (cidr.type === 4 && ((num & cidr.mask) >>> 0) === cidr.base) {
           return true;
         }
       }
-    }
-  }
+    } else if (ipType === 6) {
+      const big = ipv6ToBigInt(ipWithoutZone);
+      if (big === null) {
+        return false;
+      }
+      // Detect IPv4-mapped IPv6: ::ffff:a.b.c.d
+      const isMapped = (big >> 32n) === 0xffffn;
+      const ipv4Part = isMapped ? Number(big & 0xffffffffn) >>> 0 : null;
 
-  return false;
+      for (const cidr of parsed) {
+        if (cidr.type === 4 && isMapped) {
+          if (((ipv4Part & cidr.mask) >>> 0) === cidr.base) {
+            return true;
+          }
+        } else if (cidr.type === 6) {
+          if ((big & cidr.mask) === cidr.base) {
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -303,25 +387,29 @@ function isTrustedProxyPeer(socketIp, parsed) {
  * @param {Array<object>} params.parsed
  * @returns {string}
  */
-function resolveClientIp({ socketIp = "", xff, xRealIp, parsed }) {
-  const isTrusted = isTrustedProxyPeer(socketIp, parsed);
-  if (!isTrusted) {
+function resolveClientIp({ socketIp = "", xff, xRealIp, parsed } = {}) {
+  try {
+    const isTrusted = isTrustedProxyPeer(socketIp, parsed);
+    if (!isTrusted) {
+      return socketIp || "";
+    }
+
+    let candidate = "";
+    if (xRealIp && typeof xRealIp === "string" && xRealIp.trim()) {
+      candidate = xRealIp.trim();
+    } else if (xff && typeof xff === "string" && xff.trim()) {
+      candidate = xff.split(",")[0].trim();
+    }
+
+    const extracted = extractIp(candidate);
+    if (extracted) {
+      return extracted;
+    }
+
+    return socketIp || "";
+  } catch {
     return socketIp || "";
   }
-
-  let candidate = "";
-  if (xRealIp && typeof xRealIp === "string" && xRealIp.trim()) {
-    candidate = xRealIp.trim();
-  } else if (xff && typeof xff === "string" && xff.trim()) {
-    candidate = xff.split(",")[0].trim();
-  }
-
-  const extracted = extractIp(candidate);
-  if (extracted) {
-    return extracted;
-  }
-
-  return socketIp || "";
 }
 
 module.exports = {
