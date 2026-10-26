@@ -255,7 +255,9 @@ export async function saveRequestUsage(entry) {
 
     // All 3 writes (history insert, daily upsert, lifetime counter) in ONE transaction.
     // bun:sqlite is synchronous → no JS yield mid-transaction → no race in same process.
-    db.transaction(() => {
+    // Use immediate() (BEGIN IMMEDIATE) so multi-process / multi-replica writers acquire the
+    // write lock immediately, preventing SQLITE_BUSY_SNAPSHOT errors on read-then-write sequences.
+    db.immediate(() => {
       const existing = db.get(
         `SELECT id, endpoint FROM usageHistory
          WHERE timestamp = ?
