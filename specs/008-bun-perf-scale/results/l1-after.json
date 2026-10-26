@@ -1,0 +1,101 @@
+{
+  "schema": "khatam.perf.l1/1",
+  "label": "after-slim",
+  "git_sha": "21eb7c52c2dfc01772b335e366248cf7035aca09",
+  "bun_version": "1.4.3",
+  "env": {
+    "cpu_model": "AMD Ryzen 7 4800H with Radeon Graphics",
+    "cpus": 8,
+    "node_env": "production",
+    "redis": "off",
+    "data_dir": "temp"
+  },
+  "workload": {
+    "requests": 1000,
+    "warmup": 100,
+    "runs": 5,
+    "mix": {
+      "direct": 0.4,
+      "translated_tools": 0.4,
+      "combo": 0.2
+    }
+  },
+  "phases_ms": {
+    "auth_acl": {
+      "p50": 0.0296,
+      "p95": 0.0595,
+      "p99": 0.1033,
+      "mean": 0.0343
+    },
+    "model_info": {
+      "p50": 0.0415,
+      "p95": 0.0868,
+      "p99": 0.1507,
+      "mean": 0.0513
+    },
+    "translate": {
+      "p50": 0,
+      "p95": 0.0409,
+      "p99": 0.0716,
+      "mean": 0.0159
+    },
+    "translate_request": {
+      "p50": 0,
+      "p95": 0.0313,
+      "p99": 0.0517,
+      "mean": 0.0107
+    },
+    "translate_response": {
+      "p50": 0,
+      "p95": 0.0089,
+      "p99": 0.0203,
+      "mean": 0.0052
+    },
+    "executor_mock": {
+      "p50": 0.0072,
+      "p95": 0.0158,
+      "p99": 0.0572,
+      "mean": 0.0105
+    },
+    "dispatch_glue": {
+      "p50": 0.5995,
+      "p95": 1.3717,
+      "p99": 7.6338,
+      "mean": 0.8469
+    },
+    "stream_drain": {
+      "p50": 0.1096,
+      "p95": 0.2185,
+      "p99": 0.4058,
+      "mean": 0.1396
+    },
+    "bookkeeping": {
+      "p50": 0.1541,
+      "p95": 0.2733,
+      "p99": 1.7845,
+      "mean": 0.2525
+    },
+    "other": {
+      "p50": 0,
+      "p95": 0,
+      "p99": 0,
+      "mean": 0
+    }
+  },
+  "total_ms": {
+    "p50": 0.9775,
+    "p95": 2.6269,
+    "p99": 11.8107,
+    "mean": 1.3486
+  },
+  "db_queries_per_req": 10.76,
+  "run_means_ms": [
+    1.6242,
+    1.3168,
+    1.2715,
+    1.2862,
+    1.2443
+  ],
+  "cv_pct": 11.59,
+  "noisy": false
+}
