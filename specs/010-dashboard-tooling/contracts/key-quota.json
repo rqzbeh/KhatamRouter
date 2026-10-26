@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ApiKeyQuotaPayload",
+  "type": "object",
+  "required": ["limits"],
+  "properties": {
+    "limits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["windowType", "limitValue"],
+        "properties": {
+          "windowType": {
+            "type": "string",
+            "enum": [
+              "rpm",
+              "rph",
+              "rpd",
+              "tpm",
+              "tpd",
+              "daily_usd",
+              "weekly_usd",
+              "monthly_usd"
+            ]
+          },
+          "limitValue": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "action": {
+            "type": "string",
+            "enum": ["reject", "warn", "throttle"],
+            "default": "reject"
+          }
+        }
+      }
+    }
+  }
+}

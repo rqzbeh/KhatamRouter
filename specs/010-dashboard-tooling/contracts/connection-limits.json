@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ConnectionLimitOverrides",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "rpm": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Max requests per minute"
+    },
+    "rpd": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Max requests per day"
+    },
+    "tpm": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Max tokens per minute"
+    },
+    "tpd": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Max tokens per day"
+    },
+    "minTime": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "description": "Minimum delay in ms between requests"
+    },
+    "maxConcurrent": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Max in-flight concurrent requests"
+    },
+    "maxWaitMs": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "description": "Queue wait timeout in ms"
+    },
+    "executionMaxWaitMs": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "description": "Upstream response timeout in ms"
+    },
+    "modelConcurrency": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "description": "Per-model in-flight concurrency caps"
+    },
+    "maxBudgetUsd": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Lifetime or billing cycle budget ceiling in USD (stored and displayed; request-time budget enforcement is an explicit out-of-scope follow-up)"
+    }
+  }
+}
