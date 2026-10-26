@@ -170,12 +170,14 @@ export function validateApiKeyQuotaPayload(payload: unknown): {
 
 /**
  * Pure calculation of UTC window boundaries without server runtime dependencies.
+ * Duplicated from src/lib/db/keyQuota.js so the client bundle does not pull bun:sqlite.
+ * Parity with the server implementation is enforced by tests/unit/key-quota-tabs.test.js.
  */
 export function getUtcWindowBoundaries(windowType: string, now: number = Date.now()) {
   const d = new Date(now);
   const norm = String(windowType || "daily").toLowerCase().trim();
 
-  if (norm === "daily" || norm === "1d" || norm === "day" || norm === "daily_usd" || norm === "rpd" || norm === "tpd") {
+  if (norm === "daily" || norm === "1d" || norm === "day" || norm === "daily_usd") {
     const start = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
     const end = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1, 0, 0, 0, 0));
     return {
@@ -187,6 +189,7 @@ export function getUtcWindowBoundaries(windowType: string, now: number = Date.no
 
   if (norm === "weekly" || norm === "week" || norm === "7d" || norm === "weekly_usd") {
     const day = d.getUTCDay();
+    // In UTC, Sunday is 0. If Sunday, go back 6 days to Monday; otherwise go back (day - 1) days.
     const diffToMonday = day === 0 ? -6 : 1 - day;
     const start = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + diffToMonday, 0, 0, 0, 0));
     const end = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -207,10 +210,12 @@ export function getUtcWindowBoundaries(windowType: string, now: number = Date.no
     };
   }
 
+  // Fallback to 24h rolling
+  const start = new Date(now - 24 * 60 * 60 * 1000);
   return {
-    sinceIso: new Date(now - 86_400_000).toISOString(),
-    untilIso: new Date(now + 86_400_000).toISOString(),
-    resetMs: 86_400_000,
+    sinceIso: start.toISOString(),
+    untilIso: new Date(now).toISOString(),
+    resetMs: 24 * 60 * 60 * 1000,
   };
 }
 
@@ -440,7 +445,7 @@ export function aggregateSpendTrends(
 /**
  * Query request_cost_ledger for spend trends.
  * Fully parameterized SQL, bounded time window and row limit.
- * Fail-open: returns { points: [], degraded: true } on database failure.
+ * Fail-open: returns { points: [], degraded: true } on database failure or missing db.
  */
 export async function getSpendTrendsFromLedger(
   params: {
@@ -453,6 +458,10 @@ export async function getSpendTrendsFromLedger(
   },
   customDb: unknown = null
 ): Promise<{ points: SpendTrendPoint[]; degraded: boolean }> {
+  if (!customDb) {
+    return { points: [], degraded: true };
+  }
+
   const { apiKeyId, period = "24h", limit = 1000, now: rawNow } = params;
   const now = rawNow || Date.now();
 
@@ -479,9 +488,7 @@ export async function getSpendTrendsFromLedger(
   const strftimeFormat = isHourly ? "%Y-%m-%d %H:00" : "%Y-%m-%d";
 
   try {
-    const db = customDb
-      ? (customDb as any)
-      : await import(/* webpackIgnore: true */ "@/lib/db/driver.js").then((m) => m.getAdapter());
+    const db = customDb as any;
     const query = `
       SELECT
         strftime(?, created_at) AS bucket,

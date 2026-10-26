@@ -339,7 +339,7 @@ describe("Spend Trends Aggregation & Ledger Retrieval", () => {
       apiKeyId,
       period: "24h",
       now: new Date("2026-10-26T12:00:00.000Z").getTime(),
-    });
+    }, db);
 
     expect(res.degraded).toBe(false);
     expect(res.points).toHaveLength(1);
@@ -361,6 +361,13 @@ describe("Spend Trends Aggregation & Ledger Retrieval", () => {
     const res = await getSpendTrendsFromLedger({ apiKeyId: "broken" }, faultyDb);
     expect(res.degraded).toBe(true);
     expect(res.points).toEqual([]);
+  });
+
+  it("returns degraded fail-open result without throwing when called without a db argument", async () => {
+    const { getSpendTrendsFromLedger } = await import("@/shared/types/keyQuota.ts");
+
+    const res = await getSpendTrendsFromLedger({ apiKeyId: "no-db-key" });
+    expect(res).toEqual({ points: [], degraded: true });
   });
 });
 
@@ -542,3 +549,89 @@ describe("Key Quota Backend API & FailOpen", () => {
     expect(body.degraded).toBe(true);
   });
 });
+
+// ─── Suite 5: UTC Window Boundaries Parity (T005 / Server vs Shared) ─────────
+
+describe("UTC Window Boundaries Parity (server vs shared-types)", () => {
+  it("enforces exact parity across 18 window types and 25 fixed timestamps", async () => {
+    const { getUtcWindowBoundaries: serverGetUtcWindowBoundaries } = await import("@/lib/db/keyQuota.js");
+    const { getUtcWindowBoundaries: sharedGetUtcWindowBoundaries } = await import("@/shared/types/keyQuota.ts");
+
+    const windowTypes = [
+      "daily",
+      "day",
+      "1d",
+      "rpd",
+      "tpd",
+      "daily_usd",
+      "weekly",
+      "week",
+      "7d",
+      "weekly_usd",
+      "monthly",
+      "month",
+      "30d",
+      "monthly_usd",
+      "unknown",
+      "",
+      null,
+      undefined,
+    ];
+
+    const fixedTimestamps = [
+      "1970-01-01T00:00:00.000Z",
+      "1970-01-01T12:34:56.789Z",
+      "2020-02-29T12:00:00.000Z",
+      "2024-02-29T23:59:59.999Z",
+      "2028-02-29T12:00:00.000Z",
+      "2028-02-29T00:00:00.000Z",
+      "2026-10-25T10:00:00.000Z",
+      "2026-10-26T00:00:00.000Z",
+      "2026-01-01T00:00:00.000Z",
+      "2026-12-31T23:59:59.999Z",
+      "2026-02-28T23:59:59.999Z",
+      "2026-03-01T00:00:00.000Z",
+      "2026-04-30T23:59:59.999Z",
+      "2026-05-01T00:00:00.000Z",
+      "2026-07-31T23:59:59.999Z",
+      "2026-08-01T00:00:00.000Z",
+      "2000-01-01T00:00:00.000Z",
+      "2038-01-19T03:14:07.000Z",
+      "2023-06-15T15:30:45.123Z",
+      "2025-11-30T23:59:59.000Z",
+      "2027-02-28T12:00:00.000Z",
+      "2026-10-26T14:30:15.000Z",
+      "2026-06-21T06:00:00.000Z",
+      "9999-12-31T12:00:00.000Z",
+      "9999-12-31T23:59:59.999Z",
+    ];
+
+    expect(fixedTimestamps).toHaveLength(25);
+
+    const mismatches = [];
+
+    for (const wt of windowTypes) {
+      for (const iso of fixedTimestamps) {
+        const nowMs = new Date(iso).getTime();
+        const serverResult = serverGetUtcWindowBoundaries(wt, nowMs);
+        const sharedResult = sharedGetUtcWindowBoundaries(wt, nowMs);
+
+        if (
+          serverResult.sinceIso !== sharedResult.sinceIso ||
+          serverResult.untilIso !== sharedResult.untilIso ||
+          serverResult.resetMs !== sharedResult.resetMs
+        ) {
+          mismatches.push({
+            windowType: wt,
+            timestamp: iso,
+            server: serverResult,
+            shared: sharedResult,
+          });
+        }
+      }
+    }
+
+    expect(mismatches).toEqual([]);
+  });
+});
+
