@@ -7,6 +7,7 @@ import { parseDataUri } from "../concerns/image.js";
 import { extractTextContent } from "../formats/gemini.js";
 import { ROLE, OPENAI_BLOCK, CLAUDE_BLOCK } from "../schema/index.js";
 import { getCapabilitiesForModel } from "../../providers/capabilities.js";
+import { MAX_IMAGE_BYTES } from "../../config/mediaConfig.js";
 
 // Empty prefix matches real Claude Code behavior (no tool name prefix).
 // Previously "proxy_" was used but this is a detectable fingerprint difference.
@@ -197,6 +198,84 @@ Respond ONLY with the JSON object, no other text.`);
   return result;
 }
 
+const ALLOWED_TOOL_IMAGE_MEDIA_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp"
+]);
+
+const TOOL_IMAGE_BYTE_LIMIT = typeof MAX_IMAGE_BYTES === "number" ? MAX_IMAGE_BYTES : 25 * 1024 * 1024;
+// Bounded BEFORE decoding by encoded length: base64 expands binary data by 4/3.
+const MAX_TOOL_IMAGE_BASE64_LENGTH = Math.ceil((TOOL_IMAGE_BYTE_LIMIT * 4) / 3);
+
+function estimateBase64ByteLength(b64) {
+  if (typeof b64 !== "string") return 0;
+  let padding = 0;
+  if (b64.endsWith("==")) padding = 2;
+  else if (b64.endsWith("=")) padding = 1;
+  return Math.max(0, Math.floor((b64.length * 3) / 4) - padding);
+}
+
+// A tool message may carry an OpenAI content array (text + image_url parts).
+// Claude tool_result content accepts image blocks, but not OpenAI image_url parts.
+// Strings are passed through untouched.
+// Remote http(s) URLs are rejected (data: URIs only; no remote fetch).
+// Enforces a size ceiling on the base64 payload bounded before decoding, and
+// allows only image/jpeg, image/png, image/gif, image/webp media types.
+// Fails open by dropping unsupported/rejected parts rather than throwing.
+function convertToolResultContent(content) {
+  if (!Array.isArray(content)) return content;
+
+  const parts = [];
+  for (const part of content) {
+    if (!part || typeof part !== "object") continue;
+
+    if (part.type === OPENAI_BLOCK.TEXT && typeof part.text === "string") {
+      parts.push({ type: CLAUDE_BLOCK.TEXT, text: part.text });
+    } else if (part.type === OPENAI_BLOCK.IMAGE_URL && part.image_url) {
+      const url = typeof part.image_url === "string" ? part.image_url : part.image_url.url;
+      // Reject non-strings, remote URLs (http/https/ftp/file/etc.), and oversized inputs before regex
+      if (typeof url !== "string" || !url.startsWith("data:") || url.length > MAX_TOOL_IMAGE_BASE64_LENGTH + 256) {
+        continue;
+      }
+      const parsed = parseDataUri(url);
+      if (!parsed || typeof parsed.base64 !== "string" || typeof parsed.mimeType !== "string") {
+        continue;
+      }
+      const mediaType = parsed.mimeType.toLowerCase().split(";")[0].trim();
+      if (!ALLOWED_TOOL_IMAGE_MEDIA_TYPES.has(mediaType)) {
+        continue;
+      }
+      if (parsed.base64.length > MAX_TOOL_IMAGE_BASE64_LENGTH || estimateBase64ByteLength(parsed.base64) > TOOL_IMAGE_BYTE_LIMIT) {
+        continue;
+      }
+      parts.push({
+        type: CLAUDE_BLOCK.IMAGE,
+        source: { type: "base64", media_type: mediaType, data: parsed.base64 }
+      });
+    } else if (part.type === CLAUDE_BLOCK.IMAGE && part.source && typeof part.source === "object") {
+      if (part.source.type === "base64" && typeof part.source.data === "string") {
+        const mediaType = (part.source.media_type || "").toLowerCase().split(";")[0].trim();
+        if (
+          ALLOWED_TOOL_IMAGE_MEDIA_TYPES.has(mediaType) &&
+          part.source.data.length <= MAX_TOOL_IMAGE_BASE64_LENGTH &&
+          estimateBase64ByteLength(part.source.data) <= TOOL_IMAGE_BYTE_LIMIT
+        ) {
+          parts.push({
+            type: CLAUDE_BLOCK.IMAGE,
+            source: { type: "base64", media_type: mediaType, data: part.source.data }
+          });
+        }
+      }
+    }
+  }
+
+  // If nothing convertible remains after dropping unsupported parts, return empty text block
+  // to avoid forwarding rejected image_url parts or producing invalid tool_result content.
+  return parts.length > 0 ? parts : [{ type: CLAUDE_BLOCK.TEXT, text: "" }];
+}
+
 // Get content blocks from single message
 function getContentBlocksFromMessage(msg, toolNameMap = new Map()) {
   const blocks = [];
@@ -205,7 +284,7 @@ function getContentBlocksFromMessage(msg, toolNameMap = new Map()) {
     blocks.push({
       type: CLAUDE_BLOCK.TOOL_RESULT,
       tool_use_id: msg.tool_call_id,
-      content: msg.content
+      content: convertToolResultContent(msg.content)
     });
   } else if (msg.role === ROLE.USER) {
     if (typeof msg.content === "string") {
