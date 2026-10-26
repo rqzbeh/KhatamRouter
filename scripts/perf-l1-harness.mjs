@@ -113,6 +113,7 @@ export async function runHarness(argv = []) {
   let queryCountingEnabled = false;
   let totalMeasuredQueries = 0;
   let activeRequestTimers = null;
+  let currentPhase = "dispatch"; // "dispatch" or "drain"
 
   const origGet = adapter.get.bind(adapter);
   const origAll = adapter.all.bind(adapter);
@@ -126,10 +127,16 @@ export async function runHarness(argv = []) {
 
     if (sql.includes("apiKeys")) {
       activeRequestTimers.auth_acl += duration;
-    } else if (sql.includes("combos") || sql.includes("kv") || sql.includes("providerNodes") || sql.includes("providerConnections")) {
+    } else if (sql.includes("combos") || sql.includes("providerNodes") || sql.includes("providerConnections") || (sql.includes("kv") && sql.includes("modelAliases"))) {
       activeRequestTimers.model_info += duration;
+    } else if (sql.includes("request_cost_ledger") || sql.includes("usageHistory") || sql.includes("usageDaily") || sql.includes("_meta") || sql.includes("requestDetails") || sql.includes("pricing")) {
+      if (currentPhase === "dispatch") {
+        activeRequestTimers.bookkeeping_dispatch += duration;
+      } else {
+        activeRequestTimers.bookkeeping_drain += duration;
+      }
     } else {
-      activeRequestTimers.dispatch_glue += duration;
+      activeRequestTimers.dispatch_db_other += duration;
     }
   }
 
@@ -309,8 +316,10 @@ export async function runHarness(argv = []) {
   try {
     // Warmup phase: prime JIT, DB schemas, connection state
     for (let w = 0; w < options.warmup; w++) {
+      currentPhase = "dispatch";
       const req = makeRequest(w % 10);
       const res = await handleChat(req);
+      currentPhase = "drain";
       await res.text();
     }
     // Allow any pending microtasks from warmup to settle
@@ -329,6 +338,8 @@ export async function runHarness(argv = []) {
       translate_response: [],
       executor_mock: [],
       dispatch_glue: [],
+      stream_drain: [],
+      bookkeeping: [],
       other: [],
     };
     const run_means_ms = [];
@@ -343,26 +354,51 @@ export async function runHarness(argv = []) {
           translate_request: 0,
           translate_response: 0,
           executor_mock: 0,
-          dispatch_glue: 0,
+          bookkeeping_dispatch: 0,
+          bookkeeping_drain: 0,
+          dispatch_db_other: 0,
         };
 
         const req = makeRequest(i % 10);
         const t0 = performance.now();
+        currentPhase = "dispatch";
         const res = await handleChat(req);
         if (!res.ok) {
           throw new Error(`Request failed with status ${res.status}`);
         }
+        const tDispatch = performance.now();
+        currentPhase = "drain";
         await res.text();
-        const totalReq = performance.now() - t0;
+        const tDrain = performance.now();
 
+        const totalReq = tDrain - t0;
+        const dispatchTime = tDispatch - t0;
+        const drainTime = tDrain - tDispatch;
+
+        const dispatchMeasured = activeRequestTimers.auth_acl +
+          activeRequestTimers.model_info +
+          activeRequestTimers.translate_request +
+          activeRequestTimers.executor_mock +
+          activeRequestTimers.bookkeeping_dispatch +
+          activeRequestTimers.dispatch_db_other;
+        const dispatchGlue = Math.max(0, dispatchTime - dispatchMeasured);
+
+        const drainMeasured = activeRequestTimers.translate_response + activeRequestTimers.bookkeeping_drain;
+        const streamDrain = Math.max(0, drainTime - drainMeasured);
+
+        const bookkeeping = activeRequestTimers.bookkeeping_dispatch + activeRequestTimers.bookkeeping_drain;
         const translate = activeRequestTimers.translate_request + activeRequestTimers.translate_response;
-        const measuredSum = activeRequestTimers.auth_acl +
+
+        const totalAccounted = activeRequestTimers.auth_acl +
           activeRequestTimers.model_info +
           activeRequestTimers.translate_request +
           activeRequestTimers.translate_response +
           activeRequestTimers.executor_mock +
-          activeRequestTimers.dispatch_glue;
-        const other = Math.max(0, totalReq - measuredSum);
+          (dispatchGlue + activeRequestTimers.dispatch_db_other) +
+          streamDrain +
+          bookkeeping;
+
+        const other = Math.max(0, totalReq - totalAccounted);
 
         allTotals.push(totalReq);
         runTotals.push(totalReq);
@@ -373,7 +409,9 @@ export async function runHarness(argv = []) {
         allPhases.translate_request.push(activeRequestTimers.translate_request);
         allPhases.translate_response.push(activeRequestTimers.translate_response);
         allPhases.executor_mock.push(activeRequestTimers.executor_mock);
-        allPhases.dispatch_glue.push(activeRequestTimers.dispatch_glue);
+        allPhases.dispatch_glue.push(dispatchGlue + activeRequestTimers.dispatch_db_other);
+        allPhases.stream_drain.push(streamDrain);
+        allPhases.bookkeeping.push(bookkeeping);
         allPhases.other.push(other);
       }
 
@@ -411,8 +449,7 @@ export async function runHarness(argv = []) {
         runs: options.runs,
         mix: {
           direct: 0.4,
-          translated: 0.4,
-          tools: 0.4,
+          translated_tools: 0.4,
           combo: 0.2,
         },
       },

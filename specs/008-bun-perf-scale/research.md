@@ -20,6 +20,7 @@ Inputs: spec.md, research-profile.md, research-scale.md, research-ladder.md, res
 - **Decision**: US1 starts with a measured baseline. The 3.2/2.8/2.0 ms split in `research-profile.md` is a static-trace estimate. No saving is claimed until the harness measures it.
 - **Rationale**: FR-008 forbids fabricated numbers. `research-ladder.md` marks L1 latency `UNMEASURED`.
 - **Consequence**: If the measured baseline is far below ~8 ms, or the hotspots differ, the slim list is re-ranked before any code change.
+- **Measured amendment (2026-10-26)**: Baseline measured in `results/l1-baseline.json` (p50=1.37ms, mean=1.83ms, p95=5.04ms, 15.2 db queries/req, CV=5.39%). The measured hotspot ranking diverged substantially from the static estimate: dispatch glue dominates at 65.1% (1.19ms), bookkeeping at 15.2% (0.28ms), stream drain at 9.5% (0.17ms), while translation accounts for only 1.5% (0.027ms, #6 rank). Per T007 rule, T011 (translation short-circuit) is skipped, and T009–T012 are re-ranked: T012 (request-scoped memoization) is #1 priority, followed by T009 (TTL caches) and T010 (Map index). Full profile, CPU breakdown, and feasibility analysis against D7 are documented in `results/l1-hotspots.md`.
 
 ## D4 — Cache strategy (cluster-safe)
 

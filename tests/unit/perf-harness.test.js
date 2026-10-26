@@ -81,15 +81,14 @@ describe("perf-l1-harness contract and safety guards", () => {
       expect(profile.workload.warmup).toBe(1);
       expect(profile.workload.runs).toBe(1);
       expect(profile.workload.mix).toMatchObject({
-        direct: expect.any(Number),
-        translated: expect.any(Number),
-        tools: expect.any(Number),
-        combo: expect.any(Number),
+        direct: 0.4,
+        translated_tools: 0.4,
+        combo: 0.2,
       });
 
       // Contract: per-phase measurements
       expect(profile.phases_ms).toBeDefined();
-      for (const phase of ["auth_acl", "model_info", "translate", "dispatch_glue"]) {
+      for (const phase of ["auth_acl", "model_info", "translate", "dispatch_glue", "stream_drain", "bookkeeping"]) {
         expect(profile.phases_ms[phase], `Missing phase ${phase}`).toBeDefined();
         expect(typeof profile.phases_ms[phase].p50).toBe("number");
         expect(typeof profile.phases_ms[phase].p95).toBe("number");
