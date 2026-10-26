@@ -313,5 +313,11 @@ describe("Wave 8: Multi-Replica Scale Compose & Trusted Proxy Contract (T017, T0
       expect(script).toMatch(/FORGED_MARKER/);
       expect(script).toMatch(/redis-cli\s+EXISTS/);
     });
+
+    it("inspects container RestartCount using top-level {{.RestartCount}} (never .State.RestartCount)", () => {
+      const script = loadSmokeScript();
+      expect(script).not.toContain(".State.RestartCount");
+      expect(script).toContain("{{.RestartCount}}");
+    });
   });
 });

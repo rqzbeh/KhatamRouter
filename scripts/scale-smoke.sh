@@ -386,7 +386,7 @@ echo "Verified: Stack recovered cleanly after Redis restart."
 ALL_CIDS=$(docker compose -p "$PROJECT_NAME" ps -q)
 for CID in $ALL_CIDS; do
   CNAME=$(docker inspect --format='{{.Name}}' "$CID" 2>/dev/null || echo "$CID")
-  RESTART_COUNT=$(docker inspect --format='{{.State.RestartCount}}' "$CID" 2>/dev/null || echo "ERR")
+  RESTART_COUNT=$(docker inspect --format='{{.RestartCount}}' "$CID" 2>/dev/null || echo "ERR")
   OOM_KILLED=$(docker inspect --format='{{.State.OOMKilled}}' "$CID" 2>/dev/null || echo "ERR")
   echo "Container $CNAME: RestartCount=$RESTART_COUNT, OOMKilled=$OOM_KILLED"
   if [ "$RESTART_COUNT" != "0" ] || [ "$OOM_KILLED" != "false" ]; then
