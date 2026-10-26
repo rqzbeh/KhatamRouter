@@ -7,9 +7,11 @@
  * - Tools: free-tier requests must declare OpenCode's own `read` and `shell`
  *   tools with their exact descriptions and parameter schemas; stubbed
  *   descriptions, renamed schemas or tool_choice "none" are answered with 403
- *   FreeTierError. Caller tools are sent untouched, except one that already
- *   uses an exact fingerprint name with a different definition: it travels
- *   under an alias and the response side restores the caller's original name.
+ *   FreeTierError. Caller tools are sent untouched. A tool that already uses an
+ *   exact fingerprint name with a different definition adopts OpenCode's
+ *   definition in place whenever its arguments can carry them; only a genuinely
+ *   different schema travels under an alias, and the response side restores
+ *   that caller's original name.
  * - System prompt: the CLI's `<env>` environment marker must be present in the
  *   system content; a foreign prompt without it is answered 429
  *   FreeUsageLimitError regardless of headers, UA or sessions
@@ -71,13 +73,10 @@ const ACCEPTED_FINGERPRINT_DESCRIPTIONS = {
   shell: new Set(Object.keys(SHELL_PLATFORM_WORDINGS).map((platform) => shellDescription(platform))),
 };
 
-// Runtime platform for the shell tool wording: matches local OS conventions so
-// local dev tooling (macOS=zsh, Windows=powershell, Linux=bash) matches CLI expectations.
-const HOST_PLATFORM = process.platform || "linux";
-
+// The captured fingerprint definitions are frozen from the OpenCode CLI running on Linux/bash.
 const FINGERPRINT_TOOL_DEFINITIONS = {
   read: { description: READ_DESCRIPTION, parameters: FINGERPRINT_TOOL_PARAMETERS.read },
-  shell: { description: shellDescription(HOST_PLATFORM), parameters: FINGERPRINT_TOOL_PARAMETERS.shell },
+  shell: { description: shellDescription("linux"), parameters: FINGERPRINT_TOOL_PARAMETERS.shell },
 };
 
 // Request body -> names renamed for that request. transformRequest() mutates the
@@ -121,10 +120,50 @@ function withToolName(tool, name) {
 }
 
 /**
- * Move caller tools off the fingerprint names when their definition differs
- * from OpenCode's, so the exact definitions can be appended without a
- * duplicate name. Everything else, including case variants such as `Read`, is
- * preserved verbatim; upstream accepts them alongside `read`.
+ * True when `tool` already speaks OpenCode's parameter names for `key`, so the
+ * fingerprint definition can replace its own without hiding or adding an
+ * argument the caller's handler expects.
+ *
+ * This is the common case, not an edge: OpenCode composes `shell`'s description
+ * from `process.platform`, so the very same tool run on Windows reports
+ * "Commands run on Windows using pwsh." while the captured definition says
+ * "Commands run on Linux using bash." — a two-word difference that an exact
+ * string compare rejects.
+ *
+ * Note: Caller tool descriptions are replaced on the wire with OpenCode's; safety
+ * instructions a client embeds in its description no longer reach the model, so
+ * caller safety rules must live in the system prompt.
+ */
+function canNormalizeInPlace(tool, key) {
+  const def = tool && (chatFunctionOf(tool) || tool);
+  const props = def?.parameters?.properties;
+  if (!props || typeof props !== "object" || Array.isArray(props)) return false;
+
+  const wanted = Object.keys(FINGERPRINT_TOOL_DEFINITIONS[key].parameters.properties || {});
+  const declared = Object.keys(props);
+  if (declared.some((name) => !wanted.includes(name))) return false;
+  return FINGERPRINT_TOOL_DEFINITIONS[key].parameters.required.every((name) => declared.includes(name));
+}
+
+/**
+ * Replace `tool`'s definition with OpenCode's while keeping its name, so the
+ * wire carries a single, gate-satisfying tool instead of a caller tool plus a
+ * placeholder of the same purpose.
+ */
+function withFingerprintDefinition(tool, key) {
+  const { description, parameters } = FINGERPRINT_TOOL_DEFINITIONS[key];
+  const fn = chatFunctionOf(tool);
+  return fn
+    ? { ...tool, function: { ...fn, description, parameters } }
+    : { ...tool, description, parameters };
+}
+
+/**
+ * Keep caller tools on the fingerprint names whenever their arguments can carry
+ * OpenCode's, and move the remaining ones off them so the exact definitions can
+ * be appended without a duplicate name. Everything else, including case
+ * variants such as `Read`, is preserved verbatim; upstream accepts them
+ * alongside `read`.
  *
  * @param {Array} tools
  * @returns {{ tools: Array, map: Map<string,string> }} map: sent name -> original name
@@ -154,6 +193,16 @@ export function concealFingerprintToolNames(tools) {
 
     if (isFingerprintDefinition(tool, key)) {
       out.push(tool);
+      continue;
+    }
+
+    // Same tool, different wording. Adopt OpenCode's definition in place: the
+    // caller keeps its own name, so there is no alias to restore, no alias name
+    // for the model to collide with, and no placeholder to explain away.
+    // Note: caller tool descriptions are replaced on the wire and safety rules
+    // must live in the system prompt.
+    if (canNormalizeInPlace(tool, key)) {
+      out.push(withFingerprintDefinition(tool, key));
       continue;
     }
 
@@ -392,9 +441,10 @@ export function applyEnvFingerprint(body, flat, { claude = false } = {}) {
 }
 
 /**
- * Full request-side pass: alias conflicting caller tools, append OpenCode's
- * fingerprint definitions, tell the model the appended ones are off-limits, and
- * append the environment marker.
+ * Full request-side pass: normalize caller tools that collide with a
+ * fingerprint name, append OpenCode's definitions for any that are missing,
+ * tell the model the appended ones are off-limits, and append the environment
+ * marker.
  *
  * @param {object} body
  * @param {boolean} flat - true for Responses tools ({name}), false for chat tools
