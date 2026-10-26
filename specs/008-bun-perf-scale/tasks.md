@@ -2,7 +2,7 @@
 description: "Task list for 008-bun-perf-scale"
 ---
 
-# Tasks: Bun Hot-Path Profile, Multi-Process Scale, Ladder Re-Run
+# Tasks: Wave 8 — Bun Hot-Path Profile, Multi-Process Scale, Ladder Re-Run
 
 **Input**: `/specs/008-bun-perf-scale/` (plan.md, spec.md, research.md, data-model.md, contracts/, quickstart.md)
 

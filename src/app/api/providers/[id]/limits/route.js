@@ -6,21 +6,17 @@ import {
 import { validateConnectionLimitOverrides } from "open-sse/services/rateLimitManager/overrides.js";
 import { isAuthenticated } from "@/dashboardGuard";
 
-interface RouteParams {
-  params: Promise<{ id: string }> | { id: string };
-}
-
-async function resolveId(paramsObj: RouteParams["params"]): Promise<string> {
+async function resolveId(paramsObj) {
   const resolved = await paramsObj;
   return resolved.id;
 }
 
-function ensureRequestWithCookies(request: any) {
+function ensureRequestWithCookies(request) {
   if (request.cookies && typeof request.cookies.get === "function") {
     return request;
   }
   const cookieHeader = request.headers?.get?.("cookie") || "";
-  const cookieMap = new Map<string, string>();
+  const cookieMap = new Map();
   if (cookieHeader) {
     for (const pair of cookieHeader.split(";")) {
       const idx = pair.indexOf("=");
@@ -36,7 +32,7 @@ function ensureRequestWithCookies(request: any) {
     get(target, prop, receiver) {
       if (prop === "cookies") {
         return {
-          get: (name: string) => {
+          get: (name) => {
             const val = cookieMap.get(name);
             return val !== undefined ? { name, value: val } : undefined;
           },
@@ -53,7 +49,7 @@ function ensureRequestWithCookies(request: any) {
  * Fetch current rate_limit_overrides_json for a connection.
  * Requires dashboard session authentication. Never leaks API keys/credentials.
  */
-export async function GET(request: Request, { params }: RouteParams) {
+export async function GET(request, { params }) {
   try {
     const guardedRequest = ensureRequestWithCookies(request);
     if (!(await isAuthenticated(guardedRequest))) {
@@ -85,7 +81,7 @@ export async function GET(request: Request, { params }: RouteParams) {
  * Validates and updates rate_limit_overrides_json for a connection.
  * Requires dashboard session authentication. Never leaks API keys/credentials.
  */
-export async function PUT(request: Request, { params }: RouteParams) {
+export async function PUT(request, { params }) {
   try {
     const guardedRequest = ensureRequestWithCookies(request);
     if (!(await isAuthenticated(guardedRequest))) {
@@ -102,7 +98,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Connection not found" }, { status: 404 });
     }
 
-    let body: any;
+    let body;
     try {
       body = await request.json();
     } catch {
@@ -125,7 +121,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
       );
     }
 
-    const updated: any = await updateProviderConnection(id, {
+    const updated = await updateProviderConnection(id, {
       rate_limit_overrides_json: validation.value,
     });
 
@@ -148,7 +144,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
  * Resets rate_limit_overrides_json to null for a connection.
  * Requires dashboard session authentication.
  */
-export async function DELETE(request: Request, { params }: RouteParams) {
+export async function DELETE(request, { params }) {
   try {
     const guardedRequest = ensureRequestWithCookies(request);
     if (!(await isAuthenticated(guardedRequest))) {
@@ -165,7 +161,7 @@ export async function DELETE(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Connection not found" }, { status: 404 });
     }
 
-    const updated = await updateProviderConnection(id, {
+    await updateProviderConnection(id, {
       rate_limit_overrides_json: null,
     });
 

@@ -6,7 +6,8 @@
 **Status**: Draft
 **Input**: User description: "Wave 7.5: Remove better-sqlite3 (not Bun-compatible) and every Node-runtime SQLite fallback (node:sqlite, sql.js); bun:sqlite is the only driver, no Node fallback. docker-compose.yml builds from the Bun Dockerfile and runs Redis (redis:8.2-alpine) enabled by default. Use Redis to its full capacity, adapting the Redis use cases OmniRoute has that apply to us, plus lease-based distributed concurrency semaphores, round-robin counters and opt-in Idempotency-Key. Evaluate Turbopack in place of webpack. Fix confirmed Wave 1-7 defects. Semantic cache is out of scope."
 
-> **Numbering note**: ROADMAP.md already reserves **Wave 8** for "Dashboard and Tooling" (TSX limits modals, key-quota tabs, capability badges, consolidated TypeScript CLI). This wave is therefore **7.5** and lives in `specs/0075-...`, which sorts between `007-` and `008-`. Wave 8 scope is untouched; the only CLI change here is that the existing launcher requires `bun`.
+> **Numbering note**: ROADMAP.md already reserves **Wave 8** for "Dashboard and Tooling" (TSX limits modals, key-quota tabs, capability badges, consolidated TypeScript CLI). This wave is therefore **7.5** and lives in `specs/0075-...`, which sorts between `007-` and `008-`. Wave 8 scope is untouched; the only CLI change here is that the existing launcher requires `bun`.  
+> [Correction: Dashboard tooling shipped in PRs #71/#72 as plain JavaScript without TypeScript; the real Wave 8 is Bun performance and scale (specs/008-bun-perf-scale, planned).]
 
 ---
 
@@ -231,7 +232,7 @@ An operator relies on Waves 1-7 behaving as their docs claim. Defects confirmed 
 - Redis 8.2 is used via the floating `8.2-alpine` tag chosen by the maintainer; patch updates arrive on image pull. Whether 8.2 is an LTS line is not asserted.
 - Idempotency covers non-streaming chat requests only; streaming and error responses are not replayed. Replay lifetime defaults to a short bounded window (to be fixed in the plan).
 - The semantic or response-similarity cache is out of scope for this wave by explicit decision. Exact-match replay exists only through Idempotency-Key.
-- Wave 8 (TSX dashboard modals, key-quota tabs, capability badges, consolidated TypeScript CLI) and Phase 2 (Go gateway) are unchanged.
+- Wave 8 (TSX dashboard modals, key-quota tabs, capability badges, consolidated TypeScript CLI) and Phase 2 (Go gateway) are unchanged. [Correction: Dashboard tooling shipped as plain JavaScript in PRs #71/#72 without TypeScript; Wave 8 was reassigned to Bun performance and scale (specs/008-bun-perf-scale).]
 - User Story 7's contents were finalized by amendment 2026-10-22 after the audit completed plus five targeted verifiers (w4-order, w1-pubsub, w5-decloak, quota-failopen, refresh-singleuse — all `confirmed`).
 - The existing Redis event bus, quota store, key prefix and fail-open conventions are reused; this wave adds users of them rather than a second Redis layer.
 - Redis is bound to loopback on the host; inter-container traffic uses the compose network. Redis authentication is not added in this wave (deferred; recorded in the plan as a hardening item).

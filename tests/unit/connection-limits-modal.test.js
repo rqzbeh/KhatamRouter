@@ -1,8 +1,11 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createRequire } from "node:module";
 import React from "react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
+const req = createRequire(import.meta.url);
 
 import {
   parseConnectionLimitOverrides,
@@ -160,7 +163,7 @@ describe("Gate 1: Connection limits input Validation and Sanitization", () => {
 
   describe("Client-side form Validation helper", () => {
     it("validates string inputs and produces clear validation diagnostics", async () => {
-      const { validateLimitsForm } = await import("@/shared/components/ConnectionLimitsModal.tsx");
+      const { validateLimitsForm } = req("../../src/shared/components/ConnectionLimitsModal.js");
       expect(typeof validateLimitsForm).toBe("function");
 
       // Valid empty form (all limits cleared)
@@ -249,17 +252,17 @@ describe("Gate 2: Connection limits API Persistence and overrides Schema", () =>
     expect(contract.properties.maxBudgetUsd.minimum).toBe(0);
   });
 
-  it("exports TypeScript interfaces from src/shared/types/connectionLimits.ts", async () => {
-    const typesPath = path.resolve(__dirname, "../../src/shared/types/connectionLimits.ts");
+  it("defines connection limits types and contracts in src/shared/types/connectionLimits.js", async () => {
+    const typesPath = path.resolve(__dirname, "../../src/shared/types/connectionLimits.js");
     expect(fs.existsSync(typesPath)).toBe(true);
     const content = fs.readFileSync(typesPath, "utf-8");
-    expect(content).toContain("export interface ConnectionLimitOverrides");
-    expect(content).toContain("maxBudgetUsd?: number");
-    expect(content).toContain("modelConcurrency?: Record<string, number>");
+    expect(content).toContain("ConnectionLimitOverrides");
+    expect(content).toContain("maxBudgetUsd");
+    expect(content).toContain("modelConcurrency");
   });
 
   it("handles GET /api/providers/[id]/limits with auth checks, 404s, and returns limits without secrets", async () => {
-    const { GET } = await import("@/app/api/providers/[id]/limits/route.ts");
+    const { GET } = await import("@/app/api/providers/[id]/limits/route.js");
     const { createProviderNode, createProviderConnection, updateProviderConnection } = await import("@/models/index.js");
     const { updateSettings } = await import("@/lib/localDb");
 
@@ -302,7 +305,7 @@ describe("Gate 2: Connection limits API Persistence and overrides Schema", () =>
   });
 
   it("handles PUT /api/providers/[id]/limits validating inputs and persisting to SQLite rate_limit_overrides_json", async () => {
-    const { PUT, GET } = await import("@/app/api/providers/[id]/limits/route.ts");
+    const { PUT, GET } = await import("@/app/api/providers/[id]/limits/route.js");
     const { createProviderNode, createProviderConnection, getProviderConnectionById } = await import("@/models/index.js");
     const { updateSettings } = await import("@/lib/localDb");
 
@@ -379,7 +382,7 @@ describe("Gate 2: Connection limits API Persistence and overrides Schema", () =>
   });
 
   it("handles DELETE /api/providers/[id]/limits resetting limits to empty", async () => {
-    const { DELETE } = await import("@/app/api/providers/[id]/limits/route.ts");
+    const { DELETE } = await import("@/app/api/providers/[id]/limits/route.js");
     const { createProviderNode, createProviderConnection, getProviderConnectionById } = await import("@/models/index.js");
     const { updateSettings } = await import("@/lib/localDb");
 
@@ -449,7 +452,7 @@ describe("Gate 3: ModelConcurrency map and Budget ceiling tests", () => {
   });
 
   it("renders ConnectionLimitsModal component with model concurrency and budget fields", async () => {
-    const { default: ConnectionLimitsModal } = await import("@/shared/components/ConnectionLimitsModal.tsx");
+    const ConnectionLimitsModal = req("../../src/shared/components/ConnectionLimitsModal.js").default;
     expect(typeof ConnectionLimitsModal).toBe("function");
 
     // Component returns null when isOpen is false

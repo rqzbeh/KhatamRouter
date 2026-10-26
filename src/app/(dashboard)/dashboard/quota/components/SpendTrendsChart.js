@@ -13,57 +13,56 @@ import {
 } from "recharts";
 import Card from "@/shared/components/Card";
 import { cn } from "@/shared/utils/cn";
-import type { SpendTrendPoint } from "@/shared/types/keyQuota.ts";
 
-const CardComponent: any = Card;
-
-export interface SpendTrendsChartProps {
-  apiKeyId?: string;
-  data?: SpendTrendPoint[];
-  period?: "today" | "24h" | "7d" | "30d";
-  onPeriodChange?: (period: "today" | "24h" | "7d" | "30d") => void;
-  className?: string;
-}
+const CardComponent = Card;
 
 const PERIOD_OPTIONS = [
   { value: "today", label: "Today" },
   { value: "24h", label: "24h" },
   { value: "7d", label: "7D" },
   { value: "30d", label: "30D" },
-] as const;
-
-type MetricMode = "cost" | "tokens" | "requests";
+];
 
 const METRIC_MODES = [
   { value: "cost", label: "Cost ($ USD)", icon: "payments" },
   { value: "tokens", label: "Tokens", icon: "data_usage" },
   { value: "requests", label: "Requests", icon: "swap_horiz" },
-] as const;
+];
 
-const fmtTokens = (n: number) => {
+const fmtTokens = (n) => {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(n || 0);
 };
 
-const fmtCost = (n: number) => `$${(Number(n) || 0).toFixed(4)}`;
-const fmtRequests = (n: number) => String(Number(n) || 0);
+const fmtCost = (n) => `$${(Number(n) || 0).toFixed(4)}`;
+const fmtRequests = (n) => String(Number(n) || 0);
 
+/**
+ * SpendTrendsChart component plotting cost, token, and request trends.
+ *
+ * @param {Object} props
+ * @param {string} [props.apiKeyId]
+ * @param {Array<Object>} [props.data]
+ * @param {"today" | "24h" | "7d" | "30d"} [props.period]
+ * @param {(period: "today" | "24h" | "7d" | "30d") => void} [props.onPeriodChange]
+ * @param {string} [props.className]
+ */
 export default function SpendTrendsChart({
   apiKeyId,
   data: externalData,
   period: externalPeriod,
   onPeriodChange,
   className,
-}: SpendTrendsChartProps) {
-  const [internalPeriod, setInternalPeriod] = useState<"today" | "24h" | "7d" | "30d">("24h");
-  const [fetchedData, setFetchedData] = useState<SpendTrendPoint[]>([]);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [metricMode, setMetricMode] = useState<MetricMode>("cost");
+}) {
+  const [internalPeriod, setInternalPeriod] = useState("24h");
+  const [fetchedData, setFetchedData] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [metricMode, setMetricMode] = useState("cost");
 
   const activePeriod = externalPeriod || internalPeriod;
 
-  const handlePeriodSelect = (p: "today" | "24h" | "7d" | "30d") => {
+  const handlePeriodSelect = (p) => {
     if (onPeriodChange) {
       onPeriodChange(p);
     } else {
@@ -197,7 +196,7 @@ export default function SpendTrendsChart({
                 tick={{ fontSize: 11 }}
                 tickLine={false}
                 stroke="#888888"
-                tickFormatter={(val: string) => {
+                tickFormatter={(val) => {
                   if (!val) return "";
                   if (val.length > 11) return val.slice(11); // HH:00
                   return val.slice(5); // MM-DD
@@ -207,7 +206,7 @@ export default function SpendTrendsChart({
                 tick={{ fontSize: 11 }}
                 tickLine={false}
                 stroke="#888888"
-                tickFormatter={(val: number) => {
+                tickFormatter={(val) => {
                   if (metricMode === "cost") return `$${val.toFixed(2)}`;
                   if (metricMode === "tokens") return fmtTokens(val);
                   return fmtRequests(val);
@@ -221,7 +220,7 @@ export default function SpendTrendsChart({
                   fontSize: "12px",
                   color: "#ffffff",
                 }}
-                formatter={(val: any, name: any) => {
+                formatter={(val, name) => {
                   const num = Number(val) || 0;
                   if (name === "Cost") return [fmtCost(num), "Cost"];
                   if (name === "Prompt Tokens") return [fmtTokens(num), "Prompt Tokens"];

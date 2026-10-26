@@ -1,63 +1,61 @@
 ---
-description: "Task list for Wave 8 — Dashboard and Tooling implementation"
+description: "Task list for Dashboard and Tooling implementation"
 ---
 
-# Tasks: Wave 8 — Dashboard and Tooling
+# Tasks: Dashboard and Tooling
 
 **Input**: Design documents from `/specs/010-dashboard-tooling/` (`spec.md`, `plan.md`, `research.md`, `data-model.md`, `quickstart.md`, `contracts/`)  
 **Prerequisites**: `spec.md`, `plan.md`, `research.md`, `data-model.md`, `quickstart.md`, `contracts/`  
-**Tests**: Bun-hosted Vitest unit test suites (`tests/unit/connection-limits-modal.test.js`, `tests/unit/key-quota-tabs.test.js`, `tests/unit/capability-badges.test.js`, `tests/unit/cli-consolidated.test.js`, `tests/unit/wave8-integration.test.js`), baseline checks (`node tests/__baseline__/verify-providers.mjs`, `node tests/__baseline__/verify-alias.mjs`)  
-**Organization**: Tasks are grouped by User Story and Phase with strictly disjoint file ownership to enable independent, parallel subagent execution across Wave 1 (Leaves 1.1.1, 1.1.2, 1.1.3, 1.1.4) and sequential integration in Wave 2 (Leaf 1.1.5).
+**Tests**: Bun-hosted Vitest unit test suites (`tests/unit/connection-limits-modal.test.js`, `tests/unit/key-quota-tabs.test.js`, `tests/unit/capability-badges.test.js`, `tests/unit/wave8-integration.test.js`), baseline checks (`node tests/__baseline__/verify-providers.mjs`, `node tests/__baseline__/verify-alias.mjs`)  
+**Organization**: Tasks are grouped by User Story and Phase with strictly disjoint file ownership to enable independent, parallel subagent execution across Wave 1 (Leaves 1.1.1, 1.1.2, 1.1.3) and sequential integration in Wave 2 (Leaf 1.1.5).
 
 ---
 
 ## Phase 1: Setup & Environment Validation
 
-**Purpose**: Verify repository, TypeScript configuration, and isolated test runtime.
+**Purpose**: Verify repository and isolated test runtime.
 
 - [ ] T001 [P] Verify Bun `v1.4.3+` and Vitest test environment  
   *Leaf*: leaf-1.1.1 (Wave 1)  
   *Files owned*: `tests/unit/connection-limits-modal.test.js`  
   *Check oracle*: `bun x vitest --version && bun --version`
 
-- [ ] T002 [P] Verify TypeScript compiler options for React JSX and `@/*` alias in root `tsconfig.json`  
+- [ ] T002 [P] [DROPPED: superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships] Verify TypeScript compiler options for React JSX and `@/*` alias in root `tsconfig.json`  
   *Leaf*: leaf-1.1.4 (Wave 1)  
-  *Files owned*: `cli/tsconfig.json`  
-  *Check oracle*: `node -e 'const c = require("./tsconfig.json"); if (!c.compilerOptions.paths["@/*"]) process.exit(1); console.log("TSCONFIG_OK");'`
+  *Files owned*: `cli/cli.js`  
 
-- [ ] T003 [P] Verify directory scaffolding for new dashboard and CLI components under `src/app/(dashboard)/dashboard/quota/components/` and `cli/src/ts/`  
+- [ ] T003 [P] [DROPPED: superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships] Verify directory scaffolding for new dashboard components under `src/app/(dashboard)/dashboard/quota/components/`  
   *Leaf*: leaf-1.1.4 (Wave 1)  
-  *Files owned*: `cli/src/ts/**`  
-  *Check oracle*: `node -e 'const fs = require("fs"); fs.mkdirSync("src/app/(dashboard)/dashboard/quota/components", {recursive: true}); fs.mkdirSync("cli/src/ts/commands", {recursive: true}); console.log("SCAFFOLD_OK");'`
+  *Files owned*: `src/app/(dashboard)/dashboard/quota/components/**`  
+  *Check oracle*: `node -e 'const fs = require("fs"); fs.mkdirSync("src/app/(dashboard)/dashboard/quota/components", {recursive: true}); console.log("SCAFFOLD_OK");'`
 
 ---
 
-## Phase 2: Foundational Types & Schemas
+## Phase 2: Foundational Schemas
 
 **Purpose**: Shared interfaces and validation contracts required by user stories.
 
-- [ ] T004 [P] Define TypeScript interfaces for connection limits in `src/shared/types/connectionLimits.ts` matching `contracts/connection-limits.json`  
+- [ ] T004 [P] Define schemas for connection limits in `src/shared/types/connectionLimits.js` matching `contracts/connection-limits.json`  
   *Leaf*: leaf-1.1.1 (Wave 1)  
-  *Files owned*: `src/shared/types/connectionLimits.ts`  
+  *Files owned*: `src/shared/types/connectionLimits.js`  
   *Check oracle*: `bun x vitest run unit/connection-limits-modal.test.js -t "Schema|Types"`
 
-- [ ] T005 [P] Define TypeScript interfaces for key quota and spend ledger in `src/shared/types/keyQuota.ts` matching `contracts/key-quota.json`  
+- [ ] T005 [P] Define schemas for key quota and spend ledger in `src/shared/types/keyQuota.js` matching `contracts/key-quota.json`  
   *Leaf*: leaf-1.1.2 (Wave 1)  
-  *Files owned*: `src/shared/types/keyQuota.ts`  
+  *Files owned*: `src/shared/types/keyQuota.js`  
   *Check oracle*: `bun x vitest run unit/key-quota-tabs.test.js -t "Types|Interfaces"`
 
-- [ ] T006 [P] Define TypeScript interfaces for consolidated CLI options and runtime status in `cli/src/ts/types.ts` matching `contracts/cli-contract.md`  
+- [ ] T006 [P] [DROPPED: superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships] CLI TypeScript interfaces dropped  
   *Leaf*: leaf-1.1.4 (Wave 1)  
-  *Files owned*: `cli/src/ts/types.ts`  
-  *Check oracle*: `bun x vitest run unit/cli-consolidated.test.js -t "Types|Parsing"`
+  *Files owned*: `cli/cli.js`  
 
-**Checkpoint**: Foundational types compiled; user story implementation can proceed in parallel.
+**Checkpoint**: Foundational schemas established; user story implementation can proceed in parallel.
 
 ---
 
 ## Phase 3: User Story 1 — Per-Connection Limits Modal (Priority: P1) 🎯 MVP
 
-**Goal**: Provide a TSX dialog (`ConnectionLimitsModal.tsx`) for managing per-connection rate limits, spacing, wait ceilings, in-flight concurrency caps, and USD budget caps.  
+**Goal**: Provide a React dialog (`ConnectionLimitsModal.js`) for managing per-connection rate limits, spacing, wait ceilings, in-flight concurrency caps, and USD budget caps.  
 **Independent Test**: `bun x vitest run unit/connection-limits-modal.test.js`
 
 ### Tests for User Story 1
@@ -72,19 +70,19 @@ description: "Task list for Wave 8 — Dashboard and Tooling implementation"
   *Files owned*: `open-sse/services/rateLimitManager/overrides.js`  
   *Check oracle*: `bun x vitest run unit/connection-limits-modal.test.js -t "Validation|Sanitization|Budget"`
 
-- [ ] T009 [P] [US1] Implement typed backend API handler in `src/app/api/providers/[id]/limits/route.ts` validating inputs with `validateConnectionLimitOverrides()` and persisting to `providerConnections.rate_limit_overrides_json`  
+- [ ] T009 [P] [US1] Implement backend API handler in `src/app/api/providers/[id]/limits/route.js` validating inputs with `validateConnectionLimitOverrides()` and persisting to `providerConnections.rate_limit_overrides_json`  
   *Leaf*: leaf-1.1.1 (Wave 1)  
-  *Files owned*: `src/app/api/providers/[id]/limits/route.ts`  
+  *Files owned*: `src/app/api/providers/[id]/limits/route.js`  
   *Check oracle*: `bun x vitest run unit/connection-limits-modal.test.js -t "Persistence|Schema|API"`
 
-- [ ] T010 [P] [US1] Implement React TSX modal component `src/shared/components/ConnectionLimitsModal.tsx` supporting rate limits, pacing, wait ceilings, concurrency, modelConcurrency, and maxBudgetUsd  
+- [ ] T010 [P] [US1] Implement React modal component `src/shared/components/ConnectionLimitsModal.js` supporting rate limits, pacing, wait ceilings, concurrency, modelConcurrency, and maxBudgetUsd  
   *Leaf*: leaf-1.1.1 (Wave 1)  
-  *Files owned*: `src/shared/components/ConnectionLimitsModal.tsx`  
+  *Files owned*: `src/shared/components/ConnectionLimitsModal.js`  
   *Check oracle*: `bun x vitest run unit/connection-limits-modal.test.js -t "Render|ModelConcurrency|Budget"`
 
-- [ ] T011 [US1] Add client-side input validation, error messaging, and form state management to `src/shared/components/ConnectionLimitsModal.tsx`  
+- [ ] T011 [US1] Add client-side input validation, error messaging, and form state management to `src/shared/components/ConnectionLimitsModal.js`  
   *Leaf*: leaf-1.1.1 (Wave 1)  
-  *Files owned*: `src/shared/components/ConnectionLimitsModal.tsx`  
+  *Files owned*: `src/shared/components/ConnectionLimitsModal.js`  
   *Check oracle*: `bun x vitest run unit/connection-limits-modal.test.js -t "Validation|ErrorMessaging"`
 
 **Checkpoint**: User Story 1 is fully functional and testable independently via `tests/unit/connection-limits-modal.test.js`.
@@ -103,19 +101,19 @@ description: "Task list for Wave 8 — Dashboard and Tooling implementation"
   *Check oracle*: `bun x vitest run unit/key-quota-tabs.test.js`
 
 ### Implementation for User Story 2
-- [ ] T013 [P] [US2] Implement authenticated backend API route `src/app/api/keys/[id]/quota/route.ts` for reading and updating `api_key_quota_limits` and querying `getCumulativeSpendForWindow`  
+- [ ] T013 [P] [US2] Implement authenticated backend API route `src/app/api/keys/[id]/quota/route.js` for reading and updating `api_key_quota_limits` and querying `getCumulativeSpendForWindow`  
   *Leaf*: leaf-1.1.2 (Wave 1)  
-  *Files owned*: `src/app/api/keys/[id]/quota/route.ts`  
+  *Files owned*: `src/app/api/keys/[id]/quota/route.js`  
   *Check oracle*: `bun x vitest run unit/key-quota-tabs.test.js -t "API|FailOpen"`
 
-- [ ] T014 [P] [US2] Implement spend trends visualization component `src/app/(dashboard)/dashboard/quota/components/SpendTrendsChart.tsx` plotting daily/hourly cost and token volume from `request_cost_ledger`  
+- [ ] T014 [P] [US2] Implement spend trends visualization component `src/app/(dashboard)/dashboard/quota/components/SpendTrendsChart.js` plotting daily/hourly cost and token volume from `request_cost_ledger`  
   *Leaf*: leaf-1.1.2 (Wave 1)  
-  *Files owned*: `src/app/(dashboard)/dashboard/quota/components/SpendTrendsChart.tsx`  
+  *Files owned*: `src/app/(dashboard)/dashboard/quota/components/SpendTrendsChart.js`  
   *Check oracle*: `bun x vitest run unit/key-quota-tabs.test.js -t "SpendTrends|Ledger"`
 
-- [ ] T015 [US2] Implement key quota overview view `src/app/(dashboard)/dashboard/quota/components/KeyQuotaView.tsx` with utilization percentage progress bars, window reset timers, and status badges  
+- [ ] T015 [US2] Implement key quota overview view `src/app/(dashboard)/dashboard/quota/components/KeyQuotaView.js` with utilization percentage progress bars, window reset timers, and status badges  
   *Leaf*: leaf-1.1.2 (Wave 1)  
-  *Files owned*: `src/app/(dashboard)/dashboard/quota/components/KeyQuotaView.tsx`  
+  *Files owned*: `src/app/(dashboard)/dashboard/quota/components/KeyQuotaView.js`  
   *Check oracle*: `bun x vitest run unit/key-quota-tabs.test.js -t "Utilization|ResetTimer"`
 
 **Checkpoint**: User Story 2 is fully functional and testable independently via `tests/unit/key-quota-tabs.test.js`.
@@ -134,65 +132,42 @@ description: "Task list for Wave 8 — Dashboard and Tooling implementation"
   *Check oracle*: `bun x vitest run unit/capability-badges.test.js`
 
 ### Implementation for User Story 3
-- [ ] T017 [P] [US3] Implement typed capability metadata dictionary `src/shared/constants/capacityMeta.ts` with icons, descriptions, and color tokens for all 9 modalities  
+- [ ] T017 [P] [US3] Implement capability metadata dictionary `src/shared/constants/capacityMeta.js` with icons, descriptions, and color tokens for all 9 modalities  
   *Leaf*: leaf-1.1.3 (Wave 1)  
-  *Files owned*: `src/shared/constants/capacityMeta.ts`  
+  *Files owned*: `src/shared/constants/capacityMeta.js`  
   *Check oracle*: `bun x vitest run unit/capability-badges.test.js -t "Constants|ModalityColors"`
 
-- [ ] T018 [US3] Implement enhanced TypeScript badge component `src/shared/components/CapacityBadges.tsx` supporting individual model modalities and aggregated combo capabilities  
+- [ ] T018 [US3] Implement enhanced badge component `src/shared/components/CapacityBadges.js` supporting individual model modalities and aggregated combo capabilities  
   *Leaf*: leaf-1.1.3 (Wave 1)  
-  *Files owned*: `src/shared/components/CapacityBadges.tsx`  
+  *Files owned*: `src/shared/components/CapacityBadges.js`  
   *Check oracle*: `bun x vitest run unit/capability-badges.test.js -t "BadgeRendering|Tooltips|ComboAggregation"`
 
-- [ ] T019 [US3] Re-export `CapacityBadges.tsx` in `src/shared/components/index.js` preserving backward compatibility with legacy JavaScript callers  
+- [ ] T019 [US3] Re-export `CapacityBadges.js` in `src/shared/components/index.js` preserving backward compatibility with legacy JavaScript callers  
   *Leaf*: leaf-1.1.3 (Wave 1)  
   *Files owned*: `src/shared/components/index.js`  
   *Check oracle*: `node -e 'const b = require("./src/shared/components"); console.log(typeof b.CapacityBadges);'`
+  *Check oracle*: `bun x vitest run unit/capability-badges.test.js -t "BadgeRendering|Tooltips|ComboAggregation"`
 
 **Checkpoint**: User Story 3 is fully functional and testable independently via `tests/unit/capability-badges.test.js`.
 
 ---
 
-## Phase 6: User Story 4 — Consolidated TypeScript CLI (Priority: P2)
+## Phase 6: User Story 4 — Standalone CLI Launcher Preservation (Priority: P2) [DROPPED: superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships]
 
-**Goal**: Unify standalone launcher CLI and runtime operational commands into a consolidated TypeScript CLI with backward-compatible entrypoints.  
-**Independent Test**: `bun x vitest run unit/cli-consolidated.test.js`
+**Goal**: [DROPPED: superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships] Preserve standalone launcher CLI (`cli/cli.js`) as plain JavaScript (ESM) per Principle II. The published CLI is unchanged.
 
-### Tests for User Story 4
-- [ ] T020 [P] [US4] Create unit test suite for consolidated CLI commands, options parsing, and Bun runtime verification in `tests/unit/cli-consolidated.test.js`  
-  *Leaf*: leaf-1.1.4 (Wave 1)  
-  *Files owned*: `tests/unit/cli-consolidated.test.js`  
-  *Check oracle*: `bun x vitest run unit/cli-consolidated.test.js`
-
-### Implementation for User Story 4
-- [ ] T021 [P] [US4] Create TypeScript configuration `cli/tsconfig.json` targeting ES2022 and Node/Bun module resolution  
-  *Leaf*: leaf-1.1.4 (Wave 1)  
-  *Files owned*: `cli/tsconfig.json`  
-  *Check oracle*: `node -e 'const fs = require("fs"); const c = JSON.parse(fs.readFileSync("cli/tsconfig.json", "utf8")); console.log(c.compilerOptions.target);'`
-
-- [ ] T022 [P] [US4] Implement runtime operations (`status`, `ping`, `stop`) in `cli/src/ts/commands/status.ts`, `ping.ts`, `stop.ts`  
-  *Leaf*: leaf-1.1.4 (Wave 1)  
-  *Files owned*: `cli/src/ts/commands/status.ts`, `cli/src/ts/commands/ping.ts`, `cli/src/ts/commands/stop.ts`  
-  *Check oracle*: `bun x vitest run unit/cli-consolidated.test.js -t "Status|Ping|SecretMasking"`
-
-- [ ] T023 [US4] Implement command dispatcher in `cli/src/ts/index.ts` routing subcommands and delegating to existing launcher routines  
-  *Leaf*: leaf-1.1.4 (Wave 1)  
-  *Files owned*: `cli/src/ts/index.ts`  
-  *Check oracle*: `bun x vitest run unit/cli-consolidated.test.js -t "Dispatch|Parsing"`
-
-- [ ] T024 [US4] Update `cli/scripts/build-cli.js` to bundle TypeScript CLI assets via `esbuild` during package builds  
-  *Leaf*: leaf-1.1.4 (Wave 1)  
-  *Files owned*: `cli/scripts/build-cli.js`  
-  *Check oracle*: `node -e 'const fs = require("fs"); const b = fs.readFileSync("cli/scripts/build-cli.js", "utf8"); console.log(b.includes("esbuild"));'`
-
-**Checkpoint**: User Story 4 is fully functional and testable independently via `tests/unit/cli-consolidated.test.js`.
+- [ ] T020 [P] [US4] [DROPPED: superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships] Consolidated TypeScript CLI core dropped
+- [ ] T021 [P] [US4] [DROPPED: superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships] `cli/tsconfig.json` dropped
+- [ ] T022 [P] [US4] [DROPPED: superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships] `cli/src/ts/` dropped
+- [ ] T023 [US4] [DROPPED: superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships] TS CLI dispatcher dropped
+- [ ] T024 [US4] [DROPPED: superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships] `cli/scripts/build-cli.js` plain JS build preserved
 
 ---
 
 ## Phase 7: Dashboard Integration, Wiring & Regression Baseline
 
 **Purpose**: Wire newly built components into existing dashboard entry points and verify end-to-end regression invariants.  
-**Prerequisites**: Phases 3, 4, 5, and 6 complete and verified.  
+**Prerequisites**: Phases 3, 4, and 5 complete and verified.  
 **Independent Test**: `bun x vitest run unit/wave8-integration.test.js`, `node tests/__baseline__/verify-providers.mjs`, and `node tests/__baseline__/verify-alias.mjs`
 
 - [ ] T025 [US1] Wire "Limits" modal trigger button into provider connection rows in `src/app/(dashboard)/dashboard/providers/[id]/ConnectionRow.js`  
@@ -225,10 +200,10 @@ description: "Task list for Wave 8 — Dashboard and Tooling implementation"
   *Files owned*: `src/app/(dashboard)/dashboard/combos/page.js`  
   *Check oracle*: `bun x vitest run unit/wave8-integration.test.js -t "CombosPage|CapabilityBadges"`
 
-- [ ] T031 [US4] Wire consolidated TypeScript dispatcher delegation into `cli/cli.js` preserving `ensureBun()` checks  
+- [ ] T031 [US4] [DROPPED: superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships] Published plain JavaScript launcher in `cli/cli.js` is unchanged under Bun  
   *Leaf*: leaf-1.1.5 (Wave 2)  
   *Files owned*: `cli/cli.js`  
-  *Check oracle*: `bun x vitest run unit/cli-consolidated.test.js -t "EnsureBun|Prerequisite"`
+  *Check oracle*: `bun x vitest run unit/wave8-integration.test.js`
 
 - [ ] T032 [P] Implement end-to-end integration test in `tests/unit/wave8-integration.test.js`  
   *Leaf*: leaf-1.1.5 (Wave 2)  
@@ -255,12 +230,12 @@ Phase 1 (Setup)
     │
 Phase 2 (Foundational Types)
     │
-    ├───────────────────────┬───────────────────────┬───────────────────────┐
-    ▼                       ▼                       ▼                       ▼
-Phase 3 (US1 - Limits)   Phase 4 (US2 - Quotas)   Phase 5 (US3 - Badges)   Phase 6 (US4 - CLI)
-[Wave 1 Leaf 1.1.1]     [Wave 1 Leaf 1.1.2]     [Wave 1 Leaf 1.1.3]     [Wave 1 Leaf 1.1.4]
-    │                       │                       │                       │
-    └───────────────────────┴───────────────────────┴───────────────────────┘
+    ├───────────────────────┬───────────────────────┐
+    ▼                       ▼                       ▼
+Phase 3 (US1 - Limits)   Phase 4 (US2 - Quotas)   Phase 5 (US3 - Badges)
+[Wave 1 Leaf 1.1.1]     [Wave 1 Leaf 1.1.2]     [Wave 1 Leaf 1.1.3]
+    │                       │                       │
+    └───────────────────────┴───────────────────────┘
                                     │
                                     ▼
                       Phase 7 (Integration & Baselines)
@@ -268,10 +243,10 @@ Phase 3 (US1 - Limits)   Phase 4 (US2 - Quotas)   Phase 5 (US3 - Badges)   Phase
 ```
 
 ### Parallel Wave Opportunities
-- **Wave 1 (4 parallel subagents)**:
-  - Agent 1: Leaf 1.1.1 (Tasks T001, T004, T007 - T011) — `src/shared/types/connectionLimits.ts`, `open-sse/services/rateLimitManager/overrides.js`, `src/shared/components/ConnectionLimitsModal.tsx`, `src/app/api/providers/[id]/limits/**`, `tests/unit/connection-limits-modal.test.js`
-  - Agent 2: Leaf 1.1.2 (Tasks T005, T012 - T015) — `src/shared/types/keyQuota.ts`, `src/app/(dashboard)/dashboard/quota/components/**`, `src/app/api/keys/[id]/quota/**`, `tests/unit/key-quota-tabs.test.js`
-  - Agent 3: Leaf 1.1.3 (Tasks T016 - T019) — `src/shared/constants/capacityMeta.ts`, `src/shared/components/CapacityBadges.tsx`, `src/shared/components/index.js`, `tests/unit/capability-badges.test.js`
-  - Agent 4: Leaf 1.1.4 (Tasks T002, T003, T006, T020 - T024) — `cli/src/ts/**`, `cli/tsconfig.json`, `cli/scripts/build-cli.js`, `tests/unit/cli-consolidated.test.js`
+- **Wave 1 (3 parallel subagents; CLI TS subagent dropped)**:
+  - Agent 1: Leaf 1.1.1 (Tasks T001, T004, T007 - T011) — `src/shared/types/connectionLimits.js`, `open-sse/services/rateLimitManager/overrides.js`, `src/shared/components/ConnectionLimitsModal.js`, `src/app/api/providers/[id]/limits/**`, `tests/unit/connection-limits-modal.test.js`
+  - Agent 2: Leaf 1.1.2 (Tasks T005, T012 - T015) — `src/shared/types/keyQuota.js`, `src/app/(dashboard)/dashboard/quota/components/**`, `src/app/api/keys/[id]/quota/**`, `tests/unit/key-quota-tabs.test.js`
+  - Agent 3: Leaf 1.1.3 (Tasks T016 - T019) — `src/shared/constants/capacityMeta.js`, `src/shared/components/CapacityBadges.js`, `src/shared/components/index.js`, `tests/unit/capability-badges.test.js`
+  - Agent 4: Leaf 1.1.4 (Tasks T002, T003, T006, T020 - T024) — [DROPPED: superseded by the plain-JavaScript-only rule (PR #64); no TypeScript CLI ships]
 - **Wave 2 (1 subagent)**:
   - Agent 5: Leaf 1.1.5 (Tasks T025 - T034) — `src/app/(dashboard)/dashboard/providers/[id]/ConnectionRow.js`, `src/app/(dashboard)/dashboard/providers/[id]/ModelRow.js`, `src/shared/components/ModelSelectModal.js`, `src/shared/components/ComboFormModal.js`, `src/app/(dashboard)/dashboard/combos/page.js`, `src/app/(dashboard)/dashboard/quota/page.js`, `cli/cli.js`, `tests/unit/wave8-integration.test.js`, baseline snapshot verification (`verify-providers.mjs`, `verify-alias.mjs`).

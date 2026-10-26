@@ -277,18 +277,15 @@ describe("Wave 8 Dashboard & CLI Integration", () => {
     });
   });
 
-  describe("CLI Consolidated & Bun Prerequisite Checks (T031)", async () => {
-    it("ensures Bun runtime requirement with actionable install message", async () => {
-      const { ensureBun, findBunExecutable, formatBunPrerequisiteError } = await import(
-        "../../cli/src/ts/index.ts"
-      );
-
-      const errText = formatBunPrerequisiteError();
-      expect(errText).toContain("Bun runtime is required");
-      expect(errText).toContain("https://bun.sh");
-
-      const bun = findBunExecutable();
-      expect(typeof bun).toBe("string");
+  describe("CLI & Bun Prerequisite Checks (T031)", async () => {
+    it("ensures Bun runtime requirement with actionable install message in cli/cli.js", async () => {
+      const fs = await import("node:fs");
+      const path = await import("node:path");
+      const cliSource = fs.readFileSync(path.resolve(__dirname, "../../cli/cli.js"), "utf8");
+      expect(cliSource).toContain("Bun runtime is required to run KhatamRouter");
+      expect(cliSource).toContain("https://bun.sh");
+      expect(cliSource).toContain("function findBunExecutable");
+      expect(cliSource).toContain("function ensureBun");
     });
   });
 });

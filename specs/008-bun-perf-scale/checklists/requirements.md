@@ -1,4 +1,4 @@
-# Specification Quality Checklist: Bun Hot-Path Profile, Multi-Process Scale, Ladder Re-Run
+# Specification Quality Checklist: Wave 8 — Bun Hot-Path Profile, Multi-Process Scale, Ladder Re-Run
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
 **Created**: 2026-10-24

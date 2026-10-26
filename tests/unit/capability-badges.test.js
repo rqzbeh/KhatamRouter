@@ -10,10 +10,12 @@ import {
   CAPACITY_META,
   ORDERED_MODALITIES,
   aggregateCapabilities,
-} from "@/shared/constants/capacityMeta.ts";
-import CapacityBadges, {
-  aggregateComboCapabilities,
-} from "@/shared/components/CapacityBadges.tsx";
+} from "@/shared/constants/capacityMeta";
+import { createRequire } from "node:module";
+const req = createRequire(import.meta.url);
+const CapacityBadgesMod = req("../../src/shared/components/CapacityBadges.js");
+const CapacityBadges = CapacityBadgesMod.default;
+const { aggregateComboCapabilities } = CapacityBadgesMod;
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

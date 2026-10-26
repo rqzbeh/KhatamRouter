@@ -2,48 +2,38 @@
 // Single source of truth for modality visual markers, tooltip descriptions,
 // and color tokens across provider tables, model selectors, and combo builders.
 
-export interface ModelCapabilities {
-  // Input modalities
-  vision: boolean;
-  pdf: boolean;
-  audioInput: boolean;
-  videoInput: boolean;
-  // Output modalities
-  imageOutput: boolean;
-  audioOutput: boolean;
-  // Features
-  search: boolean;
-  tools: boolean;
-  reasoning: boolean;
-  // Thinking details
-  thinkingFormat: string | null;
-  thinkingCanDisable: boolean;
-  thinkingRange: { min: number; max: number } | null;
-  thinkingEffortSupported?: boolean;
-  // Token limits
-  contextWindow: number;
-  maxOutput: number;
-}
+/**
+ * @typedef {Object} ModelCapabilities
+ * @property {boolean} vision
+ * @property {boolean} pdf
+ * @property {boolean} audioInput
+ * @property {boolean} videoInput
+ * @property {boolean} imageOutput
+ * @property {boolean} audioOutput
+ * @property {boolean} search
+ * @property {boolean} tools
+ * @property {boolean} reasoning
+ * @property {string | null} thinkingFormat
+ * @property {boolean} thinkingCanDisable
+ * @property {{ min: number, max: number } | null} thinkingRange
+ * @property {boolean} [thinkingEffortSupported]
+ * @property {number} contextWindow
+ * @property {number} maxOutput
+ */
 
-export type ModalityKey =
-  | "vision"
-  | "pdf"
-  | "audioInput"
-  | "videoInput"
-  | "imageOutput"
-  | "audioOutput"
-  | "search"
-  | "tools"
-  | "reasoning";
+/**
+ * @typedef {"vision" | "pdf" | "audioInput" | "videoInput" | "imageOutput" | "audioOutput" | "search" | "tools" | "reasoning"} ModalityKey
+ */
 
-export interface CapacityBadgeMeta {
-  key: ModalityKey;
-  icon: string;         // Google Material Symbols Outlined icon name
-  label: string;        // Short human-readable label
-  desc: string;         // Descriptive tooltip explanation
-  color: string;        // Tailwind text color class
-  bgClass: string;      // Tailwind background color class
-}
+/**
+ * @typedef {Object} CapacityBadgeMeta
+ * @property {ModalityKey} key
+ * @property {string} icon - Google Material Symbols Outlined icon name
+ * @property {string} label - Short human-readable label
+ * @property {string} desc - Descriptive tooltip explanation
+ * @property {string} color - Tailwind text color class
+ * @property {string} bgClass - Tailwind background color class
+ */
 
 /**
  * 9 model modalities and features specified in Wave 8:
@@ -56,8 +46,10 @@ export interface CapacityBadgeMeta {
  * - search: travel_explore, text-cyan-500
  * - tools: build, text-emerald-600
  * - reasoning: neurology, text-amber-500
+ *
+ * @type {Record<ModalityKey, CapacityBadgeMeta>}
  */
-export const CAPACITY_META: Record<ModalityKey, CapacityBadgeMeta> = {
+export const CAPACITY_META = {
   vision: {
     key: "vision",
     icon: "visibility",
@@ -132,7 +124,8 @@ export const CAPACITY_META: Record<ModalityKey, CapacityBadgeMeta> = {
   },
 };
 
-export const ORDERED_MODALITIES: ModalityKey[] = [
+/** @type {ModalityKey[]} */
+export const ORDERED_MODALITIES = [
   "vision",
   "pdf",
   "audioInput",
@@ -151,25 +144,23 @@ export const ORDERED_MODALITIES: ModalityKey[] = [
  * - Primary: reasoning fields derived exclusively from the primary (first) model
  * - Conservative: contextWindow is minimum, maxOutput is maximum
  *
- * @param capsList Array of capability dictionaries
- * @returns Aggregated capabilities object, or null for empty input
+ * @param {(Partial<ModelCapabilities> | null)[]} [capsList] Array of capability dictionaries
+ * @returns {ModelCapabilities | null} Aggregated capabilities object, or null for empty input
  */
-export function aggregateCapabilities(
-  capsList?: (Partial<ModelCapabilities> | null)[] | null
-): ModelCapabilities | null {
+export function aggregateCapabilities(capsList) {
   if (!capsList || !capsList.length) return null;
   const valid = capsList.filter(
-    (c): c is Partial<ModelCapabilities> => c !== null && typeof c === "object"
+    (c) => c !== null && typeof c === "object"
   );
   if (!valid.length) return null;
 
   const first = valid[0];
   const contextWindows = valid
     .map((c) => c.contextWindow)
-    .filter((n): n is number => typeof n === "number");
+    .filter((n) => typeof n === "number");
   const maxOutputs = valid
     .map((c) => c.maxOutput)
-    .filter((n): n is number => typeof n === "number");
+    .filter((n) => typeof n === "number");
 
   return {
     vision: valid.some((c) => Boolean(c.vision)),

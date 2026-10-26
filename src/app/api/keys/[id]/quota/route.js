@@ -11,16 +11,17 @@ import {
   calculateWindowReset,
   computeKeyQuotaUtilization,
   getSpendTrendsFromLedger,
-  type QuotaWindowType,
-  type QuotaAction,
-} from "@/shared/types/keyQuota.ts";
+} from "@/shared/types/keyQuota";
 
 export const dynamic = "force-dynamic";
 
 /**
  * Window type to milliseconds mapping for sliding windows.
+ *
+ * @param {string} winType
+ * @returns {number}
  */
-function windowTypeToMs(winType: string): number {
+function windowTypeToMs(winType) {
   const norm = String(winType || "").toLowerCase().trim();
   switch (norm) {
     case "rpm":
@@ -43,8 +44,11 @@ function windowTypeToMs(winType: string): number {
 /**
  * Dashboard session and CLI token authentication check.
  * Fails closed unless requireLogin is explicitly false or valid token is presented.
+ *
+ * @param {Request} request
+ * @returns {Promise<boolean>}
  */
-async function isAuthenticated(request: Request): Promise<boolean> {
+async function isAuthenticated(request) {
   try {
     const settings = await getSettings();
     if (settings && settings.requireLogin === false) {
@@ -55,14 +59,14 @@ async function isAuthenticated(request: Request): Promise<boolean> {
   }
 
   // Extract auth_token from cookies
-  let token: string | null = null;
+  let token = null;
   const cookieHeader = request.headers.get("cookie");
   if (cookieHeader) {
     const match = cookieHeader.match(/auth_token=([^;]+)/);
     if (match) token = match[1];
   }
-  if (!token && "cookies" in request && typeof (request as any).cookies?.get === "function") {
-    token = (request as any).cookies.get("auth_token")?.value || null;
+  if (!token && "cookies" in request && typeof request.cookies?.get === "function") {
+    token = request.cookies.get("auth_token")?.value || null;
   }
 
   if (token) {
@@ -86,20 +90,17 @@ async function isAuthenticated(request: Request): Promise<boolean> {
 }
 
 // GET /api/keys/[id]/quota - Fetch quota configuration, utilization and spend trends
-export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function GET(request, { params }) {
   try {
     if (!(await isAuthenticated(request))) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const { id } = await params;
-    let key: any = null;
+    let key = null;
     try {
       key = await getApiKeyById(id);
-    } catch (dbErr: any) {
+    } catch (dbErr) {
       console.warn(`[keyQuota:api] Failed to get API key (failing open): ${dbErr?.message ?? dbErr}`);
       return NextResponse.json({
         keyId: id,
@@ -144,11 +145,11 @@ export async function GET(
         [key.key, hash, key.id]
       );
 
-      const sanitizedLimits = (limitsRows || []).map((r: any) => ({
+      const sanitizedLimits = (limitsRows || []).map((r) => ({
         id: r.id,
-        windowType: r.window_type as QuotaWindowType,
+        windowType: r.window_type,
         limitValue: Number(r.limit_value),
-        action: (r.action || "reject") as QuotaAction,
+        action: r.action || "reject",
         createdAt: r.created_at,
         updatedAt: r.updated_at,
       }));
@@ -171,7 +172,7 @@ export async function GET(
 
       // Compute usage for each configured limit
       const limitsWithUsage = await Promise.all(
-        sanitizedLimits.map(async (lim: any) => {
+        sanitizedLimits.map(async (lim) => {
           const winType = lim.windowType;
           const limitVal = lim.limitValue;
 
@@ -199,7 +200,6 @@ export async function GET(
 
           // Sliding window rate/token limits
           const winMs = windowTypeToMs(winType);
-          const isTokenLimit = winType.startsWith("tp");
           let used = 0;
           let resetMs = calculateWindowReset(winType, now).resetMs;
           let resetsAtIso = calculateWindowReset(winType, now).resetsAtIso;
@@ -257,7 +257,7 @@ export async function GET(
         unconfigured: sanitizedLimits.length === 0,
         degraded: trendsRes.degraded || false,
       });
-    } catch (err: any) {
+    } catch (err) {
       console.warn(`[keyQuota:api] Failed to fetch quota data for key ${key.id} (failing open): ${err?.message ?? err}`);
       // Fail open: return 200 with degraded state instead of crashing 500
       return NextResponse.json({
@@ -278,17 +278,14 @@ export async function GET(
         degraded: true,
       });
     }
-  } catch (outerErr: any) {
+  } catch (outerErr) {
     console.error(`[keyQuota:api] Unhandled error: ${outerErr?.message ?? outerErr}`);
     return NextResponse.json({ error: "Failed to fetch key quota" }, { status: 500 });
   }
 }
 
 // PUT /api/keys/[id]/quota - Update quota limits for key
-export async function PUT(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function PUT(request, { params }) {
   try {
     if (!(await isAuthenticated(request))) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -313,7 +310,7 @@ export async function PUT(
     const hash = hashApiKey(key.key);
     const nowIso = new Date().toISOString();
 
-    const updatedLimits: any[] = [];
+    const updatedLimits = [];
 
     db.transaction(() => {
       // Remove previous limits for this key
@@ -323,7 +320,7 @@ export async function PUT(
       );
 
       // Insert new limits
-      for (const item of validated.value!.limits) {
+      for (const item of validated.value.limits) {
         const limitId = item.id || uuidv4();
         const action = item.action || "reject";
         db.run(
@@ -351,7 +348,7 @@ export async function PUT(
       keyMasked: maskedKey,
       limits: updatedLimits,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error(`[keyQuota:api] Error updating quota: ${error?.message ?? error}`);
     return NextResponse.json({ error: "Failed to update quota limits" }, { status: 500 });
   }

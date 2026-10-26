@@ -1,21 +1,23 @@
-# CLI Command Contract: Wave 8 — Consolidated TypeScript CLI
+# CLI Command Contract: Standalone Plain JavaScript CLI
+
+The published CLI (`cli/cli.js`, published as `9router`) is unchanged. The proposed TypeScript CLI rewrite and new subcommands (`status`, `ping`, `stop`) were DROPPED per Principle II (plain JavaScript ESM, PR #64).
 
 **Package**: `cli/` (`9router` on npm)  
-**Binary Entrypoint**: `./cli.js` (delegates to compiled TS core)  
+**Binary Entrypoint**: `./cli.js` (plain JavaScript launcher)  
 
 ---
 
 ## Command Matrix
 
-| Command | Arguments / Flags | Description | Offline / Online | Key Masking |
+| Command | Arguments / Flags | Description | Status | Key Masking |
 |---|---|---|---|---|
-| `9router` (default) | `[--port <N>] [--host <H>] [--no-browser]` | Spawns Bun gateway, waits for TCP readiness, launches browser | Online (local) | N/A |
-| `9router show` | `[toolId]` | Reads local configs for agent CLI tools (Claude, OpenCode, Codex, etc.) | Offline | Always masked (`sk-abc...1234`) |
-| `9router connect` | `<gatewayUrl> [--key <K>]` | Configures local CLI tools against a target gateway | Offline | Masked |
-| `9router status` | `[--port <N>] [--json]` | Queries local gateway `/api/health` and displays PID, port, uptime | Online (local) | N/A |
-| `9router ping` | `[--port <N>]` | Verifies TCP and HTTP ping to local gateway | Online (local) | N/A |
-| `9router stop` | `[--port <N>]` | Gracefully shuts down running gateway instance via `/api/shutdown` | Online (local) | N/A |
-| `9router xai video` | `[subcommand args]` | CLI video generation subcommand | Online (remote) | N/A |
+| `9router` (default) | `[--port <N>] [--host <H>] [--no-browser]` | Spawns Bun gateway, waits for TCP readiness, launches browser | Active | N/A |
+| `9router show` | `[toolId]` | Reads local configs for agent CLI tools (Claude, OpenCode, Codex, etc.) | Active | Always masked (`sk-abc...1234`) |
+| `9router connect` | `<gatewayUrl> [--key <K>]` | Configures local CLI tools against a target gateway | Active | Masked |
+| `9router xai video` | `[subcommand args]` | CLI video generation subcommand | Active | N/A |
+| `9router status` | `[--port <N>] [--json]` | Proposed health inspection subcommand | DROPPED (TS CLI dropped) | N/A |
+| `9router ping` | `[--port <N>]` | Proposed gateway ping subcommand | DROPPED (TS CLI dropped) | N/A |
+| `9router stop` | `[--port <N>]` | Proposed gateway shutdown subcommand | DROPPED (TS CLI dropped) | N/A |
 
 ---
 
