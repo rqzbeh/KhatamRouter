@@ -591,6 +591,7 @@ Environment variables actively used by code:
 3. `/api/v1/route.js` returns a static model list and is not the main models source used by `/v1/models`.
 4. Request logger writes full headers/body when enabled; treat log directory as sensitive.
 5. Cloud behavior depends on correct `BASE_URL`/`NEXT_PUBLIC_BASE_URL` and cloud endpoint reachability.
+6. The OpenCode free-tier fingerprint in `open-sse/utils/opencodeFingerprint.js` rewrites `tools` before the upstream call: a caller tool that already uses a fingerprint name (`read`/`shell`) adopts OpenCode's definition when its parameters can carry them, otherwise it is aliased and restored on the response side. The definitions are a frozen capture of the OpenCode CLI, so `shell`'s description embeds the capture platform (`Linux`/`bash`) and is rewritten for clients on any other platform.
 
 ## Operational Verification Checklist
 
