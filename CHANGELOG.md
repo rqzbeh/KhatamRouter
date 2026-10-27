@@ -14,11 +14,11 @@
   - Ingress reverse proxy must overwrite (not append to) `X-Forwarded-For` before forwarding; fail-closed evaluation ensures no spoofing bypass
 
 ## Features
-- **feat(scale)**: horizontal multi-replica deployment overlay (`docker-compose.scale.yml`) behind Nginx load balancer (`deploy/nginx-scale.conf`) sharing Redis state (distributed lease semaphores, sliding-window quotas, circuit breaker state) and a shared SQLite WAL volume (single-host only)
+- **feat(scale)**: horizontal multi-replica deployment overlay (`docker-compose.scale.yml`) behind Nginx load balancer (`deploy/nginx-scale.conf`) sharing Redis state (distributed lease semaphores, sliding-window quotas, circuit breaker state) and a shared SQLite WAL volume (single-host only); 2-replica scaling through the shipped nginx overlay measured 1.58x (range 1.51x-1.65x) against the >=1.6x target: not certified
 - **tooling(perf)**: comprehensive benchmark suite and load testing tools:
   - In-process L1 benchmark harness (`scripts/perf-l1-harness.mjs`) measuring p50/p95/p99 latency, query counts, and execution phase breakdowns
   - Sub-microsecond micro-benchmark harness (`scripts/perf-l0-micro.mjs`) measuring raw runtime operations
-  - Multi-tier performance ladder runner (`scripts/perf-ladder.sh`) driving HTTP load against single- and multi-replica topologies
+  - Multi-tier performance ladder runner (`scripts/perf-ladder.sh`) driving HTTP load against single- and multi-replica topologies; 2-replica scaling through the shipped nginx overlay measured 1.58x (range 1.51x-1.65x) against the >=1.6x target: not certified
   - Zero-latency streaming mock upstream (`scripts/perf-mock-upstream.mjs`) isolating pure gateway overhead
   - Multi-replica deployment smoke verification script (`scripts/scale-smoke.sh`) testing load balancing, Redis state synchronization, and proxy IP preservation
 
