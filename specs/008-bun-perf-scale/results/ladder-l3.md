@@ -416,6 +416,8 @@ During the 2-replica benchmark runs (Rows A3 and A4), detailed sampling was capt
 
 ### 10.5 Root-Cause Attribution Verdict
 
+> **Correction Note (2026-10-27)**: See [Section 11: Controlled Follow-up](#11-controlled-follow-up-repeat-measurements-matched-pairings-and-sqlite-busy-verification-2026-10-27) for subsequent rigorous 3-repeat controlled trials (R1–R7) with matched driver counts, container CPU profiling, and verification of the `SQLITE_BUSY` transaction fix. The follow-up clarifies that while direct bypass achieves $1.63\times\text{--}1.65\times$, the shipped compose Nginx load balancer path achieves $1.58\times$ (spread: $[1.51\times, 1.65\times]$), narrowly missing the D7 target of $\ge 1.60\times$ due to variable `proxy_pass` connection churn.
+
 The empirical data systematically isolates the four hypothesized factors:
 
 1. **Client Concurrency ($C=10$ vs. $C=40$)**: **DISPROVEN AS LIMITER**
@@ -454,4 +456,145 @@ The empirical data systematically isolates the four hypothesized factors:
    - The earlier conclusion in Section 4.2 / Defect 1 ("Client Concurrency Ceiling ($C=10$) is the Primary Limiter") is formally **REFUTED** by Variant A empirical data.
    - Defect 2 ("Missing Nginx Upstream Keepalive Connection Pooling") is formally **CONFIRMED** by Variant B empirical data (+10.2% throughput gain, ratio improvement from 1.49x to 1.54x).
    - New Architectural Finding: Nginx reverse proxy single-host loopback overhead is the primary constraint capping compose scaling below $1.60\times$; the backend engine itself demonstrates $1.65\times$ linear capacity growth.
+
+---
+
+## 11. Controlled Follow-up: Repeat Measurements, Matched Pairings, and SQLite-Busy Verification (2026-10-27)
+
+**Scope**: Rigorous 3-repeat controlled benchmarks isolating driver process count from Nginx proxy overhead, verifying the multi-replica `SQLITE_BUSY` transaction fix live, profiling per-container and driver CPU utilization, and evaluating the Requirement D7 ($\ge 1.60\times$) scaling ratio with matched-pairing spreads.  
+**Execution Subagent**: `SUBAGENT_DELEGATION=container-subagent` (Exclusively executed by isolated Docker subagent; main agent never runs container commands).  
+**Date**: 2026-10-27  
+**Git HEAD**: `5d43ac6a45411f3aad79c0468c1916e38b7b8f41` (`5d43ac6a`, including `fix(db): use BEGIN IMMEDIATE for saveRequestUsage`)  
+**Production Image Tag**: `khatamrouter:smoke-5d43ac6a`  
+**Container Isolation**: Container `hindsight` verified untouched and unmanaged before, during, and after execution. Zero prune commands executed.
+
+---
+
+### 11.1 Part 1: Live Verification of the SQLite Concurrency Fix
+
+To verify whether commit `4375977f` (`fix(db): use BEGIN IMMEDIATE for saveRequestUsage to prevent SQLITE_BUSY_SNAPSHOT loss`) successfully eliminated multi-replica SQLite lock contention in the live container environment:
+- **Stack**: 2 `9router` replicas behind repository `deploy/nginx-scale.conf`, connected to shared SQLite volume (`9router-data`) in WAL mode and Redis coordination.
+- **Upstream**: Zero-latency mock upstream on `khatam-scale-perf_default`.
+- **Offered Workload**: Exactly **3,000 streaming requests** dispatched concurrently ($C=40$) via client worker pool.
+
+#### Verification Findings
+
+1. **Replica Container Error Log Counts**:
+   - `khatam-scale-perf-9router-1`:
+     - `Failed to save usage stats`: **0**
+     - `SQLITE_BUSY`: **0**
+     - `SQLITE_BUSY_SNAPSHOT`: **0**
+   - `khatam-scale-perf-9router-2`:
+     - `Failed to save usage stats`: **0**
+     - `SQLITE_BUSY`: **0**
+     - `SQLITE_BUSY_SNAPSHOT`: **0**
+   - *Previous Unpatched Baseline*: 114 logged occurrences of `SQLITE_BUSY` / `SQLITE_BUSY_SNAPSHOT` per 5,000 requests with 60.8% row loss under high concurrency.
+   - *Defect Verdict*: **RESOLVED**. Upfront write lock acquisition via `db.immediate()` completely eliminates write lock upgrade deadlocks across concurrent replica processes.
+
+2. **Database Row Count Comparison (Read-Only Volume Mount)**:
+   - Queries executed using `sqlite3 -readonly` against `/app/data/db/data.sqlite` on volume `9router-data`:
+     - **Requests Sent**: **3,000** (0 HTTP errors, 100.0% success rate at 250.4 req/s)
+     - **`request_cost_ledger` Rows**: **3,000** (shortfall: **0 rows / 0.00%**)
+     - **`usageHistory` Rows**: **2,965** (shortfall: **35 rows / 1.17%**)
+   - *Root Cause of the 35-row shortfall in `usageHistory`*:
+     - In `src/lib/db/repos/usageRepo.js` (lines 261–283), `saveRequestUsage` executes an explicit deduplication query filtering on `timestamp` (ISO string with millisecond resolution) + `provider` + `model` + `connectionId` + `apiKey` + `promptTokens` + `completionTokens`.
+     - When 40 concurrent workers complete requests within the exact same millisecond timestamp with identical payload parameters, the deduplication logic detects an existing entry and intentionally skips inserting a duplicate record into `usageHistory`.
+     - In contrast, `request_cost_ledger` uses a globally unique `streamDetailId` for each transaction and records all **3,000 out of 3,000 requests (100.0%)**.
+     - Zero records were lost due to SQLite errors, lock contention, or transaction rollbacks.
+
+---
+
+### 11.2 Part 2: Controlled Repeated-Row Ladder Table
+
+All rows executed on a freshly warmed stack with ambient host load settled ($< 1.0$), 100 warmup requests + 5 measured runs of 1,000 requests each ($5 \times 1,000$). Each row was **repeated 3 times** to capture measurement variance and compute min-max spread.
+
+| Row | Description | Reps | Driver Config | Repeats [R1, R2, R3] (req/s) | Mean req/s | Min-Max Spread | Mean p50 (ms) | Mean p95 (ms) | Mean p99 (ms) | Mean CV (%) | Errors | 9router CPU % | Driver CPU % | Nginx LB CPU % | 9router CPU-ms/req |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **R1** | 1-rep via Nginx (repo conf) | 1 | 1 driver, $C=20$ | [192.7, 196.0, 199.6] | **196.1** | [192.7, 199.6] ($\Delta 6.9$) | 99.89 | 126.34 | 139.01 | 4.64% | 0 / 15k | 113.8% | 13.4% | 12.8% | 5.80 ms |
+| **R2** | 2-rep via Nginx (repo conf) | 2 | 1 driver, $C=40$ | [292.2, 311.7, 315.3] | **306.4** | [292.2, 315.3] ($\Delta 23.1$) | 119.91 | 240.85 | 283.72 | 6.49% | 0 / 15k | 204.6% | 23.7% | 19.2% | 6.68 ms |
+| **R3** | 2-rep via Nginx (repo conf) | 2 | 2 drivers, $2 \times C=20$ | [302.2, 309.4, 318.9] | **310.2** | [302.2, 318.9] ($\Delta 16.7$) | 121.68 | 234.21 | 268.71 | 6.60% | 0 / 15k | 215.4% | 25.4% | 21.2% | 6.94 ms |
+| **R4a** | 1-rep Direct (no Nginx) | 1 | 1 driver, $C=20$ | [200.4, 206.3, 209.3] | **205.3** | [200.4, 209.3] ($\Delta 8.9$) | 91.02 | 140.49 | 199.40 | 4.96% | 0 / 15k | 106.0% | 10.2% | 0.0% | 5.16 ms |
+| **R4b** | 1-rep Direct (no Nginx) | 1 | 2 drivers, $2 \times C=10$ | [203.9, 209.8, 211.1] | **208.3** | [203.9, 211.1] ($\Delta 7.2$) | 90.30 | 141.94 | 194.96 | 4.05% | 0 / 15k | 112.2% | 11.3% | 0.0% | 5.39 ms |
+| **R5** | 2-rep Direct (client RR) | 2 | 1 driver, $C=40$ RR | [312.4, 330.1, 322.1] | **321.5** | [312.4, 330.1] ($\Delta 17.7$) | 115.05 | 216.09 | 256.66 | 6.58% | 0 / 15k | 211.4% | 17.1% | 0.0% | 6.58 ms |
+| **R6** | 2-rep Direct (matched) | 2 | 2 drivers, $2 \times C=20$ | [330.8, 336.9, 351.4] | **339.7** | [330.8, 351.4] ($\Delta 20.6$) | 111.60 | 164.96 | 243.66 | 4.49% | 0 / 15k | 214.4% | 18.9% | 0.0% | 6.31 ms |
+| **R7** | 2-rep via Nginx (tuned keepalive) | 2 | 2 drivers, $2 \times C=20$ | [308.8, 325.7, 329.6] | **321.4** | [308.8, 329.6] ($\Delta 20.8$) | 117.14 | 245.03 | 276.31 | 6.21% | 0 / 15k | 221.7% | 24.4% | 14.1% | 6.90 ms |
+
+---
+
+### 11.3 Matched-Pairing Scaling Ratios and Spreads
+
+To establish rigorous scaling evaluations with error bars, ratios are computed using matched driver counts, matched concurrency, and explicit min-max spreads:
+
+| Comparison Description | Pair | Mean Ratio | Min-Max Spread | D7 Target ($\ge 1.60\times$) | Verdict |
+|---|---|---|---|---|---|
+| **Shipped Nginx LB Overlay Path** | R3 ($2\times C=20$) / R1 ($1\times C=20$) | $\mathbf{1.58\times}$ | $[1.51\times, 1.65\times]$ | $\ge 1.60\times$ | **MISSED TARGET** (98.8% of target; Nginx connection churn) |
+| **Shipped Nginx vs. 2-Driver Control** | R3 ($2\times C=20$) / R4b ($2\times C=10$) | $\mathbf{1.49\times}$ | $[1.43\times, 1.56\times]$ | $\ge 1.60\times$ | **MISSED TARGET** |
+| **Direct LB-Bypass (Matched 2-Driver)** | R6 ($2\times C=20$) / R4b ($2\times C=10$) | $\mathbf{1.63\times}$ | $[1.57\times, 1.72\times]$ | $\ge 1.60\times$ | **PASS TARGET MET (BYPASS-ONLY)** |
+| **Direct LB-Bypass (Matched 1-Driver)** | R5 ($1\times C=40\text{ RR}$) / R4a ($1\times C=20$) | $\mathbf{1.57\times}$ | $[1.49\times, 1.65\times]$ | $\ge 1.60\times$ | **BORDERLINE** (Client RR loop serialization) |
+| **Direct LB-Bypass (2-Driver vs. 1-Driver)** | R6 ($2\times C=20$) / R4a ($1\times C=20$) | $\mathbf{1.65\times}$ | $[1.58\times, 1.75\times]$ | $\ge 1.60\times$ | **PASS TARGET MET (BYPASS-ONLY)** |
+| **Tuned Nginx (Keepalive 64) vs. Shipped 1-Rep** | R7 ($2\times C=20$) / R1 ($1\times C=20$) | $\mathbf{1.64\times}$ | $[1.55\times, 1.71\times]$ | $\ge 1.60\times$ | **PASS TARGET MET (TUNED LB)** |
+| **Tuned Nginx vs. Direct 1-Rep Baseline** | R7 ($2\times C=20$) / R4b ($2\times C=10$) | $\mathbf{1.54\times}$ | $[1.46\times, 1.62\times]$ | $\ge 1.60\times$ | **MISSED TARGET** |
+
+---
+
+### 11.4 Systematic Factor Verdict
+
+The empirical data across the 24 controlled benchmark trials ($8\text{ rows} \times 3\text{ repeats} = 120,000\text{ total requests}$) definitively isolates the four limiting factor hypotheses:
+
+1. **Driver Process Count as a Limiter**: **DISPROVEN**
+   - *1-Replica Test*: R4b (2 driver containers, each $C=10$) yielded **208.3 req/s** vs. R4a (1 driver container, $C=20$) at **205.3 req/s** — a ratio of **$1.01\times$** (+1.4%). The spread intervals overlap almost entirely ($[203.9, 211.1]$ vs. $[200.4, 209.3]$).
+   - *2-Replica Nginx Test*: R3 (2 driver containers, each $C=20$) yielded **310.2 req/s** vs. R2 (1 driver container, $C=40$) at **306.4 req/s** — a ratio of **$1.01\times$** (+1.2%).
+   - *Driver CPU Utilization*: Across all rows, driver container CPU utilization remained between **10.2% and 25.4%**, well below any CPU bottleneck or saturation threshold (~100%).
+   - *Conclusion*: A single Bun load client process is fully capable of saturating the gateway. Driver process count does not constrain throughput.
+
+2. **Nginx Reverse Proxy & Connection Churn**: **CONFIRMED PRIMARY BOTTLENECK IN SHIPPED PATH**
+   - *Shipped Compose Overlay*: In `deploy/nginx-scale.conf`, dynamic DNS re-resolution via variable `proxy_pass` (`set $khatam_upstream http://9router:20128; proxy_pass $khatam_upstream;`) forces Nginx to disable upstream HTTP keepalive pooling. Every request incurs a fresh TCP 3-way handshake and connection teardown.
+   - *Measurement Evidence*:
+     - Shipped Nginx LB path achieves **310.2 req/s** (2 reps) vs. **196.1 req/s** (1 rep), yielding **$1.58\times$** (spread: $[1.51\times, 1.65\times]$). Nginx CPU reaches $21.2\%$.
+     - When upstream keepalive is enabled in Variant R7 (`upstream { server ...; keepalive 64; }` + `worker_processes auto`), Nginx CPU drops from $21.2\%$ to $14.1\%$, and 2-replica throughput rises to **321.4 req/s** (**$1.64\times$** vs. R1).
+     - When Nginx is completely bypassed in Variant R6, throughput reaches **339.7 req/s** (**$1.63\times\text{--}1.65\times$** vs. R4b/R4a).
+   - *D7 Evaluation Rule*: D7 ($\ge 1.60\times$) is met **ONLY** if the shipped compose overlay path demonstrates $\ge 1.60\times$. Under the shipped overlay configuration, the mean ratio is **$1.58\times$**, narrowly missing the target (98.8% of requirement). The direct bypass result of $1.63\times\text{--}1.65\times$ demonstrates that the application engine itself possesses the required horizontal capacity, but the compose overlay as shipped does not certify D7.
+
+3. **Replicas' Own CPU Scaling**: **CONFIRMED NEAR-LINEAR ENGINE CAPACITY**
+   - In 1-replica configurations, `9router-1` CPU reached $106.0\%\text{--}113.8\%$ (~1.1 cores).
+   - In 2-replica configurations, combined `9router` CPU scaled to $204.6\%\text{--}221.7\%$ (~2.1–2.2 cores), demonstrating healthy dual-core utilization.
+   - CPU-ms per request remained remarkably consistent across all topologies: $5.16\text{ ms}\text{--}5.80\text{ ms}$ on 1 replica, and $6.31\text{ ms}\text{--}6.94\text{ ms}$ on 2 replicas.
+
+4. **Shared SQLite Multi-Replica Contention**: **CONFIRMED RESOLVED**
+   - Upfront write lock acquisition via `BEGIN IMMEDIATE` (`db.immediate()`) eliminated all `SQLITE_BUSY` and `SQLITE_BUSY_SNAPSHOT` lock aborts (0 logged across 3,000 requests in Part 1 and 0 logged across 120,000 requests in Part 2).
+   - Zero dropped requests and 100.0% ledger persistence confirm the SQLite concurrency fix is verified under production container workloads.
+
+---
+
+### 11.5 Inventory of UNMEASURED / Skipped Cells
+
+Under `evaluateLadderCertification`:
+- Target reachable: **100% verified** across all rows R1–R7 and all 24 repeat trials.
+- Error rate: **0.00%** (0 errors across 120,000 requests; well below 0.5% threshold).
+- Coefficient of variation (CV):
+  - R1: `4.64%` (stable, $< 15\%$)
+  - R2: `6.49%` (stable, $< 15\%$)
+  - R3: `6.60%` (stable, $< 15\%$)
+  - R4a: `4.96%` (stable, $< 15\%$)
+  - R4b: `4.05%` (stable, $< 15\%$)
+  - R5: `6.58%` (stable, $< 15\%$)
+  - R6: `4.49%` (stable, $< 15\%$)
+  - R7: `6.21%` (stable, $< 15\%$)
+- Zero cells marked `UNMEASURED` in the controlled follow-up ladder table.
+
+---
+
+### 11.6 Identified Defects and Architectural Actions
+
+1. **Defect D3 (Architectural): Shipped Compose Load Balancer Nginx Variable `proxy_pass` Connection Churn**:
+   - **Component**: `deploy/nginx-scale.conf`
+   - **Symptom**: 2-replica scaling ratio through Nginx reaches $1.58\times$ (spread $[1.51\times, 1.65\times]$), narrowly missing the D7 requirement ($\ge 1.60\times$).
+   - **Root Cause**: Variable `proxy_pass` disables upstream HTTP keepalive pooling, adding ~6 ms of connection setup latency and ~7% CPU overhead on Nginx.
+   - **Remediation**: In production deployments requiring $\ge 1.60\times$ through the reverse proxy, adopt static upstream keepalive (`keepalive 64;`) or a service mesh / HAProxy load balancer with native upstream connection pooling and dynamic DNS resolution.
+
+2. **Finding F1: Timestamp Deduplication Collision in `saveRequestUsage`**:
+   - **Component**: `src/lib/db/repos/usageRepo.js` (lines 261–283)
+   - **Observation**: 35 out of 3,000 requests (1.17%) were deduplicated in `usageHistory` because concurrent requests completed within the exact same millisecond timestamp with identical payload parameters.
+   - **Remediation**: Incorporate a high-resolution monotonic sequence number or `streamDetailId` into the `usageHistory` primary uniqueness key to distinguish concurrent millisecond-coincident requests while preventing genuine client replay duplicates.
+
 
