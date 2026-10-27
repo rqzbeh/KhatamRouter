@@ -1,3 +1,32 @@
+# Unreleased — Wave 8: Bun Performance & Scale
+
+## Performance
+- **perf(slim)**: profile-guided hot-path optimization cutting in-process tail latency (p95) by ~45–49% and reducing database queries from 15.2 to ~10.8 per request:
+  - 5-second in-memory TTL caches for model aliases (`aliasRepo.js`), combos (`combosRepo.js`), and provider nodes (`nodesRepo.js`) with explicit cluster-wide invalidation on `importDb` and Redis `config_reload`
+  - O(1) `Map<modelId, entry>` indexing for `findModel` lookups (`open-sse/config/providerModels.js`) replacing linear model array scans
+  - LRU regex memoization for `matchPattern` glob evaluation in `pricing.js` avoiding dynamic RegExp recompilation
+  - Request-scoped reuse of `keyRecord` and combo resolution in handler pipelines (`chatCore.js`, `chat.js`), while strictly never caching authentication credentials across separate HTTP requests
+
+## Security
+- **feat(proxy)**: implement opt-in `TRUSTED_PROXY_CIDRS` support in `custom-server.js` and `trusted-proxy.cjs`:
+  - **SECURITY**: defaults to loopback-only forwarding trust (`127.0.0.1`, `::1`); untrusted remote peers are stripped of `X-Forwarded-For` and have their client IP derived strictly from the underlying TCP socket
+  - Strict CIDR parsing with IPv4 and IPv4-mapped IPv6 normalization; invalid CIDR entries are safely ignored and logged, while dangerous zero-prefix (`/0`) entries are rejected
+  - Ingress reverse proxy must overwrite (not append to) `X-Forwarded-For` before forwarding; fail-closed evaluation ensures no spoofing bypass
+
+## Features
+- **feat(scale)**: horizontal multi-replica deployment overlay (`docker-compose.scale.yml`) behind Nginx load balancer (`deploy/nginx-scale.conf`) sharing Redis state (distributed lease semaphores, sliding-window quotas, circuit breaker state) and a shared SQLite WAL volume (single-host only)
+- **tooling(perf)**: comprehensive benchmark suite and load testing tools:
+  - In-process L1 benchmark harness (`scripts/perf-l1-harness.mjs`) measuring p50/p95/p99 latency, query counts, and execution phase breakdowns
+  - Sub-microsecond micro-benchmark harness (`scripts/perf-l0-micro.mjs`) measuring raw runtime operations
+  - Multi-tier performance ladder runner (`scripts/perf-ladder.sh`) driving HTTP load against single- and multi-replica topologies
+  - Zero-latency streaming mock upstream (`scripts/perf-mock-upstream.mjs`) isolating pure gateway overhead
+  - Multi-replica deployment smoke verification script (`scripts/scale-smoke.sh`) testing load balancing, Redis state synchronization, and proxy IP preservation
+
+## Fixes
+- **fix(db)**: eliminate silent accounting loss under multi-process concurrent write bursts by switching `saveRequestUsage` to `BEGIN IMMEDIATE` (`db.immediate()`) in `src/lib/db/repos/usageRepo.js`, resolving `SQLITE_BUSY_SNAPSHOT` lock upgrade aborts (0 lost records across 3,000 concurrent streaming requests)
+- **fix(perf)**: resolve provider ID form in `findModel` string lookup (`open-sse/config/providerModels.js`) when matching composite provider/model identifiers
+- **fix(cli)**: ensure `runtime-secrets.cjs` and `trusted-proxy.cjs` are bundled into the standalone CLI package (`cli/scripts/prepare-app.mjs`)
+
 # v0.5.111 (2026-10-26) — Upstream Port Window v0.5.109 → v0.5.111
 
 ## Security
