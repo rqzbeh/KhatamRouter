@@ -40,7 +40,7 @@ The table below mirrors the shipped rows of the authoritative status table in [R
 | **Bun-Only Runtime & Redis-by-Default** | 🟢 Shipped | Wave 7.5: Sole `bun:sqlite` engine, complete Node.js removal, docker-compose with `redis:8.2-alpine`, lease semaphores, Webpack retained, 4102 passing tests (0 regressions) |
 | **Upstream Ports & Security Hardening** | 🟢 Shipped | Wave 9: 44 candidates ported (VansRouter 0.91.81 / 9router 0.5.109); PR #67: 5 decolua/9router PRs (#4988, #5222, #5150, #5179, #5193) with security hardening; see [`docs/UPSTREAM-PORTS.md`](./docs/UPSTREAM-PORTS.md) |
 | **Dashboard and Tooling** | 🟢 Shipped | PR #71 (specs), PR #72 (implementation): pure JavaScript controls: limits modal (`src/shared/components/ConnectionLimitsModal.js`, stored and displayed; connection budget cap NOT enforced at request time), key quota tabs with spend trends (`src/app/(dashboard)/dashboard/quota/`), capability badges (provider rows, model selector, combo builder via `src/shared/components/CapacityBadges.js`) |
-| **Bun Performance and Scale** | 🔵 Planned | Wave 8: In-process L1 benchmark harness, profile-guided SQLite/translator hot-path slim, multi-instance horizontal scale with shared Redis state; spec at [`specs/008-bun-perf-scale`](./specs/008-bun-perf-scale) |
+| **Bun Performance and Scale** | 🔵 Planned | Wave 8 - vertical scaling (multi-core / multi-process on one host); horizontal replica work was reverted (PR #77) and is not part of Wave 8 |
 | **KhatamRouter Branding & Release Update Feed** | 🟢 Shipped | PR #69: UI/CLI display branding, update check targeting KhatamRouter GitHub Releases with strict semver parsing and 512 KiB buffer cap in `src/app/api/version/route.js`; in-place updater disabled (`/api/version/update` returns 403) |
 
 ### Operational Baseline (Shipped)
@@ -273,12 +273,11 @@ Dashboard and tooling delivers user interface controls and administrative toolin
 
 **Status**: 🔵 Planned (Spec at [`specs/008-bun-perf-scale`](./specs/008-bun-perf-scale))
 
-Wave 8 delivers Bun performance optimizations and multi-instance horizontal scale:
+Wave 8 is **vertical scaling** of one Bun host: using every core and every process the machine offers. It is **not yet built**. The earlier horizontal multi-replica work (#76) was reverted (PR #77) and is not part of Wave 8. Planned scope, to be re-specified in `specs/008-bun-perf-scale`:
 
-- **L1 in-process benchmark harness**: Deterministic reproducible benchmarks (`scripts/perf-l1-harness.mjs`) measuring baseline p50, p95, p99 latency and throughput.
-- **Profile-guided hot-path slim**: Removal of redundant per-request SQLite queries, linear model capability searches, and no-op translation passes.
-- **Multi-instance horizontal scale**: Multi-replica gateway deployment sharing Redis state (distributed lease semaphores, sliding-window quotas, circuit breaker state) behind an ingress load balancer.
-- **Trusted proxy CIDR support**: Opt-in `TRUSTED_PROXY_CIDRS` configuration in `custom-server.js` (and its `custom-server.ts` mirror) preserving real client IPs through reverse proxies while enforcing strict spoof defenses.
+- **Multi-core / multi-process serving**: run several Bun worker processes on one host (shared listen socket, `reusePort`) so request handling uses all cores, while state that must be shared (quotas, circuit-breaker state, leases) stays consistent through Redis and SQLite WAL.
+- **Measure first**: a deterministic in-process benchmark harness and profile-guided hot-path slimming (redundant per-request SQLite reads, linear model lookups, no-op translation passes), with before/after numbers.
+- **Safe worker lifecycle**: graceful drain, crash restart, per-worker health, and no change to the loopback-only `X-Forwarded-For` trust in `custom-server.js`.
 
 ---
 

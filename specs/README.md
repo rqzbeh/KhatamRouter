@@ -14,3 +14,6 @@ This directory contains Spec-Kit specifications, implementation plans, and tasks
 | [0075-bun-only-redis-default](0075-bun-only-redis-default/) | Wave 7.5 — Bun-Only Runtime and Redis by Default | Merged (PR #63) | `spec/0075-bun-only-redis-default` |
 | [008-bun-perf-scale](008-bun-perf-scale/) | Wave 8 — Bun Hot-Path Profile, Multi-Process Scale, Ladder Re-Run | Planned | `spec/008-bun-perf-scale` |
 | [009-upstream-port](009-upstream-port/) | Wave 9 — Upstream Port (VansRouter 0.91.61→0.91.81, 9router 0.5.104→0.5.109) | Merged (PR #65) | `spec/009-upstream-port` |
+| [010-dashboard-tooling](010-dashboard-tooling/) | Wave 8 Dashboard Tooling & Key Quota Management | Merged (PR #72) | `master` |
+| [011-branding-update-source](011-branding-update-source/) | KhatamRouter Branding & Release Isolation | In progress | `spec/011-branding-update-source` |
+| [012-opencode-wreq-bun](012-opencode-wreq-bun/) | OpenCode Free TLS Client (wreq-js) under Bun | In progress | `port/opencode-bun-native` |

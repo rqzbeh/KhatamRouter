@@ -19,6 +19,8 @@
 - **Thinking**: preserve maximum reasoning effort for GPT-5.6 / GPT-6 on OpenAI Compatible nodes (`decolua/9router@763fb68`)
 - **Claude**: keep adaptive thinking for Haiku 5.5 on passthrough routes (`decolua/9router@0ad0a72`)
 - **CLI Tools**: stop resetting Pi model caps and let users select context caps (`decolua/9router@72cb589`), and retain custom Pi model names across Apply (`decolua/9router@50dcaa0`)
+- **OpenCode Free**: restore the free tier by sending the TLS ClientHello the upstream accepts via `wreq-js` running natively on Bun with real fail-open to native `fetch`, minting session ids from `Date.now()`, and pairing the CLI `<env>` system marker with declared tools (`decolua/9router@ce060c79`, adapted with fixed neutral environment constants, strict host allowlist, and zero-process optional dependency packaging)
+- **OpenCode Free**: cap the published context window of `oc/deepseek-v4.1-flash-free` at 330k (`contextWindow: 330000`, `maxOutput: 128000`) so clients compact before backend prompt limits (`decolua/9router@1da5b0d7`, #5097)
 
 # v0.5.110 (Unreleased) — Pre-Wave 8 Decolua 9router Ports
 

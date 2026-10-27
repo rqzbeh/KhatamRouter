@@ -355,3 +355,75 @@ describe("proxied 403 FreeTierError replays direct (#4983)", () => {
     warnSpy.mockRestore();
   });
 });
+
+describe("directFetch semantics in proxyAwareFetch (FR-02, FR-03)", () => {
+  it("invokes directFetch when called without proxy for opencode.ai", async () => {
+    const directFetchMock = vi.fn().mockResolvedValue(new Response("from-direct-fetch", { status: 200 }));
+    const res = await proxyAwareFetch("https://opencode.ai/inference/v1/chat/completions", {
+      method: "POST",
+      body: "{}",
+      directFetch: directFetchMock,
+    }, null);
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("from-direct-fetch");
+    expect(directFetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does NOT invoke directFetch when a proxy is resolved", async () => {
+    fetchMock.mockResolvedValue(new Response("from-proxy", { status: 200 }));
+    const directFetchMock = vi.fn();
+
+    const res = await proxyAwareFetch("https://opencode.ai/inference/v1/chat/completions", {
+      method: "POST",
+      body: "{}",
+      directFetch: directFetchMock,
+    }, PROXY);
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("from-proxy");
+    expect(directFetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1]?.dispatcher).toBeTruthy();
+    // directFetch must be stripped from options passed to fetch
+    expect(fetchMock.mock.calls[0][1]?.directFetch).toBeUndefined();
+  });
+
+  it("does NOT invoke directFetch for foreign hosts (e.g. chatgpt.com from Codex STT)", async () => {
+    fetchMock.mockResolvedValue(new Response("from-native", { status: 200 }));
+    const directFetchMock = vi.fn();
+
+    const res = await proxyAwareFetch("https://chatgpt.com/backend-api/transcribe", {
+      method: "POST",
+      body: "{}",
+      directFetch: directFetchMock,
+    }, null);
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("from-native");
+    expect(directFetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1]?.directFetch).toBeUndefined();
+  });
+
+  it("calls directFetch on direct replay when proxied request receives 403 FreeTierError", async () => {
+    const directFetchMock = vi.fn().mockResolvedValue(new Response("replay-direct-ok", { status: 200 }));
+    fetchMock.mockImplementation(async (_url, opts = {}) => {
+      expect(opts.dispatcher).toBeTruthy();
+      return new Response(FREE_TIER_403, { status: 403, headers: { "content-type": "application/json" } });
+    });
+
+    const res = await proxyAwareFetch("https://opencode.ai/inference/v1/chat/completions", {
+      method: "POST",
+      body: "{}",
+      directFetch: directFetchMock,
+    }, PROXY);
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("replay-direct-ok");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(directFetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+

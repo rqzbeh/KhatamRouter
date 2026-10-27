@@ -210,7 +210,7 @@ export const MODEL_CAPABILITIES = {
   "mimo-v2.6-flash-free": { vision: true, audioInput: true, videoInput: true, reasoning: true, thinkingFormat: "openai", thinkingCanDisable: false, contextWindow: 200000, maxOutput: 32000 },
   "nemotron-3.5-super-vl-free": { vision: true, reasoning: true, thinkingFormat: "openai", contextWindow: 1048576, maxOutput: 131072 },
   "nemotron-3.5-lightning-free": { reasoning: true, thinkingFormat: "openai", contextWindow: 262144, maxOutput: 262144 },
-  "deepseek-v4.1-flash-free": { vision: true, reasoning: true, thinkingFormat: "deepseek", contextWindow: 200000, maxOutput: 32000 },
+  "deepseek-v4.1-flash-free": { vision: true, reasoning: true, thinkingFormat: "deepseek", contextWindow: 330000, maxOutput: 128000 },
   "minimax-m3.1-flash-free": { vision: true, videoInput: true, reasoning: true, thinkingFormat: "openai", contextWindow: 1000000, maxOutput: 512000 },
   "exo-free":          { vision: true, reasoning: true, thinkingFormat: "openai", contextWindow: 1048576, maxOutput: 131072 },
   "fledge-alpha-free": { vision: true, reasoning: true, thinkingFormat: "openai", contextWindow: 1048576, maxOutput: 131072 },
@@ -277,12 +277,12 @@ export const PROVIDER_CAPABILITIES = {
   // here if a probe ever pins the lane's real window (a 200k `max_tokens` is
   // accepted, so the 32k figure is not enforced at request validation).
   // deepseek-v4.1-flash-free: the backend rejects requests above ~330k prompt
-  // tokens (issue #5097). Upstream capped at 330000 (PR #5179); KhatamRouter
-  // retains the safe 200000/32000 baseline so clients compact comfortably below
-  // the backend limit without advertising more than what our tree already safe-listed.
+  // tokens (issue #5097). Follows upstream #5097/#5179 (contextWindow 330000,
+  // maxOutput 128000) per user decision of 2026-10-27 so clients (VS Code
+  // Copilot etc.) compact correctly instead of hard-failing mid-session.
   "opencode": {
     "mimo-v2.6-flash-free": { vision: true, audioInput: true, videoInput: true, reasoning: true, thinkingFormat: "openai", thinkingCanDisable: true, contextWindow: 1048576, maxOutput: 131072 },
-    "deepseek-v4.1-flash-free": { vision: true, reasoning: true, thinkingFormat: "deepseek", contextWindow: 200000, maxOutput: 32000 },
+    "deepseek-v4.1-flash-free": { vision: true, reasoning: true, thinkingFormat: "deepseek", contextWindow: 330000, maxOutput: 128000 },
   },
   "commandcode": {
     // The generic commandcode fallback (1M/384k for every unlisted model) happened

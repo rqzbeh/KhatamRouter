@@ -35,7 +35,9 @@ const nextConfig = {
   // runtime resolves the native module instead of the bundler inlining it.
   // ioredis: Redis client is loaded lazily by src/lib/redis/client.js and keeps
   // its own optional native dependency graph, so it must stay external too.
-  serverExternalPackages: ["bun:sqlite", "ioredis", "open", "@aws-sdk/credential-providers"],
+  // wreq-js resolves its rust native binding by relative require paths from its own
+  // package dir — bundling breaks those paths ("Failed to load native module").
+  serverExternalPackages: ["bun:sqlite", "ioredis", "open", "@aws-sdk/credential-providers", "wreq-js"],
   turbopack: {
     root: tracingRoot
   },
