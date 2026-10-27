@@ -95,23 +95,23 @@ export async function createBunSqliteAdapter(filePath) {
     if (typeof checkpointTimer.unref === "function") checkpointTimer.unref();
   }
 
+  // The adapter never calls process.exit on a signal. A SIGTERM-driven exit here stopped the cluster
+  // primary before its supervisor drain ran; Bun's cluster/child 'disconnect' handler then
+  // process.exit(0)'d every worker mid-stream. Signal ownership stays with the app and supervisor.
   function gracefulClose() {
     if (checkpointTimer) {
       clearInterval(checkpointTimer);
       checkpointTimer = null;
     }
+    process.off("beforeExit", onShutdown);
+    process.off("exit", onShutdown);
     try { db.exec("PRAGMA wal_checkpoint(TRUNCATE)"); } catch {}
     try { stmtCache.clear(); } catch {}
     try { db.close(); } catch {}
   }
   const onShutdown = () => gracefulClose();
   process.once("beforeExit", onShutdown);
-  if (!workerRole) {
-    process.once("SIGINT", () => { onShutdown(); process.exit(0); });
-    process.once("SIGTERM", () => { onShutdown(); process.exit(0); });
-  } else {
-    process.once("exit", onShutdown);
-  }
+  process.once("exit", onShutdown);
 
   return {
     driver: "bun:sqlite",
