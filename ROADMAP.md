@@ -273,12 +273,11 @@ Dashboard and tooling delivers user interface controls and administrative toolin
 
 **Status**: 🔵 Planned (Spec at [`specs/008-bun-perf-scale`](./specs/008-bun-perf-scale))
 
-Wave 8 delivers Bun performance optimizations and vertical scaling (multi-core / multi-process on one host); horizontal replica work was reverted (PR #77) and is not part of Wave 8:
+Wave 8 is **vertical scaling** of one Bun host: using every core and every process the machine offers. It is **not yet built**. The earlier horizontal multi-replica work (#76) was reverted (PR #77) and is not part of Wave 8. Planned scope, to be re-specified in `specs/008-bun-perf-scale`:
 
-- **L1 in-process benchmark harness**: Deterministic reproducible benchmarks (`scripts/perf-l1-harness.mjs`) measuring baseline p50, p95, p99 latency and throughput.
-- **Profile-guided hot-path slim**: Removal of redundant per-request SQLite queries, linear model capability searches, and no-op translation passes.
-- **Vertical scaling**: Multi-core / multi-process scaling on one host; horizontal replica work was reverted (PR #77) and is not part of Wave 8.
-- **Trusted proxy CIDR support**: Opt-in `TRUSTED_PROXY_CIDRS` configuration in `custom-server.js` preserving real client IPs through reverse proxies while enforcing strict spoof defenses.
+- **Multi-core / multi-process serving**: run several Bun worker processes on one host (shared listen socket, `reusePort`) so request handling uses all cores, while state that must be shared (quotas, circuit-breaker state, leases) stays consistent through Redis and SQLite WAL.
+- **Measure first**: a deterministic in-process benchmark harness and profile-guided hot-path slimming (redundant per-request SQLite reads, linear model lookups, no-op translation passes), with before/after numbers.
+- **Safe worker lifecycle**: graceful drain, crash restart, per-worker health, and no change to the loopback-only `X-Forwarded-For` trust in `custom-server.js`.
 
 ---
 
