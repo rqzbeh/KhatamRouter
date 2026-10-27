@@ -54,14 +54,16 @@ export async function initializeApp() {
     // Register cleanup + exit-respawn callback immediately so signals and
     // unexpected cloudflared exits are handled even during the deferred window.
     if (!g.signalHandlersRegistered) {
-      const isClusterWorker = !!process.env.KHATAM_WORKER_ROLE;
+      // Signal ownership lives in custom-server.js (NEXT_MANUAL_SIG_HANDLE) or the cluster worker
+      // lifecycle (KHATAM_WORKER_ROLE). Only a bare next start/dev has no owner and exits here.
+      const lifecycleOwned = !!process.env.KHATAM_WORKER_ROLE || process.env.NEXT_MANUAL_SIG_HANDLE === "true";
       const doCleanup = () => {
         try { removeAllDNSEntriesSync(); } catch { /* best effort */ }
         try { killAllBridges(); } catch { /* best effort */ }
         try { killCloudflared(); } catch { /* best effort */ }
       };
       const onSignal = () => {
-        if (!isClusterWorker) {
+        if (!lifecycleOwned) {
           doCleanup();
           process.exit();
         }
@@ -70,7 +72,7 @@ export async function initializeApp() {
       process.on("SIGTERM", onSignal);
       process.on("exit", () => {
         try { removeAllDNSEntriesSync(); } catch { /* ignore */ }
-        if (isClusterWorker) {
+        if (lifecycleOwned) {
           doCleanup();
         }
       });

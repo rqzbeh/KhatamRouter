@@ -65,8 +65,12 @@ function getDrainTimeoutMs(env = process.env) {
   return DEFAULT_DRAIN_TIMEOUT_MS;
 }
 
+// Set when the primary could not run migrations and serves single-process instead. It then
+// owns the server, so the multi-worker primary guard below must not skip the drain setup.
+let primaryFellBackToSingleProcess = false;
+
 function isMultiWorkerPrimary() {
-  if (!cluster.isPrimary || !clusterModules) return false;
+  if (!cluster.isPrimary || !clusterModules || primaryFellBackToSingleProcess) return false;
   return clusterModules.supervisor.sizeWorkers(os.cpus().length, process.env) > 1;
 }
 
@@ -442,6 +446,7 @@ async function startPrimary(count) {
   if (!migrated) {
     // Forking with KHATAM_MIGRATIONS_DONE=1 without migrating would leave the schema absent.
     console.error(`[Cluster] KHATAM_WORKERS=${count} requested, but src/lib/db/driver.js is not on disk so migrations cannot run in the primary; running single-process`);
+    primaryFellBackToSingleProcess = true;
     startNextServer();
     return;
   }

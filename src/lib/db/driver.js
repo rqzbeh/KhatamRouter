@@ -25,7 +25,16 @@ async function openIntegrityDatabase(file) {
     throw new Error("[DB] KhatamRouter requires the Bun runtime (bun:sqlite). Please run with 'bun'.");
   }
   const { Database } = await import("bun:sqlite");
-  return new Database(file, { readonly: true });
+  const db = new Database(file, { readonly: true });
+  // Default busy timeout is 0: a concurrent WAL recovery fails the check instantly with
+  // SQLITE_BUSY_RECOVERY. Set it before any other statement on this connection.
+  try {
+    db.exec("PRAGMA busy_timeout = 5000;");
+  } catch (error) {
+    try { db.close(); } catch {}
+    throw error;
+  }
+  return db;
 }
 
 /**

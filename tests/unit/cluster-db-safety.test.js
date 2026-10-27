@@ -343,4 +343,17 @@ describe("Vertical Cluster Database Safety Contract (US2 / T018-T019)", () => {
     expect(tsExports).toEqual(jsExports);
     expect(jsExports).toEqual(["OPEN_PRAGMAS", "assertIntegrity", "createBunSqliteAdapter"].sort());
   });
+
+  it("regression: integrity check connection and PRAGMA_SQL set busy_timeout before other work", async () => {
+    const { PRAGMA_SQL } = await import("@/lib/db/schema.js");
+    const busyIdx = PRAGMA_SQL.indexOf("PRAGMA busy_timeout");
+    const journalIdx = PRAGMA_SQL.indexOf("PRAGMA journal_mode");
+    expect(busyIdx).toBeGreaterThan(-1);
+    expect(journalIdx).toBeGreaterThan(-1);
+    expect(busyIdx).toBeLessThan(journalIdx);
+
+    // Verify verifyDatabaseIntegrity applies busy_timeout on its connection
+    const driverSource = fs.readFileSync(DRIVER_PATH, "utf8");
+    expect(driverSource).toMatch(/openIntegrityDatabase[\s\S]*?busy_timeout/);
+  });
 });

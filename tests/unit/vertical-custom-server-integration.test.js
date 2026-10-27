@@ -369,6 +369,43 @@ describe("custom-server.js real child boot", () => {
     }
   }, TEST_TIMEOUT);
 
+  it("KHATAM_WORKERS=2 without driver fallback: idle SIGTERM exits 0 (not 15)", async () => {
+    const { standalone, dataDir } = buildStandalone({ withDriver: false });
+    const port = await pickPort();
+    const boot = bootChild(standalone, { PORT: String(port), DATA_DIR: dataDir, KHATAM_WORKERS: "2" });
+    await waitFor(() => countReady(boot) >= 1);
+    boot.child.kill("SIGTERM");
+    const { code, signal } = await boot.closed;
+    expect(signal).toBeNull();
+    expect(code).toBe(0);
+  }, TEST_TIMEOUT);
+
+  it("KHATAM_WORKERS=2 without driver fallback: in-flight slow response completes before exit 0", async () => {
+    const { standalone, dataDir } = buildStandalone({ withDriver: false });
+    const port = await pickPort();
+    const boot = bootChild(standalone, { PORT: String(port), DATA_DIR: dataDir, KHATAM_WORKERS: "2" });
+    await waitFor(() => countReady(boot) >= 1);
+    const slow = new Promise((resolveP, reject) => {
+      const req = http.request(
+        { host: "127.0.0.1", port, path: "/slow", agent: false, headers: { connection: "close" } },
+        (res) => {
+          let body = "";
+          res.on("data", (d) => { body += d; });
+          res.on("end", () => resolveP({ status: res.statusCode, body }));
+        },
+      );
+      req.on("error", reject);
+      req.end();
+    });
+    await new Promise((r) => setTimeout(r, 300));
+    boot.child.kill("SIGTERM");
+    const res = await slow;
+    const { code, signal } = await boot.closed;
+    expect(res.body).toContain('"slow":"done"');
+    expect(signal).toBeNull();
+    expect(code).toBe(0);
+  }, TEST_TIMEOUT);
+
   it("port already bound: logs '[Server] Port <p> already in use' and terminates with code 1", async () => {
     const { standalone, dataDir } = buildStandalone({ withDriver: true });
     const port = await pickPort();
