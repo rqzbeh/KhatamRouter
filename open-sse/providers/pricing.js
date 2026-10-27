@@ -397,46 +397,13 @@ export const PATTERN_PRICING = [
   { pattern: "grok-*",          pricing: { input: 0.50,  output: 2.00,  cached: 0.25,  reasoning: 3.00,   cache_creation: 0.50  } },
 ];
 
-// Bounded LRU cache for compiled glob patterns (max 512 entries)
-const PATTERN_REGEX_CACHE_MAX = 512;
-const patternRegexCache = new Map();
-
-function getCompiledPatternRegex(pattern) {
-  let regex = patternRegexCache.get(pattern);
-  if (regex !== undefined) {
-    patternRegexCache.delete(pattern);
-    patternRegexCache.set(pattern, regex);
-    return regex;
-  }
-
-  regex = new RegExp(
-    "^" + pattern.split("*").map(s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*") + "$",
-    "i"
-  );
-
-  if (patternRegexCache.size >= PATTERN_REGEX_CACHE_MAX) {
-    const oldestKey = patternRegexCache.keys().next().value;
-    patternRegexCache.delete(oldestKey);
-  }
-
-  patternRegexCache.set(pattern, regex);
-  return regex;
-}
-
 /**
  * Match a model ID against a glob pattern (* = wildcard). Case-insensitive:
  * registry ids mix casing (e.g. "MiniMax-M2.5" vs "minimax-m2.5").
  */
 export function matchPattern(pattern, model) {
-  return getCompiledPatternRegex(pattern).test(model);
-}
-
-export function _getPatternCacheSize() {
-  return patternRegexCache.size;
-}
-
-export function _clearPatternCache() {
-  patternRegexCache.clear();
+  const regex = new RegExp("^" + pattern.split("*").map(s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*") + "$", "i");
+  return regex.test(model);
 }
 
 /**

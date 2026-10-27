@@ -46,15 +46,6 @@ export function copyStandaloneAssets({ projectRoot = process.cwd(), distDir = pr
     cpSync(secretsSource, secretsDestination, { force: true });
     console.log(`[standalone-assets] Copied runtime-secrets.cjs to ${secretsDestination}`);
   }
-
-  // custom-server.js requires("./trusted-proxy.cjs") at module load; without it
-  // the standalone process throws on startup.
-  const trustedProxySource = resolve(projectRoot, "trusted-proxy.cjs");
-  const trustedProxyDestination = resolve(standaloneDir, "trusted-proxy.cjs");
-  if (existsSync(trustedProxySource)) {
-    cpSync(trustedProxySource, trustedProxyDestination, { force: true });
-    console.log(`[standalone-assets] Copied trusted-proxy.cjs to ${trustedProxyDestination}`);
-  }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(dirname(fileURLToPath(import.meta.url)), "copy-standalone-assets.mjs")) {

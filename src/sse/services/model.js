@@ -34,10 +34,8 @@ export async function resolveModelAlias(alias) {
 
 /**
  * Get full model info (parse or resolve)
- * @param {string} modelStr - Model string (e.g. "provider/model" or alias/combo)
- * @param {object|null} [preResolvedCombo] - Optional pre-resolved combo object to avoid re-querying
  */
-export async function getModelInfo(modelStr, preResolvedCombo = undefined) {
+export async function getModelInfo(modelStr) {
   const parsed = parseModel(modelStr);
 
   if (!parsed.isAlias) {
@@ -70,14 +68,7 @@ export async function getModelInfo(modelStr, preResolvedCombo = undefined) {
 
   // Check if this is a combo name before resolving as alias
   // This prevents combo names from being incorrectly routed to providers
-  let combo;
-  if (preResolvedCombo !== undefined) {
-    combo = (preResolvedCombo && (!preResolvedCombo.name || preResolvedCombo.name === parsed.model))
-      ? preResolvedCombo
-      : null;
-  } else {
-    combo = await getComboByName(parsed.model);
-  }
+  const combo = await getComboByName(parsed.model);
   if (combo) {
     // Return null provider to signal this should be handled as combo
     // The caller (handleChat) will detect this and handle it as combo
@@ -89,22 +80,13 @@ export async function getModelInfo(modelStr, preResolvedCombo = undefined) {
 
 /**
  * Check if model is a combo and get models list
- * @param {string} modelStr - Model string
- * @param {object|null} [preResolvedCombo] - Optional pre-resolved combo object to avoid re-querying
  * @returns {Promise<string[]|null>} Array of models or null if not a combo
  */
-export async function getComboModels(modelStr, preResolvedCombo = undefined) {
+export async function getComboModels(modelStr) {
   // Only check if it's not in provider/model format
   if (modelStr.includes("/")) return null;
 
-  let combo;
-  if (preResolvedCombo !== undefined) {
-    combo = (preResolvedCombo && (!preResolvedCombo.name || preResolvedCombo.name === modelStr))
-      ? preResolvedCombo
-      : null;
-  } else {
-    combo = await getComboByName(modelStr);
-  }
+  const combo = await getComboByName(modelStr);
   if (combo && combo.models && combo.models.length > 0) {
     return combo.models;
   }

@@ -9,46 +9,6 @@ export { PROVIDER_MODELS };
 // OpenCode providers sharing the endpoint-family fallback for unknown model ids
 const isOpenCodeAlias = (aliasOrId) => !aliasOrId || ["oc", "opencode", "ocg", "opencode-go", "ocz", "opencode-zen"].includes(aliasOrId);
 
-// OAuth short aliases — derived from registry `alias` (single source). everything else: alias = id.
-// vertex/vertex-partner keep alias=id (kept via the `|| id` fallback in consumers).
-export const OAUTH_ALIASES = Object.fromEntries(
-  REGISTRY.filter(r => r.alias && r.alias !== r.id).map(r => [r.id, r.alias])
-);
-
-// Derived from REGISTRY — no need to maintain manually. REGISTRY (not PROVIDERS):
-// media-only entries (elevenlabs, cartesia, inworld, ...) declare no transport, so
-// keying off PROVIDERS dropped their alias and made their registry `models`
-// unreachable — the exact same map PROVIDER_MODELS is keyed by
-// (`entry.alias || entry.id` in providers/index.js).
-export const PROVIDER_ID_TO_ALIAS = Object.fromEntries(
-  REGISTRY.map(r => [r.id, r.alias || r.id])
-);
-
-// Module-load index Map<modelId, entry> per provider (and array WeakMap fallback)
-// Preserves first-match semantics on duplicate IDs within a provider (e.g. gemini-2.5-pro).
-const PROVIDER_MODEL_INDEX = new Map();
-const MODEL_ARRAY_INDEX = new WeakMap();
-
-for (const [alias, models] of Object.entries(PROVIDER_MODELS)) {
-  if (Array.isArray(models)) {
-    const modelMap = new Map();
-    for (const m of models) {
-      if (m && m.id && !modelMap.has(m.id)) {
-        modelMap.set(m.id, m);
-      }
-    }
-    PROVIDER_MODEL_INDEX.set(alias, modelMap);
-    MODEL_ARRAY_INDEX.set(models, modelMap);
-  }
-}
-
-// Also map any provider id whose alias differs so lookups by id hit the same map
-for (const [id, alias] of Object.entries(PROVIDER_ID_TO_ALIAS)) {
-  if (id !== alias && !PROVIDER_MODEL_INDEX.has(id)) {
-    const map = PROVIDER_MODEL_INDEX.get(alias);
-    if (map) PROVIDER_MODEL_INDEX.set(id, map);
-  }
-}
 
 // Helper functions
 export function getProviderModels(aliasOrId) {
@@ -67,58 +27,14 @@ const DOT_VERSION_PROVIDERS = new Set(["kr", "kiro"]);
 
 // Find a registry entry by id. For Kiro models, tolerates dash/dot version separators
 // ("claude-sonnet-4-5" ~= "claude-sonnet-4.5"). Other providers use exact match only.
-// Uses module-load Map index for O(1) lookups with baseModelId and dot-version fallbacks.
-// Falls back to linear scan for unindexed/custom arrays.
-export function findModel(modelsOrAlias, modelId, aliasOrId) {
-  let models;
-  let targetAlias;
-  if (typeof modelsOrAlias === "string") {
-    targetAlias = modelsOrAlias;
-    const resolvedAlias = PROVIDER_ID_TO_ALIAS[targetAlias] || targetAlias;
-    targetAlias = resolvedAlias;
-    models = PROVIDER_MODELS[resolvedAlias];
-  } else {
-    models = modelsOrAlias;
-    targetAlias = aliasOrId;
-  }
-
+function findModel(models, modelId, aliasOrId) {
   if (!models) return undefined;
-
-  // Resolve Map index for O(1) lookup
-  const map = (targetAlias && PROVIDER_MODEL_INDEX.get(targetAlias)) ||
-    (Array.isArray(models) ? MODEL_ARRAY_INDEX.get(models) : null);
-
-  if (map && (!targetAlias || models === PROVIDER_MODELS[targetAlias] || models === PROVIDER_MODELS[PROVIDER_ID_TO_ALIAS[targetAlias]])) {
-    // 1. Direct match on modelId
-    const found = map.get(modelId);
-    if (found) return found;
-
-    // 2. Base model id (strip thinking/effort suffix like "(high)")
-    const baseModelId = typeof modelId === "string"
-      ? modelId.replace(/\([^()]+\)\s*$/, "").trim()
-      : modelId;
-    if (baseModelId !== modelId) {
-      const baseFound = map.get(baseModelId);
-      if (baseFound) return baseFound;
-    }
-
-    // 3. Dot-version normalization for dot-version providers (e.g. kiro)
-    if (DOT_VERSION_PROVIDERS.has(targetAlias)) {
-      const normalized = normalizeModelId(baseModelId);
-      if (normalized !== baseModelId) {
-        return map.get(normalized);
-      }
-    }
-    return undefined;
-  }
-
-  // Fallback for custom, unindexed, or dynamically mutated models arrays
   const baseModelId = typeof modelId === "string"
     ? modelId.replace(/\([^()]+\)\s*$/, "").trim()
     : modelId;
   const found = models.find(m => m.id === modelId || m.id === baseModelId);
   if (found) return found;
-  if (!DOT_VERSION_PROVIDERS.has(targetAlias)) return undefined;
+  if (!DOT_VERSION_PROVIDERS.has(aliasOrId)) return undefined;
   const normalized = normalizeModelId(baseModelId);
   if (normalized === baseModelId) return undefined;
   return models.find(m => m.id === normalized);
@@ -220,6 +136,21 @@ export function getModelQuotaFamily(aliasOrId, modelId) {
   const models = PROVIDER_MODELS[aliasOrId];
   return modelQuotaFamily(findModel(models, modelId, aliasOrId));
 }
+
+// OAuth short aliases — derived from registry `alias` (single source). everything else: alias = id.
+// vertex/vertex-partner keep alias=id (kept via the `|| id` fallback in consumers).
+export const OAUTH_ALIASES = Object.fromEntries(
+  REGISTRY.filter(r => r.alias && r.alias !== r.id).map(r => [r.id, r.alias])
+);
+
+// Derived from REGISTRY — no need to maintain manually. REGISTRY (not PROVIDERS):
+// media-only entries (elevenlabs, cartesia, inworld, ...) declare no transport, so
+// keying off PROVIDERS dropped their alias and made their registry `models`
+// unreachable — the exact same map PROVIDER_MODELS is keyed by
+// (`entry.alias || entry.id` in providers/index.js).
+export const PROVIDER_ID_TO_ALIAS = Object.fromEntries(
+  REGISTRY.map(r => [r.id, r.alias || r.id])
+);
 
 export function getModelsByProviderId(providerId) {
   const alias = PROVIDER_ID_TO_ALIAS[providerId] || providerId;

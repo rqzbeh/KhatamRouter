@@ -210,9 +210,7 @@ function buildCliPackage() {
   }
   console.log("✅ Copied standalone build\n");
 
-  // Step 3a: Copy custom server and runtime security helpers.
-  // custom-server.js requires("./runtime-secrets.cjs") and ("./trusted-proxy.cjs") at module load;
-  // without them the packaged CLI crashes with MODULE_NOT_FOUND.
+  // Step 3a: Copy custom server (injects real socket IP, strips spoofable XFF).
   const customServerSrc = path.join(appDir, "custom-server.js");
   if (fs.existsSync(customServerSrc)) {
     fs.copyFileSync(customServerSrc, path.join(cliAppDir, "custom-server.js"));
@@ -220,24 +218,6 @@ function buildCliPackage() {
   } else {
     console.error("❌ custom-server.js not found — without it no request can be proven local,");
     console.error("   so the packaged CLI would demand an API key for its own dashboard and /v1.");
-    process.exit(1);
-  }
-
-  const runtimeSecretsSrc = path.join(appDir, "runtime-secrets.cjs");
-  if (fs.existsSync(runtimeSecretsSrc)) {
-    fs.copyFileSync(runtimeSecretsSrc, path.join(cliAppDir, "runtime-secrets.cjs"));
-    console.log("✅ Copied runtime-secrets.cjs\n");
-  } else {
-    console.error("❌ runtime-secrets.cjs not found — required by custom-server.js in packaged CLI");
-    process.exit(1);
-  }
-
-  const trustedProxySrc = path.join(appDir, "trusted-proxy.cjs");
-  if (fs.existsSync(trustedProxySrc)) {
-    fs.copyFileSync(trustedProxySrc, path.join(cliAppDir, "trusted-proxy.cjs"));
-    console.log("✅ Copied trusted-proxy.cjs\n");
-  } else {
-    console.error("❌ trusted-proxy.cjs not found — required by custom-server.js in packaged CLI");
     process.exit(1);
   }
 
