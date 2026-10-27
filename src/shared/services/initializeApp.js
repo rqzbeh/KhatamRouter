@@ -54,15 +54,26 @@ export async function initializeApp() {
     // Register cleanup + exit-respawn callback immediately so signals and
     // unexpected cloudflared exits are handled even during the deferred window.
     if (!g.signalHandlersRegistered) {
-      const cleanup = () => {
+      const isClusterWorker = !!process.env.KHATAM_WORKER_ROLE;
+      const doCleanup = () => {
         try { removeAllDNSEntriesSync(); } catch { /* best effort */ }
         try { killAllBridges(); } catch { /* best effort */ }
-        killCloudflared();
-        process.exit();
+        try { killCloudflared(); } catch { /* best effort */ }
       };
-      process.on("SIGINT", cleanup);
-      process.on("SIGTERM", cleanup);
-      process.on("exit", () => { try { removeAllDNSEntriesSync(); } catch { /* ignore */ } });
+      const onSignal = () => {
+        if (!isClusterWorker) {
+          doCleanup();
+          process.exit();
+        }
+      };
+      process.on("SIGINT", onSignal);
+      process.on("SIGTERM", onSignal);
+      process.on("exit", () => {
+        try { removeAllDNSEntriesSync(); } catch { /* ignore */ }
+        if (isClusterWorker) {
+          doCleanup();
+        }
+      });
       g.signalHandlersRegistered = true;
     }
 

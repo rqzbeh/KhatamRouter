@@ -36,6 +36,10 @@ const DASHBOARD_PORT = PORT;
 process.env.PORT = String(PORT);
 process.env.DASHBOARD_PORT = String(PORT);
 
+// Lifecycle owns SIGINT/SIGTERM. Stops Next's start-server cleanup from calling process.exit(143)
+// before the worker drain (setupWorkerLifecycle) finishes. Child processes inherit it.
+process.env.NEXT_MANUAL_SIG_HANDLE = "true";
+
 const origCreate = http.createServer.bind(http);
 
 // ── Vertical scale (KHATAM_WORKERS) ─────────────────────────────────────────
@@ -171,6 +175,13 @@ http.createServer = (...args) => {
   // uncaught-throw behaviour when nothing else listens for it.
   server.prependListener("error", (err) => {
     if (err && err.code === "EADDRINUSE") {
+      if (cluster.isWorker) {
+        // Report to the supervisor, which stops respawning and exits 1 with the log line.
+        if (typeof process.send === "function") {
+          try { process.send({ type: "address_in_use", port: PORT }); } catch { /* ignore */ }
+        }
+        process.exit(98);
+      }
       console.error(`[Server] Port ${PORT} already in use`);
       process.exit(1);
     }
@@ -336,7 +347,7 @@ async function startPrimary(count) {
   }
   if (!migrated) {
     // Forking with KHATAM_MIGRATIONS_DONE=1 without migrating would leave the schema absent.
-    console.error(`[Cluster] KHATAM_WORKERS=${count} but src/lib/db/driver.js is not on disk; running single-process`);
+    console.error(`[Cluster] KHATAM_WORKERS=${count} requested, but src/lib/db/driver.js is not on disk so migrations cannot run in the primary; running single-process`);
     startNextServer();
     return;
   }
@@ -351,6 +362,9 @@ if (require.main === module) {
     // Primary never calls listen(); it only migrates, forks and brokers IPC.
     startPrimary(WORKER_COUNT);
   } else {
+    if (cluster.isPrimary && !clusterModules && (process.env.KHATAM_WORKERS || process.env.WEB_CONCURRENCY)) {
+      console.warn("[Cluster] src/lib/cluster modules are missing from disk; running single-process");
+    }
     // Single-process (KHATAM_WORKERS=1, or 1 core) and every cluster worker.
     startNextServer();
   }

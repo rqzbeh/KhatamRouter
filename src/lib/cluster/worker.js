@@ -73,6 +73,7 @@ export function setupWorkerLifecycle(server, { drainTimeoutMs = drainDeadlineMs(
   }
 
   proc.on("SIGTERM", beginDrain);
+  proc.on("disconnect", beginDrain);
 
   proc.on("message", (msg) => {
     if (msg && typeof msg === "object" && msg.type === "config_reload" && ALLOWED_RELOAD_SCOPES.includes(msg.scope)) {

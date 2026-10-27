@@ -10,6 +10,7 @@ import { describe, it, expect } from "vitest";
 import {
   sizeWorkers,
   restartPolicy,
+  parseCrashResetMs,
   workerEnv,
   routeIpcMessage,
   drainDeadlineMs,
@@ -233,12 +234,30 @@ describe("worker role, env and one-time migrations", () => {
     expect(order).toEqual(["migrations", "fork", "fork", "fork"]);
     expect(c.forked.map((f) => f.env.KHATAM_WORKER_ROLE)).toEqual(["leader", "worker", "worker"]);
     expect(c.forked.every((f) => f.env.KHATAM_MIGRATIONS_DONE === "1")).toBe(true);
-    expect(workerEnv(1)).toEqual({ KHATAM_WORKER_ROLE: "leader", KHATAM_MIGRATIONS_DONE: "1" });
+    expect(workerEnv(1)).toEqual({ KHATAM_WORKER_ROLE: "leader", KHATAM_MIGRATIONS_DONE: "1", NEXT_MANUAL_SIG_HANDLE: "true" });
     expect(workerEnv(2).KHATAM_WORKER_ROLE).toBe("worker");
   });
 });
 
 describe("crash detection and exponential backoff", () => {
+  it("parseCrashResetMs: defaults to 30000 ms, validates numeric >= 0, falls back on garbage", () => {
+    expect(parseCrashResetMs({})).toBe(30000);
+    expect(parseCrashResetMs({ KHATAM_CRASH_RESET_MS: "15000" })).toBe(15000);
+    expect(parseCrashResetMs({ KHATAM_CRASH_RESET_MS: "0" })).toBe(0);
+    expect(parseCrashResetMs({ KHATAM_CRASH_RESET_MS: "-500" })).toBe(30000);
+    expect(parseCrashResetMs({ KHATAM_CRASH_RESET_MS: "garbage" })).toBe(30000);
+    expect(parseCrashResetMs({ KHATAM_CRASH_RESET_MS: "" })).toBe(30000);
+  });
+
+  it("restartPolicy respects custom resetMs from parseCrashResetMs", () => {
+    const resetMs = parseCrashResetMs({ KHATAM_CRASH_RESET_MS: "10000" });
+    expect(resetMs).toBe(10000);
+    // Uptime 12s >= 10s: resets crashes
+    expect(restartPolicy(3, 12000, { resetMs })).toEqual({ crashes: 0, delayMs: 0, alert: false });
+    // Uptime 8s < 10s: keeps crashes
+    expect(restartPolicy(3, 8000, { resetMs })).toEqual({ crashes: 3, delayMs: 0, alert: false });
+  });
+
   it("restartPolicy: rapid crash (<5000 ms) grows Math.min(250*2^n, 10000); healthy run resets", () => {
     expect(restartPolicy(0, 100)).toEqual({ crashes: 1, delayMs: 500, alert: false });
     expect(restartPolicy(1, 100)).toEqual({ crashes: 2, delayMs: 1000, alert: false });
@@ -271,8 +290,8 @@ describe("crash detection and exponential backoff", () => {
 });
 
 describe("IPC protocol and invalidation routing", () => {
-  it("declares the ready/drain/config_reload/in_flight message types", () => {
-    expect(IPC_TYPES).toEqual(["ready", "drain", "config_reload", "in_flight"]);
+  it("declares the ready/drain/config_reload/in_flight/address_in_use message types", () => {
+    expect(IPC_TYPES).toEqual(["ready", "drain", "config_reload", "in_flight", "address_in_use"]);
   });
 
   it("routeIpcMessage fans config_reload out to every worker except the sender, for allowed scopes only", () => {

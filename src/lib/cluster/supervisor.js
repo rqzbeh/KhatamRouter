@@ -2,7 +2,7 @@ import os from "node:os";
 import nodeCluster from "node:cluster";
 
 export const CLUSTER_EXIT_EVENT = "exit";
-export const IPC_TYPES = Object.freeze(["ready", "drain", "config_reload", "in_flight"]);
+export const IPC_TYPES = Object.freeze(["ready", "drain", "config_reload", "in_flight", "address_in_use"]);
 export const ALLOWED_RELOAD_SCOPES = Object.freeze(["aliases", "combos", "nodes", "settings", "all"]);
 
 export const DEFAULT_DRAIN_TIMEOUT_MS = 30000;
@@ -45,6 +45,19 @@ export function supervisorKillMs(env = process.env) {
 }
 
 /**
+ * KHATAM_CRASH_RESET_MS: uptime after which the consecutive-crash counter resets.
+ * Default 30000. Non-numeric, negative or empty values fall back to the default.
+ */
+export function parseCrashResetMs(env = process.env) {
+  const raw = env?.KHATAM_CRASH_RESET_MS;
+  if (raw !== undefined && raw !== null && String(raw).trim() !== "") {
+    const parsed = Number(String(raw).trim());
+    if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+  }
+  return HEALTHY_RESET_MS;
+}
+
+/**
  * Crash restart policy:
  * - If uptime >= resetMs (30s), consecutive crashes reset to 0, delay is 0.
  * - If uptime < minCrashMs (5s), consecutive crashes increment and exponential backoff applies.
@@ -75,6 +88,7 @@ export function workerEnv(slotIndex) {
   return {
     KHATAM_WORKER_ROLE: slotIndex === 1 ? "leader" : "worker",
     KHATAM_MIGRATIONS_DONE: "1",
+    NEXT_MANUAL_SIG_HANDLE: "true",
   };
 }
 
@@ -105,6 +119,7 @@ export async function startSupervisor(options = {}) {
   const enableSignals = options.signals !== false;
 
   const targetCount = sizeWorkers(nproc, env);
+  const crashResetMs = parseCrashResetMs(env);
   if (targetCount <= 1) {
     return { mode: "single", targetCount: 1, bypassed: true };
   }
@@ -120,6 +135,28 @@ export async function startSupervisor(options = {}) {
   const slotMap = new Map(); // workerId -> { slotIndex, startedAt, consecutiveCrashes }
   let isDraining = false;
   let forceKillTimer = null;
+  let addressInUseHandled = false;
+
+  // Stop respawning, terminate siblings, log once, then exit 1 when the last worker is gone.
+  // The fallback timer is deliberately NOT unref'd: it must keep the primary alive to force-kill.
+  function handleAddressInUse(port, exitedWorkerId = null) {
+    if (exitedWorkerId !== null) cluster.workers && delete cluster.workers[exitedWorkerId];
+    if (!addressInUseHandled) {
+      addressInUseHandled = true;
+      isDraining = true;
+      console.error(`[Server] Port ${port} already in use`);
+      for (const id in cluster.workers || {}) {
+        try { cluster.workers[id]?.kill("SIGTERM"); } catch {}
+      }
+      schedule(() => {
+        for (const id in cluster.workers || {}) {
+          try { cluster.workers[id]?.kill("SIGKILL"); } catch {}
+        }
+        process.exit(1);
+      }, 1000);
+    }
+    if (Object.keys(cluster.workers || {}).length === 0) process.exit(1);
+  }
 
   function activeIds() {
     return Object.keys(cluster.workers || {}).map((id) => Number(id));
@@ -145,6 +182,10 @@ export async function startSupervisor(options = {}) {
     if (!msg || typeof msg !== "object") return;
     if (msg.type === "ready") {
       log({ event: "ready", workerId: worker.id, pid: worker.process?.pid });
+      return;
+    }
+    if (msg.type === "address_in_use") {
+      handleAddressInUse(msg.port ?? (env.PORT || env.DASHBOARD_PORT || 20128));
       return;
     }
     if (msg.type === "config_reload") {
@@ -174,15 +215,20 @@ export async function startSupervisor(options = {}) {
       uptimeMs: uptime,
     });
 
+    if (code === 98) {
+      handleAddressInUse(env.PORT || env.DASHBOARD_PORT || 20128, worker.id);
+      return;
+    }
+
     if (isDraining) {
       if (Object.keys(cluster.workers || {}).length === 0) {
         if (forceKillTimer) cancelSchedule(forceKillTimer);
-        process.exit(0);
+        process.exit(addressInUseHandled ? 1 : 0);
       }
       return;
     }
 
-    const decision = restartPolicy(meta.consecutiveCrashes, uptime);
+    const decision = restartPolicy(meta.consecutiveCrashes, uptime, { resetMs: crashResetMs });
     if (decision.alert) {
       console.error(
         `[Supervisor] Worker slot ${meta.slotIndex} crashed ${decision.crashes} consecutive times in rapid succession. Throttling restarts.`,

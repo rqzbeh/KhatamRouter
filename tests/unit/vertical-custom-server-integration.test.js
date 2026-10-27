@@ -278,4 +278,20 @@ describe("custom-server vertical integration: real child boot", () => {
     expect(code).toBe(1);
     expect(boot.stderr()).toContain(`[Server] Port ${port} already in use`);
   }, TEST_TIMEOUT);
+
+  it("port already bound in multi-worker mode: worker reports, supervisor logs once and exits 1", async () => {
+    const { standalone, dataDir } = buildStandalone({ withDriver: true });
+    const port = await pickPort();
+    const blocker = createNetServer();
+    blockers.push(blocker);
+    await new Promise((r) => blocker.listen(port, "127.0.0.1", r));
+    const boot = bootChild(standalone, { PORT: String(port), DATA_DIR: dataDir, KHATAM_WORKERS: "2" });
+
+    const { code } = await boot.closed;
+    expect(code).toBe(1);
+    const err = boot.stderr();
+    expect(err).toContain(`[Server] Port ${port} already in use`);
+    const count = (err.match(/already in use/g) || []).length;
+    expect(count).toBe(1);
+  }, TEST_TIMEOUT);
 });
