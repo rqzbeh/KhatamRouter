@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from "vitest";
-import { execSync } from "node:child_process";
+import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
+import { parseModel as parseModelCore, getModelInfoCore } from "open-sse/services/model.js";
+import { getModelAliases, getComboByName, getProviderNodes } from "@/lib/localDb";
 
 const fx = vi.hoisted(() => ({
   nodes: [],
@@ -19,27 +20,67 @@ vi.mock("@/lib/localDb", () => ({
   },
 }));
 
+// Frozen origin/master reference implementation to avoid git dependency on CI shallow checkouts
+const LOCAL_PROVIDER_ALIASES = {
+  xmtp: "xiaomi-tokenplan",
+  "xiaomi-tokenplan": "xiaomi-tokenplan",
+};
+
+const snapshotPath = path.resolve(import.meta.dirname, "../fixtures/model-reserved-prefix.master-snapshot.json");
+const masterSnapshotArray = JSON.parse(fs.readFileSync(snapshotPath, "utf8"));
+const MASTER_RESERVED_PROVIDER_PREFIXES = new Set(masterSnapshotArray);
+
+function masterParseModel(modelStr) {
+  const parsed = parseModelCore(modelStr);
+  if (parsed?.providerAlias && LOCAL_PROVIDER_ALIASES[parsed.providerAlias]) {
+    return { ...parsed, provider: LOCAL_PROVIDER_ALIASES[parsed.providerAlias] };
+  }
+  return parsed;
+}
+
+async function masterGetModelInfo(modelStr) {
+  const parsed = masterParseModel(modelStr);
+
+  if (!parsed.isAlias) {
+    if (!MASTER_RESERVED_PROVIDER_PREFIXES.has(parsed.providerAlias)) {
+      const openaiNodes = await getProviderNodes({ type: "openai-compatible" });
+      const matchedOpenAI = openaiNodes.find((node) => node.prefix === parsed.providerAlias);
+      if (matchedOpenAI) {
+        return { provider: matchedOpenAI.id, model: parsed.model };
+      }
+
+      const anthropicNodes = await getProviderNodes({ type: "anthropic-compatible" });
+      const matchedAnthropic = anthropicNodes.find((node) => node.prefix === parsed.providerAlias);
+      if (matchedAnthropic) {
+        return { provider: matchedAnthropic.id, model: parsed.model };
+      }
+
+      const embeddingNodes = await getProviderNodes({ type: "custom-embedding" });
+      const matchedEmbedding = embeddingNodes.find((node) => node.prefix === parsed.providerAlias);
+      if (matchedEmbedding) {
+        return { provider: matchedEmbedding.id, model: parsed.model };
+      }
+    }
+    return {
+      provider: parsed.provider,
+      model: parsed.model,
+    };
+  }
+
+  const combo = await getComboByName(parsed.model);
+  if (combo) {
+    return { provider: null, model: parsed.model };
+  }
+
+  return getModelInfoCore(modelStr, getModelAliases);
+}
+
 let currentGetModelInfo;
-let masterGetModelInfo;
-let masterTmpFile;
 
 beforeAll(async () => {
   // Load current branch implementation
   const currentModule = await import("@/sse/services/model.js");
   currentGetModelInfo = currentModule.getModelInfo;
-
-  // Extract and load origin/master implementation
-  const masterCode = execSync("git show origin/master:src/sse/services/model.js").toString();
-  masterTmpFile = path.resolve(import.meta.dirname, ".master_model_test.tmp.mjs");
-  fs.writeFileSync(masterTmpFile, masterCode);
-  const masterModule = await import(masterTmpFile);
-  masterGetModelInfo = masterModule.getModelInfo;
-});
-
-afterAll(() => {
-  if (masterTmpFile && fs.existsSync(masterTmpFile)) {
-    fs.unlinkSync(masterTmpFile);
-  }
 });
 
 beforeEach(() => {
