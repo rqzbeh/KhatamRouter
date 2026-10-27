@@ -42,6 +42,48 @@ function warnPublish(message) {
   console.warn(`[redis] ${message} (events still delivered locally)`);
 }
 
+// Cross-worker IPC fallback (REDIS_URL unset, cluster worker only). Internal, no exports.
+const IPC_RELOAD_SCOPES = Object.freeze(["aliases", "combos", "nodes", "settings", "all"]);
+const IPC_LISTENER_KEY = Symbol.for("khatam.events.ipcListener");
+let applyingPrimaryMessage = false;
+
+/** The supervisor sets KHATAM_WORKER_ROLE on every worker and provides an IPC channel. */
+function isIpcWorker() {
+  return typeof process.send === "function" && Boolean(process.env.KHATAM_WORKER_ROLE) && !isRedisConfigured();
+}
+
+function relayToPrimary(channel, payload) {
+  if (channel !== KHATAM_EVENTS.CONFIG_RELOAD || applyingPrimaryMessage) return;
+  if (!isIpcWorker()) return;
+  const scope = payload?.scope;
+  if (!IPC_RELOAD_SCOPES.includes(scope)) return;
+  try {
+    process.send({ type: "config_reload", scope });
+  } catch (error) {
+    warnPublish(`IPC relay to primary failed: ${error?.message ?? error}`);
+  }
+}
+
+// Primary broadcast arrives here. Emit locally only; applyingPrimaryMessage stops a re-send (no echo loop).
+function onPrimaryMessage(msg) {
+  if (!msg || typeof msg !== "object" || msg.type !== "config_reload") return;
+  if (!IPC_RELOAD_SCOPES.includes(msg.scope)) return;
+  applyingPrimaryMessage = true;
+  try {
+    localBus.emit(KHATAM_EVENTS.CONFIG_RELOAD, { scope: msg.scope });
+  } finally {
+    applyingPrimaryMessage = false;
+  }
+}
+
+if (isIpcWorker()) {
+  // Replace the listener from any previously loaded copy of this module.
+  const previous = globalThis[IPC_LISTENER_KEY];
+  if (previous) process.off("message", previous);
+  globalThis[IPC_LISTENER_KEY] = onPrimaryMessage;
+  process.on("message", onPrimaryMessage);
+}
+
 function parseEnvelope(raw) {
   if (typeof raw !== "string") return { source: null, payload: raw };
   try {
@@ -116,7 +158,10 @@ export function publishKhatamEvent(channel, payload) {
   // Local bus first: local listeners and tests always receive it immediately.
   localBus.emit(channel, payload);
 
-  if (!isRedisConfigured()) return false;
+  if (!isRedisConfigured()) {
+    relayToPrimary(channel, payload);
+    return false;
+  }
   const client = getRedisClient();
   if (!client || !isRedisAvailable()) return false;
 

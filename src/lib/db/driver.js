@@ -83,6 +83,12 @@ async function initAdapter() {
     return adapter;
   }
 
+  // In multi-worker cluster mode, the Primary process runs migrations once before forking workers.
+  // Workers receive KHATAM_MIGRATIONS_DONE=1 and skip running redundant migrations or backups.
+  if (process.env.KHATAM_MIGRATIONS_DONE === "1") {
+    return adapter;
+  }
+
   const { runMigrationOnce } = await import("./migrate.js");
   try {
     await runMigrationOnce(adapter);

@@ -47,6 +47,15 @@ export function copyStandaloneAssets({ projectRoot = process.cwd(), distDir = pr
     console.log(`[standalone-assets] Copied runtime-secrets.cjs to ${secretsDestination}`);
   }
 
+  // custom-server.js requires ./src/lib/cluster/{supervisor,worker}.js by relative path.
+  // Next does not bundle that outside its own graph, so copy the directory verbatim.
+  const clusterSource = resolve(projectRoot, "src", "lib", "cluster");
+  const clusterDestination = resolve(standaloneDir, "src", "lib", "cluster");
+  if (existsSync(clusterSource)) {
+    cpSync(clusterSource, clusterDestination, { recursive: true, force: true });
+    console.log(`[standalone-assets] Copied src/lib/cluster to ${clusterDestination}`);
+  }
+
   // Next's standalone tracing may omit optional native bindings under @wreq-js
   // (e.g. @wreq-js/binding-linux-x64-gnu). Copy wreq-js and @wreq-js into the
   // standalone node_modules so dynamic import("wreq-js") resolves at runtime.

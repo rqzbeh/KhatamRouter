@@ -84,10 +84,16 @@ export async function createBunSqliteAdapter(filePath) {
     return stmt;
   }
 
-  const checkpointTimer = setInterval(() => {
-    try { db.exec("PRAGMA wal_checkpoint(TRUNCATE)"); } catch {}
-  }, CHECKPOINT_INTERVAL_MS);
-  if (typeof checkpointTimer.unref === "function") checkpointTimer.unref();
+  // Cluster followers (KHATAM_WORKER_ROLE=worker) skip the periodic checkpoint. The leader, or an
+  // unset/empty role (single-process), owns it. Close-time checkpoint in gracefulClose() runs everywhere.
+  const workerRole = process.env.KHATAM_WORKER_ROLE;
+  let checkpointTimer = null;
+  if (!workerRole || workerRole === "leader") {
+    checkpointTimer = setInterval(() => {
+      try { db.exec("PRAGMA wal_checkpoint(TRUNCATE)"); } catch {}
+    }, CHECKPOINT_INTERVAL_MS);
+    if (typeof checkpointTimer.unref === "function") checkpointTimer.unref();
+  }
 
   function gracefulClose() {
     try { db.exec("PRAGMA wal_checkpoint(TRUNCATE)"); } catch {}
@@ -159,7 +165,7 @@ export async function createBunSqliteAdapter(filePath) {
       try { db.exec(`PRAGMA wal_checkpoint(${mode})`); } catch {}
     },
     close() {
-      clearInterval(checkpointTimer);
+      if (checkpointTimer) clearInterval(checkpointTimer);
       gracefulClose();
     },
   };

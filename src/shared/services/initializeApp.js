@@ -79,9 +79,18 @@ export async function initializeApp() {
   }
 }
 
+// Wave 8: in multi-worker mode only the leader (Worker 1) runs daemons. Followers
+// (KHATAM_WORKER_ROLE=worker) skip them; unset = single-process mode = run.
+function isLeaderRole() {
+  const role = process.env.KHATAM_WORKER_ROLE;
+  return role === undefined || role === "" || role === "leader";
+}
+
 async function runHeavyStartup() {
-  await cleanupProviderConnections();
   const settings = await getSettings();
+  // ponytail: followers only warm settings; cleanup and daemons stay leader-only. Upgrade if followers need more per-process setup.
+  if (!isLeaderRole()) return;
+  await cleanupProviderConnections();
 
   // Auto-resume tunnel (once per process)
   if (settings.tunnelEnabled && !g.tunnelAutoResumed) {

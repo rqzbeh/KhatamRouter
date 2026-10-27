@@ -1,4 +1,6 @@
 const http = require("http");
+const os = require("os");
+const cluster = require("cluster");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
@@ -35,6 +37,23 @@ process.env.PORT = String(PORT);
 process.env.DASHBOARD_PORT = String(PORT);
 
 const origCreate = http.createServer.bind(http);
+
+// ── Vertical scale (KHATAM_WORKERS) ─────────────────────────────────────────
+// Missing src/lib/cluster (published CLI standalone) means single-process only.
+const CLUSTER_DIR = path.join(__dirname, "src", "lib", "cluster");
+const clusterModules = fs.existsSync(path.join(CLUSTER_DIR, "supervisor.js"))
+  ? {
+      supervisor: require(path.join(CLUSTER_DIR, "supervisor.js")),
+      worker: require(path.join(CLUSTER_DIR, "worker.js")),
+    }
+  : null;
+const WORKER_COUNT = clusterModules ? clusterModules.supervisor.sizeWorkers(os.cpus().length, process.env) : 1;
+
+// Worker 1 (or unset, single-process) owns the background daemons and token refresh.
+function isLeaderRole() {
+  const role = process.env.KHATAM_WORKER_ROLE;
+  return !role || role === "leader";
+}
 
 // Per-process secret proving x-9r-real-ip was stamped below rather than sent by the client.
 // A bare `next start` / `next dev` never loads this file, so it cannot produce a matching
@@ -148,8 +167,18 @@ http.createServer = (...args) => {
     return handler(req, res);
   };
   const server = origCreate(...rest, wrapped);
+  // Pre-listen EADDRINUSE: exit 1 with a stable message. Any other error keeps the default
+  // uncaught-throw behaviour when nothing else listens for it.
+  server.prependListener("error", (err) => {
+    if (err && err.code === "EADDRINUSE") {
+      console.error(`[Server] Port ${PORT} already in use`);
+      process.exit(1);
+    }
+    if (server.listenerCount("error") <= 1) throw err;
+  });
+  if (cluster.isWorker && clusterModules) clusterModules.worker.setupWorkerLifecycle(server);
   server.once("listening", () => {
-    startBackgroundTokenRefreshFromCustomServer();
+    if (isLeaderRole()) startBackgroundTokenRefreshFromCustomServer();
   });
   const origEmit = server.emit;
 
@@ -269,7 +298,9 @@ http.createServer = (...args) => {
   return server;
 };
 
-if (require.main === module) {
+// Next's standalone server.js, or `next start` from a repo checkout. Shared by the
+// single-process path and every cluster worker so all of them run the same request stack.
+function startNextServer() {
   const standalone = path.join(__dirname, "server.js");
   if (fs.existsSync(standalone)) {
     require(standalone);
@@ -279,6 +310,49 @@ if (require.main === module) {
     const nextBin = require.resolve("next/dist/bin/next");
     process.argv = [process.argv[0], nextBin, "start", ...process.argv.slice(2)];
     require(nextBin);
+  }
+}
+
+// Migrations run once in the primary, before any fork. Workers get KHATAM_MIGRATIONS_DONE=1
+// and never issue DDL against the shared SQLite file. Returns false if the driver is not on disk.
+async function runMigrationsOnce() {
+  const driverPath = path.join(__dirname, "src", "lib", "db", "driver.js");
+  if (!fs.existsSync(driverPath)) return false;
+  const { getAdapter } = await import(pathToFileURL(driverPath).href);
+  const adapter = await getAdapter();
+  // Close so the primary holds no DB handle and does not run the WAL checkpoint timer.
+  try { adapter.close?.(); } catch { /* ignore */ }
+  return true;
+}
+
+async function startPrimary(count) {
+  let migrated;
+  try {
+    migrated = await runMigrationsOnce();
+  } catch (error) {
+    // Never fork workers onto a schema that failed to migrate.
+    console.error(`[Cluster] Migrations failed, not starting workers: ${error && error.message ? error.message : error}`);
+    process.exit(1);
+  }
+  if (!migrated) {
+    // Forking with KHATAM_MIGRATIONS_DONE=1 without migrating would leave the schema absent.
+    console.error(`[Cluster] KHATAM_WORKERS=${count} but src/lib/db/driver.js is not on disk; running single-process`);
+    startNextServer();
+    return;
+  }
+  clusterModules.supervisor.startSupervisor({ workerScript: __filename }).catch((error) => {
+    console.error(`[Cluster] Supervisor failed to start: ${error && error.message ? error.message : error}`);
+    process.exit(1);
+  });
+}
+
+if (require.main === module) {
+  if (cluster.isPrimary && clusterModules && WORKER_COUNT > 1) {
+    // Primary never calls listen(); it only migrates, forks and brokers IPC.
+    startPrimary(WORKER_COUNT);
+  } else {
+    // Single-process (KHATAM_WORKERS=1, or 1 core) and every cluster worker.
+    startNextServer();
   }
 }
 
