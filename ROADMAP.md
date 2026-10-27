@@ -40,7 +40,7 @@ The table below mirrors the shipped rows of the authoritative status table in [R
 | **Bun-Only Runtime & Redis-by-Default** | 🟢 Shipped | Wave 7.5: Sole `bun:sqlite` engine, complete Node.js removal, docker-compose with `redis:8.2-alpine`, lease semaphores, Webpack retained, 4102 passing tests (0 regressions) |
 | **Upstream Ports & Security Hardening** | 🟢 Shipped | Wave 9: 44 candidates ported (VansRouter 0.91.81 / 9router 0.5.109); PR #67: 5 decolua/9router PRs (#4988, #5222, #5150, #5179, #5193) with security hardening; see [`docs/UPSTREAM-PORTS.md`](./docs/UPSTREAM-PORTS.md) |
 | **Dashboard and Tooling** | 🟢 Shipped | PR #71 (specs), PR #72 (implementation): pure JavaScript controls: limits modal (`src/shared/components/ConnectionLimitsModal.js`, stored and displayed; connection budget cap NOT enforced at request time), key quota tabs with spend trends (`src/app/(dashboard)/dashboard/quota/`), capability badges (provider rows, model selector, combo builder via `src/shared/components/CapacityBadges.js`) |
-| **Bun Performance and Scale** | 🟢 Shipped | Wave 8: In-process L1 benchmark harness (`scripts/perf-l1-harness.mjs`), profile-guided hot-path slim, multi-replica scale overlay (`docker-compose.scale.yml`), opt-in `TRUSTED_PROXY_CIDRS`, and `BEGIN IMMEDIATE` SQLite write serialization; spec at [`specs/008-bun-perf-scale`](./specs/008-bun-perf-scale), guide in [`docs/PERFORMANCE.md`](./docs/PERFORMANCE.md) |
+| **Bun Performance and Scale** | 🔵 Planned | Wave 8: In-process L1 benchmark harness, profile-guided SQLite/translator hot-path slim, multi-instance horizontal scale with shared Redis state; spec at [`specs/008-bun-perf-scale`](./specs/008-bun-perf-scale) |
 | **KhatamRouter Branding & Release Update Feed** | 🟢 Shipped | PR #69: UI/CLI display branding, update check targeting KhatamRouter GitHub Releases with strict semver parsing and 512 KiB buffer cap in `src/app/api/version/route.js`; in-place updater disabled (`/api/version/update` returns 403) |
 
 ### Operational Baseline (Shipped)
@@ -48,7 +48,6 @@ The table below mirrors the shipped rows of the authoritative status table in [R
 Only the following capabilities are shipped and operational today:
 
 - **Dashboard and tooling (PR #71/#72)**: Pure JavaScript controls: per-connection limits modal (`src/shared/components/ConnectionLimitsModal.js`), key quota tabs with spend trends (`src/app/(dashboard)/dashboard/quota/components/KeyQuotaView.js`, `SpendTrendsChart.js`), and 9-modality capability badges (`src/shared/components/CapacityBadges.js`). Connection-level budget caps (`maxBudgetUsd`) are stored and displayed, but are NOT enforced at request time (follow-up).
-- **Bun performance and scale (Wave 8)**: Profile-guided in-process hot-path optimization cutting tail latency (p95) by ~45–49% (D7 target $\ge 25\%$ met) and reducing database queries from 15.2 to ~10.8 per request (target met), with p50 reduction of ~24–29% (D7 target $\ge 35\%$ missed). Multi-replica horizontal scaling overlay (`docker-compose.scale.yml`) with Nginx load balancer (`deploy/nginx-scale.conf`), opt-in `TRUSTED_PROXY_CIDRS` (`custom-server.js` + `trusted-proxy.cjs`), and SQLite `BEGIN IMMEDIATE` write lock serialization (`src/lib/db/repos/usageRepo.js`). Under the shipped Nginx overlay, 2-replica throughput scaling achieved mean 1.58x (spread 1.51x–1.65x) against the $\ge 1.60\times$ target (not certified; mean 1.58x, range 1.51–1.65x). Benchmark guide in [`docs/PERFORMANCE.md`](./docs/PERFORMANCE.md), master ladder in [`specs/008-bun-perf-scale/ladder-results.md`](./specs/008-bun-perf-scale/ladder-results.md).
 - **KhatamRouter branding and release update feed (PR #69)**: Full UI/CLI display branding to KhatamRouter (guarded by `tests/unit/display-branding-guard.test.js`). Update checks in `/api/version` (`src/app/api/version/route.js`) and CLI query GitHub Releases of `rqzbeh/KhatamRouter` with 512 KiB buffer cap, strict semver validation/reconstruction, and 4s timeout. In-place auto-updater is permanently neutralized (`/api/version/update` returns 403).
 - **Upstream ports & security hardening (Wave 9 & PR #67)**: 44 audit-confirmed upstream candidates ported across 19 commits from VansRouter `v0.91.61`→`v0.91.81` and 9router `v0.5.104`→`v0.5.109`, plus five `decolua/9router` PRs (#4988, #5222, #5150, #5179, #5193) ported via PR #67 with security hardening. Core hardening includes `undici` 7.30.1 with loopback-only headroom binding (`127.0.0.1:8787:8787`), pinned Monaco 0.57.0 CDN loader (`src/shared/constants/monaco.js`), Gemini prototype pollution (`Object.defineProperty`) and method shadowing (`Object.create(null)`) defenses, 8-second models discovery timeout guards, SSRF-safe Gemini reference image inputs, distributed Redis-backed Smart Router session stickiness (`khatam:smartrouter:session:*`), neutral CLI fingerprinting preventing host layout disclosure, strict OpenCode domain gating and bounded buffering on 403 free-tier replays, DeepSeek `json_schema` downgrade guard, context cap pinning, and probe-free free-lane dashboard tests. Full audit ledger in [`docs/UPSTREAM-PORTS.md`](./docs/UPSTREAM-PORTS.md).
 - **Bun-only runtime & `bun:sqlite` engine**: Complete elimination of Node.js. Server strictly requires Bun v1.4.3+. Sole SQLite engine is native `bun:sqlite` with WAL mode (`busy_timeout = 5000`, `temp_store = MEMORY`), preflight integrity validation (`PRAGMA quick_check`), and zero legacy Node drivers. Published CLI launcher requires `bun` on PATH.
@@ -272,57 +271,20 @@ Dashboard and tooling delivers user interface controls and administrative toolin
 
 ## Wave 8 — Bun Performance and Scale
 
-**Status**: 🟢 Shipped (Spec at [`specs/008-bun-perf-scale`](./specs/008-bun-perf-scale), benchmark guide in [`docs/PERFORMANCE.md`](./docs/PERFORMANCE.md), master ladder in [`specs/008-bun-perf-scale/ladder-results.md`](./specs/008-bun-perf-scale/ladder-results.md))
+**Status**: 🔵 Planned (Spec at [`specs/008-bun-perf-scale`](./specs/008-bun-perf-scale))
 
-Wave 8 delivers Bun runtime performance optimizations, in-process latency reduction, and multi-instance horizontal scale:
+Wave 8 delivers Bun performance optimizations and multi-instance horizontal scale:
 
-- **L1 in-process benchmark harness & micro-benchmarks**: Reproducible, deterministic benchmarking via `scripts/perf-l1-harness.mjs` and `scripts/perf-l0-micro.mjs` measuring p50, p95, p99 latency percentiles, query amplification, and execution phase breakdowns.
-- **Profile-guided hot-path slim**:
-  - 5-second in-memory TTL caching for model aliases (`aliasRepo.js`), combos (`combosRepo.js`), and provider nodes (`nodesRepo.js`) with cluster invalidation on `importDb` and Redis `config_reload`.
-  - O(1) `Map<modelId, entry>` lookup index in `open-sse/config/providerModels.js` replacing linear model scans.
-  - LRU RegExp memoization for `matchPattern` glob evaluation in `pricing.js`.
-  - Request-scoped reuse of `keyRecord` and combo resolution in handler pipelines (`chatCore.js`, `chat.js`), while strictly never caching authentication credentials across requests.
-- **Multi-replica horizontal scale & Nginx ingress**:
-  - Scaled deployment overlay (`docker-compose.scale.yml`) deploying multiple `9router` replicas behind an Nginx round-robin load balancer (`deploy/nginx-scale.conf`).
-  - Shared state coordination via Redis (`redis:8.2-alpine` for lease semaphores, sliding-window quotas, and Pub/Sub invalidation) and a shared SQLite WAL volume (`9router-data`).
-- **Trusted proxy CIDR support**: Opt-in `TRUSTED_PROXY_CIDRS` configuration in `custom-server.js` (and `trusted-proxy.cjs`) preserving real client IPs through reverse proxies while enforcing strict spoof defenses (loopback default, /0 rejection, fail-closed CIDR matching).
-- **Concurrency & SQLite write lock serialization**: Implementation of `BEGIN IMMEDIATE` (`db.immediate()`) in `src/lib/db/repos/usageRepo.js` (`saveRequestUsage`), completely eliminating `SQLITE_BUSY_SNAPSHOT` lock upgrade deadlocks and silent accounting loss under multi-process concurrent write bursts (verified: 0 errors, 3,000/3,000 ledger rows recorded).
-
-### Wave 8 Measured Results & Mandated Verdict
-
-All results are cited from [`specs/008-bun-perf-scale/ladder-results.md`](./specs/008-bun-perf-scale/ladder-results.md) and [`specs/008-bun-perf-scale/results/`](./specs/008-bun-perf-scale/results/):
-
-- **In-process L1 latency & query count (Research D7 targets)**:
-  - **p50 Latency**: ~24% to 29% reduction across same-session A/B measurements (1.35–1.37 ms baseline $\to$ 1.01–1.02 ms post-slim) $\implies$ **MISSED TARGET** (D7 target was $\ge 35\%$).
-  - **p95 Latency**: ~45% to 49% reduction (4.82–5.04 ms baseline $\to$ 2.59–2.64 ms post-slim) $\implies$ **MET & EXCEEDED** (D7 target was $\ge 25\%$).
-  - **Database Queries / Request**: Dropped from 15.2 to ~10.8 queries/request (-29.08%) $\implies$ **MET TARGET** (strict query count decrease).
-  - **Stability**: Coefficient of variation (CV) remained between 9.48% and 10.85%, safely below the 15% noise ceiling. Run 1 of each series is consistently warm-up-high (~20–25% higher latency) due to JIT compilation and connection pool priming.
-- **Multi-replica scaling throughput through shipped Nginx overlay (Research D7 target $\ge 1.60\times$ for 2 replicas)**:
-  - **Shipped Product Path (`deploy/nginx-scale.conf`)**: Controlled 3-repeat measurement (R3/R1) achieved a mean throughput scaling ratio of **1.58x** (310.2 req/s vs 196.1 req/s) with a min-max range of **1.51x–1.65x**.
-  - **Verdict**: **NOT CERTIFIED (mean 1.58x, range 1.51–1.65x)**. The mean is below the 1.60x target and the range straddles it.
-  - **Exploratory Variants Are NOT Product Path**: Direct-to-replica bypass achieved 1.63x [1.57, 1.72] (R6/R4b) and 1.65x [1.58, 1.75] (R6/R4a); tuned Nginx keepalive achieved 1.64x [1.55, 1.71] (R7/R1). None of these certifies the target because they are not the shipped product path, their spreads also straddle 1.60x, and R6/R4b is not a perfectly matched concurrency pairing.
-  - **Nginx Variable `proxy_pass` Cost**: The shipped overlay employs dynamic DNS re-resolution via `set $khatam_upstream http://9router:20128; proxy_pass $khatam_upstream;` so scaled container replicas can register and deregister dynamically. This prevents upstream HTTP keepalive connection pooling, costing a modest, not precisely measured ~4% (R3 310.2 vs R7 321.4 req/s) to ~10% in throughput with overlapping spreads. This is an intentional architectural trade-off to permit dynamic scaling without static upstream reconfiguration.
-- **Refuted Earlier Claims & Corrections**:
-  - *Client concurrency ($C=10$) is primary limiter*: Refuted. Quadrupling concurrency to $C=40$ shifted throughput by only +0.9% to +1.6%, and adding a second client process changed throughput by ~1%.
-  - *SQLite contention is a minor secondary factor*: Refuted. It caused silent usage-row loss (~114 `SQLITE_BUSY` / `SQLITE_BUSY_SNAPSHOT` aborts per ~5k requests); fixed via `BEGIN IMMEDIATE` upfront write locking (commit `4375977f`), verified live with 0 errors and 3,000/3,000 ledger rows persisted.
-- **Environment Caveats & Ceiling Statement**:
-  - Client, Nginx, mock upstream, and replicas were co-located on a single 8-core/16-thread WSL2 host (AMD Ryzen 7 4800H); absolute numbers do not represent distributed production capacity.
-  - The performance ceiling claim is strictly limited to this host: in-process gateway overhead per request dropped substantially, but the end-to-end throughput ceiling through Nginx on this host did not change by a certified amount.
-  - Mock upstream measures pure gateway engine latency, not provider latency. Host loopback (L2) is UNMEASURED (no prebuilt standalone bundle on host; handed off to containerized L3).
-- **Next Bottlenecks**:
-  - In-process: gateway dispatch glue (~0.62 ms p50), synchronous post-response bookkeeping writes (~0.16 ms p50), and Web Streams machinery (~0.11 ms p50).
-  - At scale: per-request CPU (~6–7 ms CPU time/request), Nginx connection churn without keepalive, and single shared SQLite writer serialization under `BEGIN IMMEDIATE` (event-loop blocking up to `busy_timeout = 5000ms` under heavy contention is a known operational trade-off).
+- **L1 in-process benchmark harness**: Deterministic reproducible benchmarks (`scripts/perf-l1-harness.mjs`) measuring baseline p50, p95, p99 latency and throughput.
+- **Profile-guided hot-path slim**: Removal of redundant per-request SQLite queries, linear model capability searches, and no-op translation passes.
+- **Multi-instance horizontal scale**: Multi-replica gateway deployment sharing Redis state (distributed lease semaphores, sliding-window quotas, circuit breaker state) behind an ingress load balancer.
+- **Trusted proxy CIDR support**: Opt-in `TRUSTED_PROXY_CIDRS` configuration in `custom-server.js` (and its `custom-server.ts` mirror) preserving real client IPs through reverse proxies while enforcing strict spoof defenses.
 
 ---
 
 ## Known Limitations Today
 
 To ensure clear operational expectations, the following limitations exist in the current implementation:
-
-- **custom-server.ts is an unused legacy twin**: `custom-server.ts` is an unused legacy twin kept only by the no-TS guard allowlist, and is a candidate for removal in a future clean-up pass.
-- **Nginx variable proxy_pass throughput cost**: In `deploy/nginx-scale.conf`, dynamic DNS re-resolution via `proxy_pass` with a variable prevents upstream HTTP keepalive connection pooling, costing a modest ~4% to ~10% throughput compared to static upstreams; this is retained by design to allow container replicas to scale dynamically.
-- **Single-host-only scaling**: The current multi-replica compose overlay (`docker-compose.scale.yml`) shares a single local SQLite WAL volume on one host; distributed multi-host clustering with SQLite is unsupported (distributed deployments require a network database backend like PostgreSQL).
-- **Multi-replica usageHistory deduplication by millisecond tuple**: Concurrent requests completing across multiple replicas within the exact same millisecond can collide on the `(timestamp, provider, model)` deduplication tuple in `usageHistory`, causing minor display count variance without affecting financial `request_cost_ledger` accounting (which records 100% of rows).
 
 - **No GitHub Release exists yet**: The update check queries GitHub Releases of `rqzbeh/KhatamRouter`. Because no formal GitHub Release has been tagged yet, the update check reports no update available until the first release is tagged.
 - **GitBook documentation uses upstream name**: While dashboard UI, landing pages, and CLI tools have been rebranded to KhatamRouter (guarded by `tests/unit/display-branding-guard.test.js`), documentation pages under `gitbook/content/**` still use the upstream name. A full rewrite of the documentation site is a separate follow-up task.

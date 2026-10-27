@@ -1,70 +1,22 @@
 import { getAdapter } from "../driver.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
 import { makeKv } from "../helpers/kvStore.js";
-import {
-  publishKhatamEvent,
-  subscribeKhatamEvent,
-  KHATAM_EVENTS,
-} from "../../redis/events.js";
 
 const aliasKv = makeKv("modelAliases");
 const customKv = makeKv("customModels");
 const mitmKv = makeKv("mitmAlias");
 
-export const ALIASES_CACHE_TTL_MS = 5000;
-
-let aliasesCache = {
-  data: null,
-  expiresAt: 0,
-};
-
-export function invalidateAliasesCache() {
-  aliasesCache.data = null;
-  aliasesCache.expiresAt = 0;
-}
-
-try {
-  subscribeKhatamEvent(KHATAM_EVENTS.CONFIG_RELOAD, (payload) => {
-    if (!payload || payload.scope === "aliases" || payload.scope === "modelAliases" || payload.scope === "all") {
-      invalidateAliasesCache();
-    }
-  });
-} catch {
-  // Safe fail-open if events bus cannot hook
-}
-
 // modelAliases: key=alias, value=modelString
 export async function getModelAliases() {
-  const now = Date.now();
-  if (aliasesCache.data && now < aliasesCache.expiresAt) {
-    return structuredClone(aliasesCache.data);
-  }
-  const raw = await aliasKv.getAll();
-  aliasesCache.data = raw || {};
-  aliasesCache.expiresAt = now + ALIASES_CACHE_TTL_MS;
-  return structuredClone(aliasesCache.data);
+  return await aliasKv.getAll();
 }
 
 export async function setModelAlias(alias, model) {
   await aliasKv.set(alias, model);
-  invalidateAliasesCache();
-  try {
-    publishKhatamEvent(KHATAM_EVENTS.CONFIG_RELOAD, {
-      scope: "aliases",
-      timestamp: Date.now(),
-    });
-  } catch {}
 }
 
 export async function deleteModelAlias(alias) {
   await aliasKv.remove(alias);
-  invalidateAliasesCache();
-  try {
-    publishKhatamEvent(KHATAM_EVENTS.CONFIG_RELOAD, {
-      scope: "aliases",
-      timestamp: Date.now(),
-    });
-  } catch {}
 }
 
 // customModels: key=`${providerAlias}|${id}|${type}`, value=full model object

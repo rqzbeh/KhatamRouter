@@ -4,10 +4,8 @@ const fs = require("fs");
 const crypto = require("crypto");
 const { pathToFileURL } = require("url");
 const { assertProductionSecrets } = require("./runtime-secrets.cjs");
-const { parseTrustedProxyCidrs, resolveClientIp } = require("./trusted-proxy.cjs");
 
 assertProductionSecrets();
-const trustedProxyCidrs = parseTrustedProxyCidrs(process.env.TRUSTED_PROXY_CIDRS);
 
 // ── Port resolution ─────────────────────────────────────────────────────────
 // Server listens on PORT (defaulting to 20128). DASHBOARD_PORT is kept as a
@@ -135,20 +133,11 @@ http.createServer = (...args) => {
     const xff = req.headers["x-forwarded-for"];
     const xRealIp = req.headers["x-real-ip"];
     const viaProxy = !!(xff || xRealIp);
-    // Trust forwarding headers only when the TCP peer is a local reverse proxy or
-    // matches a configured TRUSTED_PROXY_CIDRS entry.
+    const isLoopbackProxy = socketIp === "127.0.0.1" || socketIp === "::1" || socketIp === "::ffff:127.0.0.1";
+    // Trust forwarding headers only when the TCP peer is a local reverse proxy.
     // Direct/public sockets remain keyed by the unspoofable peer address.
-    let ip = socketIp;
-    try {
-      ip = resolveClientIp({
-        socketIp,
-        xff,
-        xRealIp,
-        parsed: trustedProxyCidrs,
-      });
-    } catch {
-      ip = socketIp;
-    }
+    const proxyIp = xRealIp || (xff ? String(xff).split(",")[0].trim() : "");
+    const ip = isLoopbackProxy && proxyIp ? proxyIp : socketIp;
     delete req.headers["x-9r-real-ip"];
     delete req.headers["x-forwarded-for"];
     delete req.headers["x-9r-via-proxy"];
@@ -300,5 +289,4 @@ module.exports = {
   MAX_H2C_BODY_BYTES,
   parseChunkedBody,
   startBackgroundTokenRefreshFromCustomServer,
-  trustedProxyCidrs,
 };
