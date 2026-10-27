@@ -1,3 +1,15 @@
+# [SUPERSEDED] Research Note: Horizontal Multi-Replica Compose Scale
+
+> **SUPERSEDED ARCHITECTURAL NOTE (2026-10-27)**:
+> This research document described the horizontal multi-replica Docker Compose scaling strategy evaluated during the initial Wave 8 implementation.
+> **Outcome**: The horizontal multi-replica compose overlay (`docker-compose.scale.yml`), Nginx reverse proxy load balancer (`deploy/nginx-scale.conf`), and `TRUSTED_PROXY_CIDRS` configuration in `custom-server.js` were merged in PR #76 and formally **REVERTED in PR #77 (commit `7e1e63bf`)**.
+> **Active Architecture**: Wave 8 is strictly redefined as **VERTICAL scaling of ONE Bun host** (multi-core, multi-process architecture on a single machine utilizing a supervising primary and N workers via `node:cluster` kernel port sharing, graceful stream drain, crash recovery, and single-leader background tasks).
+> **Superseding Research**: See [`research-vertical-runtime.md`](./research-vertical-runtime.md) for the active vertical scaling architecture, benchmark measurements, and host-sizing guidance on Bun 1.4.3.
+> **Stale requirement numbers**: Every `FR-00X` reference inside this historical body uses the **pre-renumbering** FR scheme that existed when this note was written. The current, authoritative requirement set is `FR-001..FR-019` in [`spec.md`](./spec.md); in particular the container-subagent validation rule this note calls `FR-009` is now **FR-019**, and the loopback-only XFF / no-CIDR-trust invariant is now **FR-016**.
+> The historical analysis below is preserved solely for lineage reference.
+
+---
+
 # Research Note: Multi-Process Bun Behind Redis as a Configuration Change (US2 / FR-004..FR-006, FR-009)
 
 **Date**: 2026-10-24  

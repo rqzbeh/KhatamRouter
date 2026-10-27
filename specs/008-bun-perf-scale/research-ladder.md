@@ -1,9 +1,9 @@
-# Research Note: Performance Ladder Definition & Evidence Hunt (US3 / FR-007..FR-008)
+# Research Note: Performance Ladder Definition & Evidence Hunt (US3 / FR-017..FR-019)
 
-**Target Spec**: `specs/008-bun-perf-scale/spec.md` (US3, FR-007, FR-008, FR-009)  
-**Date**: 2026-10-24  
+**Target Spec**: `specs/008-bun-perf-scale/spec.md` (US1 FR-001..FR-006, US2 FR-007..FR-016, US3 FR-017..FR-019; ladder side: FR-017, FR-018, FR-019)  
+**Date**: 2026-10-24 (rewritten 2026-10-27 for vertical scaling)  
 **Author**: Performance Architecture Subagent  
-**Scope**: Performance ladder tier definitions (L0–L3), existing test & benchmark baseline inventory, single-replica and multi-replica benchmarking methodology, empirical findings, ceiling-moved verdict criteria, next-bottleneck hypotheses, and plan handoff.
+**Scope**: Performance ladder tier definitions (L0–L3), existing test & benchmark baseline inventory, single-host vertical worker benchmarking methodology (1/2/4/6 workers via `KHATAM_WORKERS`), Redis-down degraded row, empirical findings, ceiling-moved verdict criteria, next-bottleneck hypotheses, and plan handoff. The reverted compose/nginx L3 tier appears only as a clearly-labelled superseded note.
 
 ---
 
@@ -56,18 +56,21 @@ Codebase discovery verified the following existing suites and validation tools a
 
 ## 3. The Performance Ladder Definition (L0 through L3)
 
-The performance ladder evaluates KhatamRouter at four ascending levels of abstraction:
+The performance ladder evaluates KhatamRouter at four ascending levels of abstraction. **L3 is now vertical multi-worker on one host**; the earlier compose/nginx L3 is superseded.
 
 | Tier | Name | Target Measured | Execution Context | Primary Metrics |
 | :--- | :--- | :--- | :--- | :--- |
 | **L0** | Micro-Benchmarks | Isolated functions: `parseModel`, `getModelInfoCore`, `rowToNode`, `bun:sqlite` prepared queries | In-process micro-runner (`bun:test` or `bun -e`) | Latency per operation (µs/op), memory allocation per call |
-| **L1** | In-Process Request Hot Path | Full control-plane pipeline: JSON parse, internal trust, ACL, rate/spend quota, `getModelInfo`, translator transform, mock upstream dispatch | Synthetic request harness through `handleChat` (`src/sse/handlers/chat.js:42-270`) with temp `DATA_DIR` | Per-request latency breakdown (ms), `p50`, `p95`, memory churn |
-| **L2** | Single-Replica HTTP Server | Standalone HTTP server (`custom-server.js:28-36` on loopback port `20128`) serving concurrent synthetic clients | Loopback HTTP benchmark (e.g. `autocannon` or `k6` or Bun-native client loop) | End-to-end `p50`, `p95`, `p99`, Throughput (`req/s`), CPU saturation % |
-| **L3** | Multi-Replica Clustered Scale | 2 to 4 gateway replicas sharing Redis container and shared SQLite WAL volume behind a loopback proxy | Docker Compose cluster (`docker-compose.yml` + scale overlay) | Aggregate throughput (`req/s`), scaling efficiency (1x vs 2x vs 4x), lease/lock contention latency |
+| **L1** | In-Process Request Hot Path | Full control-plane pipeline: JSON parse, internal trust, ACL, rate/spend quota, `getModelInfo`, translator transform, mock upstream dispatch | Synthetic request harness through `handleChat` (`src/sse/handlers/chat.js`) with temp `DATA_DIR` | Per-request latency breakdown (ms), `p50`, `p95`, memory churn |
+| **L2** | Single-Process HTTP Server | Standalone HTTP server (`custom-server.js` on loopback port `20128`, `KHATAM_WORKERS=1`) serving concurrent synthetic clients | Loopback HTTP benchmark (Bun-native client loop via `scripts/perf-ladder.sh`) | End-to-end `p50`, `p95`, `p99`, Throughput (`req/s`), CPU saturation % |
+| **L3** | Vertical Multi-Worker Scale (one host) | The same single host running `KHATAM_WORKERS=1`, `2`, `4`, `6` via `node:cluster` on port `20128`; plus a Redis-down degraded row | Loopback load driver against the multi-worker instance; NO containers, NO compose, NO nginx | Aggregate throughput (`req/s`), vertical scaling efficiency (1x / 2x / 4x / 6x workers), per-worker RSS, `p50`/`p95`/`p99`, distinct worker PIDs |
+
+### Superseded (reverted PR #76/#77)
+The previous L3 specification was a **horizontal multi-replica Docker Compose tier** (2–4 gateway containers, shared Redis container, shared SQLite WAL volume, nginx `gateway-lb` reverse proxy, `docker-compose.scale.yml` overlay, `TRUSTED_PROXY_CIDRS`). That architecture was merged in PR #76 and formally **reverted in PR #77**. It is **not** part of the active ladder: no container-per-replica rows, no `--scale`, no nginx, no CIDR proxy trust are measured or required anywhere in this note. It survives only as lineage in `research-scale.md`.
 
 ---
 
-## 4. Single-Replica Baseline Method (L1 & L2)
+## 4. Single-Process Baseline Method (L1 & L2)
 
 To produce reproducible, noise-isolated baseline measurements without contaminating production databases:
 
@@ -118,31 +121,36 @@ A standardized 1,000-request set composed of three representative archetypes:
 
 ---
 
-## 5. Multi-Replica Compose Method (L3)
+## 5. Vertical Multi-Worker Method (L3, one host)
 
-### 5.1 Compose Scale Architecture
-The current `docker-compose.yml:1-56` specifies a single `services.9router` with static `container_name: 9router` and host port `20128:20128`. Running multiple replicas requires:
-1. **Removing Container Name Hardcoding**: Remove `container_name: 9router` so docker compose can assign replica instance names (`9router-1`, `9router-2`, etc.).
-2. **Reverse Proxy Load Balancer**: Introduce an internal nginx reverse proxy service (e.g. `gateway-lb`) listening on host port `20128`, distributing requests across `http://9router:20128` endpoints using round-robin.
-3. **Shared Volume & WAL Safety**: Mount `9router-data:/app/data` to all replicas. Because containers share a local host ext4/xfs volume, POSIX file locking protects SQLite WAL coordination (`busy_timeout = 5000`).
-4. **Shared Redis Service**: Centralized `redis:8.2-alpine` container providing the single cluster state backbone.
+### 5.0 Superseded (reverted PR #76/#77): Horizontal compose/nginx L3
+Historically, this section specified a **multi-replica Docker Compose tier** (removing `container_name: 9router`, adding an internal nginx `gateway-lb` round-robin proxy on host port `20128`, a shared `9router-data` WAL volume, shared `redis:8.2-alpine`, and `docker compose up --scale 9router={1,2,4}`). That architecture was merged in PR #76 and formally **reverted in PR #77**; it is inactive and is preserved below only for lineage. The active L3 tier is the vertical multi-worker ladder defined in 5.1–5.3.
 
-### 5.2 Scaling Topology & Target Counts
-- **Baseline**: 1 replica (`--scale 9router=1`).
-- **Scale Tier 1**: 2 replicas (`--scale 9router=2`).
-- **Scale Tier 2**: 4 replicas (`--scale 9router=4`).
+<details><summary>Lineage: historical horizontal L3 (reverted, inactive)</summary>
+1. **Container Name Hardcoding**: `container_name: 9router` removal so compose could name replicas `9router-1`, `9router-2`, etc.
+2. **Reverse Proxy Load Balancer**: internal nginx `gateway-lb` distributing across `http://9router:20128` targets.
+3. **Shared Volume & WAL Safety**: `9router-data:/app/data` mounted to all replicas; POSIX file locking for SQLite WAL.
+4. **Shared Redis Service**: `redis:8.2-alpine` as the single cluster-state backbone.
+</details>
 
-### 5.3 Execution Mandate (FR-009 / Repo Memory Convention)
-Per project instructions and repository memory:
-> *"Never run docker in the main agent / subagent smoke test procedure. Live container verification MUST be delegated to subagents (never docker system prune / volume prune)."*
+### 5.1 Vertical Multi-Worker Architecture (one host)
+The gateway runs a single Bun 1.4.3 primary supervising N worker processes via `node:cluster` on the SAME host and SAME port `20128`. Each worker binds its own `SO_REUSEPORT` socket; the Linux kernel hashes new TCP connections across the listener pool by 4-tuple. No compose, no nginx, no `TRUSTED_PROXY_CIDRS`.
 
-Therefore, live Docker Compose execution for multi-replica scaling MUST be orchestrated via dedicated container smoke subagents using `scripts/w75-compose-smoke.sh` and scale harnesses, never run directly in the planning or main turn.
+### 5.2 Worker Counts Under Test (vertical ladder)
+- `KHATAM_WORKERS=1` (baseline; single process, supervisor bypassed)
+- `KHATAM_WORKERS=2`
+- `KHATAM_WORKERS=4`
+- `KHATAM_WORKERS=6` (on this 8-core host: `Math.max(1, 8 - 2)` default)
+- Plus a **Redis-down degraded row** measured at the highest stable worker count.
+
+### 5.3 Execution Mandate (FR-019 / Repo Memory Convention)
+Per project instructions and repository memory, all live container operations MUST be delegated to a dedicated container subagent (never the main agent, never prune). The vertical ladder itself is **host-only loopback traffic** (no container runs at all); the single-container multi-worker boot validation is delegated per FR-019.
 
 ---
 
 ## 6. Empirical Results & Evidence Hunt Table
 
-The table below catalogs measured numbers obtained directly under native Bun on the host machine without Docker, alongside required containerized cells explicitly designated as `UNMEASURED` with cause per FR-008:
+The table below catalogs measured numbers obtained directly under native Bun on the host machine without Docker, alongside required containerized cells explicitly designated as `UNMEASURED` with cause per FR-018:
 
 | Ladder Level | Measurement Description | Measured Metric / Status | Method & Command | Evidence / Cause |
 | :--- | :--- | :--- | :--- | :--- |
@@ -153,11 +161,11 @@ The table below catalogs measured numbers obtained directly under native Bun on 
 | **L0** | Vitest Unit Test Run (`capabilities`) | **348 ms** (34/34 pass) | `bun x vitest run unit/capabilities.test.js` | Single test suite execution under Bun host |
 | **L0** | Translator Golden Headers | **1.69 s** (210/210 pass) | `bun x vitest run translator/golden-url-header.test.js` | 210 provider request header builders verified |
 | **L1** | Hot-Path Redundant DB Calls | **~5 to 7 queries/req** | Static code trace of `handleChat` + `getModelInfo` | `src/sse/services/model.js:43-60`, `src/sse/handlers/chat.js:161-191` |
-| **L1** | Single-Replica Gateway Latency | **UNMEASURED** | L1 Profile Harness (`scripts/perf-l1-harness.mjs`) | *Cause*: Synthetic L1 harness script to be authored in Speckit Plan phase (FR-001/FR-002) |
-| **L2** | Single-Replica HTTP Throughput | **UNMEASURED** | Standalone server + loopback load runner | *Cause*: Requires running standalone HTTP server process during dedicated benchmark pass |
-| **L3** | Multi-Replica (2 Replicas) Compose | **UNMEASURED** | `docker compose up --scale 9router=2` | *Cause*: FR-009 / Memory rule forbids direct Docker execution; delegated to subagent smoke harness |
-| **L3** | Multi-Replica (4 Replicas) Compose | **UNMEASURED** | `docker compose up --scale 9router=4` | *Cause*: FR-009 / Memory rule forbids direct Docker execution; delegated to subagent smoke harness |
-| **L3** | Redis Outage Degradation Throughput | **UNMEASURED** | `scripts/w75-redis-outage-drill.sh` scale run | *Cause*: Requires container drill execution via subagent per FR-006 / FR-009 |
+| **L1** | In-Process Gateway Latency | **UNMEASURED** | L1 Profile Harness (`scripts/perf-l1-harness.mjs`) | *Cause*: Synthetic L1 harness script to be authored in Speckit Plan phase (FR-001/FR-002) |
+| **L2** | Single-Process HTTP Throughput | **UNMEASURED** | Standalone server + loopback load runner (`scripts/perf-ladder.sh` with `KHATAM_WORKERS=1`) | *Cause*: Requires running standalone HTTP server process during dedicated benchmark pass |
+| **L3** | Vertical 2-Worker Ladder | **UNMEASURED** | `KHATAM_WORKERS=2` + loopback load driver (no Docker) | *Cause*: Requires supervisor + ladder scripts; bun-only, host-only |
+| **L3** | Vertical 4-Worker Ladder | **UNMEASURED** | `KHATAM_WORKERS=4` + loopback load driver (no Docker) | *Cause*: Same; assert >= 2 distinct worker PIDs (kernel 4-tuple hashing, not round-robin) |
+| **L3** | Redis Outage Degradation Throughput | **UNMEASURED** | Redis lacking/down during multi-worker ladder row | *Cause*: Inactive Redis simulated by leaving `REDIS_URL` unset at boot so IPC fallback is exercised without touching shared state |
 
 ---
 
@@ -190,33 +198,35 @@ Codebase analysis using graph queries (`search_graph`, `trace_path`, `get_code_s
 
 ---
 
-## 8. Ceiling-Moved Verdict Criteria (SC-005 / FR-007)
+## 8. Ceiling-Moved Verdict Criteria (SC-006 / FR-018)
 
-To objectively decide whether the performance ceiling moved after implementing the hot-path slimming and multi-replica compose configuration, the following four criteria must be satisfied:
+To objectively decide whether the performance ceiling moved after implementing the hot-path slimming and vertical multi-worker configuration, the following four criteria must be satisfied:
 
-1. **L1 Overhead Reduction**:
-   - The median gateway latency overhead ($p50$) for direct requests must decrease by at least **35%** (e.g. from ~8.0 ms baseline down to $\le 5.0$ ms).
+1. **L1 Overhead Reduction** (gating thresholds per Research D7):
+   - The median gateway latency overhead ($p50$) for direct requests must decrease by at least **35%**.
    - $p95$ tail latency must decrease by at least **25%**.
-2. **Horizontal Throughput Scalability**:
-   - Scaling from 1 replica to 2 replicas in Compose must yield at least **1.6x** throughput under load ($> 80\%$ parallel scaling efficiency).
-   - Scaling from 1 replica to 4 replicas must achieve at least **2.8x** throughput before saturation.
+   - Historical `6768fb82` numbers are reference targets only, re-measured on the current tree; any miss is reported as a miss.
+2. **Vertical Throughput Scalability**:
+   - Scaling from 1 worker to 2 workers MUST improve throughput measurably (target $\ge 1.6x$ before saturation).
+   - Scaling from 1 worker to 4 workers SHOULD approach $\ge 2.8x$ before host CPU saturation (on an 8-core host).
+   - Exact per-worker request evenness is NOT a criterion (kernel 4-tuple hashing, not round-robin); distribution is validated by `>= 2` distinct worker PIDs.
 3. **Cluster Invariant Preservation**:
-   - Zero behavioral regressions: `tests/__baseline__/verify-alias.mjs`, `verify-providers.mjs`, `verify-oauth-urls.mjs`, and golden translator round-trip tests MUST remain 100% green (FR-003).
-   - Redis cluster state invariants (concurrency leases via `RedisSemaphore`, circuit-breaker trip events on `khatam:events:circuit_trip`, and combo rotation indices on `khatam:counter:combo:*`) must synchronize across replicas without contention loss or dropped turns (FR-005).
+   - Zero behavioral regressions: `tests/__baseline__/verify-alias.mjs`, `verify-providers.mjs`, `verify-oauth-urls.mjs`, and golden translator round-trip tests MUST remain 100% green (FR-006).
+   - Redis cluster state invariants (concurrency leases via `RedisSemaphore`, circuit-breaker trip events on `khatam:events:circuit_trip`, and combo rotation indices on `khatam:counter:combo:*`) must synchronize across vertical workers without contention loss or dropped turns; cross-worker cache invalidation via IPC broadcast (Redis absent) or Pub/Sub (Redis present) MUST remain < 5 s worst case.
 4. **Graceful Outage Fallback**:
-   - During a simulated Redis outage (stopping Redis container), all replicas must degrade to internal SQLite/in-memory handling without dropping requests or throwing uncaught exceptions on the request path (FR-006).
+   - During a simulated Redis outage, all workers must degrade to internal SQLite/in-memory/IPC handling without dropping requests or throwing uncaught exceptions on the request path (FR-015).
 
 ---
 
 ## 9. Next-Bottleneck Hypotheses
 
-Once the ~8ms hot-path is slimmed and 2–4 Bun replicas are deployed behind Redis, what will constrain the system next?
+Once the ~8ms hot-path is slimmed and 2–6 Bun vertical workers are deployed on this host, what will constrain the system next?
 
-1. **Hypothesis 1: SQLite WAL Write Contention Under Clustered Load**:
+1. **Hypothesis 1: SQLite WAL Write Contention Under Multi-Worker Load**:
    - While SQLite WAL allows concurrent readers, it permits only **one writer at a time**.
-   - With 4 gateway replicas concurrently writing usage ledger entries (`saveRequestUsage`) and session tokens to the shared volume, write transactions will queue. Even with `busy_timeout = 5000`, sustained write throughput exceeding ~500–800 req/s will experience write-lock contention latency spikes ($p99$).
+   - With 4–6 vertical workers concurrently writing usage ledger entries (`saveRequestUsage`), write transactions will queue. `db.immediate(...)` upfront write locking eliminates `SQLITE_BUSY_SNAPSHOT` lock upgrade aborts, but under high concurrency (e.g. >500 req/s), workers wait on SQLite's `busy_timeout = 5000` queue.
 2. **Hypothesis 2: Redis Single-Threaded Event Loop Saturation**:
-   - Concurrency semaphores (`RedisSemaphore`) execute Lua scripts (`EVAL`) on ZSETs for every request acquire/release. Under high concurrent load across 4 replicas, Redis CPU utilization on the single-threaded engine may become the bottleneck.
+   - Concurrency semaphores (`RedisSemaphore`) execute Lua scripts (`EVAL`) on ZSETs for every request acquire/release. Under high concurrent load across vertical workers, Redis CPU utilization on the single-threaded engine may become the bottleneck.
 3. **Hypothesis 3: JavaScriptCore Garbage Collection on Streaming SSE Chunks**:
    - High-throughput streaming requests with tool decloaking (`open-sse/handlers/chatCore/streamingHandler.js`) create substantial buffer and string allocations. Under thousands of concurrent streams, Bun's JSC garbage collector pauses will dictate tail latency ($p99$).
 4. **Hypothesis 4: Upstream Socket Exhaustion**:
@@ -260,18 +270,18 @@ Zero coverage gaps or missed lines were reported.
 
 | Requirement | Research Finding & Artifact | Speckit Plan Action Item |
 | :--- | :--- | :--- |
-| **FR-001** (L1 Profile) | Hotspots attributed: `getModelInfo` (3x SQLite queries in `src/sse/services/model.js:43-60`), `getApiKeyByKey` (3x redundant calls in `src/sse/handlers/chat.js:161-225`), uncached `getSettings()`. | Plan dedicated synthetic L1 profiling script `scripts/perf-l1-harness.mjs` measuring translation, model info, and middleware overhead. |
-| **FR-002** (Slim Hotspot & Re-measure) | Identified quick-win optimizations: request-scoped memoization of `keyRecord`, in-memory TTL caching of `providerNodes` and `settings`, skipping node lookups when provider is known. | Implement request context cache and lightweight in-memory cache for `providerNodes` and `settingsRepo`. |
-| **FR-003** (Zero Behavior Regressions) | Established test harness: `bun tests/__baseline__/verify-alias.mjs`, `verify-providers.mjs`, `verify-oauth-urls.mjs`, and `translator/golden-url-header.test.js`. | Require these baseline gates in Phase 1 and Phase 2 task completion criteria. |
-| **FR-004** (Multi-Replica Compose) | `docker-compose.yml:1-56` has fixed `container_name: 9router`. Scaling requires dynamic container naming and loopback load balancer overlay (`docker-compose.scale.yml`). | Design compose override with reverse proxy service on port 20128 balancing across scaled replicas. |
-| **FR-005** (Cluster-Safe State) | Wave 7.5 contracts (`specs/0075-bun-only-redis-default/contracts/redis-conventions.md`) specify `RedisSemaphore`, `khatam:events:circuit_trip`, and combo rotation counters. | Verify cross-replica state sync under 2+ instances in plan tasks. |
-| **FR-006** (Redis Outage Graceful Degradation) | Degradation contract verified in `scripts/w75-redis-outage-drill.sh`: fails open for quotas/limits to SQLite, zero request-path crashes. | Retain outage drill verification in multi-replica scale tests. |
-| **FR-007** (Identical Metrics Reporting) | Defined metrics contract: $p50$, $p95$, $p99$, throughput (req/s), replica count, command, and isolated temp `DATA_DIR`. | Use identical metrics schema in before/after ladder comparison table. |
-| **FR-008** (Explicit UNMEASURED Marking) | Unmeasured cells (live server and container benchmarks) cataloged with exact causes and handoffs in Section 6. | Forbid silent omission or fabrication; require subagent execution for live container benchmarks. |
-| **FR-009** (Subagent Container Delegation) | Main agent container execution is strictly forbidden by repository memory convention. | Tag all Docker-running tasks in `tasks.md` for dedicated subagent execution. |
+| **FR-001** (TTL Caches) | Hotspots attributed: `getModelInfo` (3x SQLite queries in `src/sse/services/model.js:43-60`), `getApiKeyByKey` (3x redundant calls in `src/sse/handlers/chat.js:161-225`), uncached settings. | Plan dedicated synthetic L1 profiling script `scripts/perf-l1-harness.mjs` measuring translation, model info, and middleware overhead; LRU-bounded `comboByNameCache`; `settings`-scope invalidation. |
+| **FR-002** (Map Index / Slim Hotspot & Re-measure) | Identified quick-win optimizations: request-scoped memoization of `keyRecord`, in-memory TTL caching of `providerNodes` and `settings`, and the `findModel` Map index. | Implement request context cache and lightweight in-memory cache for `providerNodes` and `settingsRepo`. |
+| **FR-006** (Zero Behavior Regressions) | Established test harness: `bun tests/__baseline__/verify-alias.mjs`, `verify-providers.mjs`, `verify-oauth-urls.mjs`, and `translator/golden-url-header.test.js`. | Require these baseline gates in Phase 1 and Phase 2 task completion criteria. |
+| **FR-007** (`node:cluster` vertical runtime) | Workers bind per-worker `SO_REUSEPORT` sockets; primary never listens; primary-only migrations with `KHATAM_MIGRATIONS_DONE=1`. | Implement `src/lib/cluster/supervisor.js` and `src/lib/cluster/worker.js`. |
+| **FR-012..FR-013 / FR-014 (Leader-only daemons & WAL checkpoint; `db.immediate()`)** | `initializeApp.js` `runHeavyStartup()`, `custom-server.js:151-153` `startBackgroundTokenRefreshFromCustomServer`, and `bunSqliteAdapter.js:87-90` checkpoint timer must be gated on `KHATAM_WORKER_ROLE`; `usageRepo.saveRequestUsage` to `db.immediate(...)`. | Leader gating tasks and multi-process SQLite safety task. |
+| **FR-015** (Cross-worker cache invalidation via IPC broadcast when Redis absent) | `src/lib/redis/events.js` already emits on `localBus` when Redis is unset; vertical mode must additionally `process.send` to Primary and re-apply to sibling workers via local emit (sender skipped). | Add IPC fallback task for cache invalidation when `REDIS_URL` unset. |
+| **FR-017** (Identical Metrics Reporting) | Defined metrics contract: $p50$, $p95$, $p99$, throughput (req/s), worker count, command, isolated temp `DATA_DIR`, and `Connection: close` short-lived connections. | Use identical metrics schema in before/after ladder comparison table. |
+| **FR-018** (Explicit UNMEASURED Marking) | Unmeasured cells (live server and container benchmarks) cataloged with exact causes and handoffs in Section 6. | Forbid silent omission or fabrication; require subagent execution for live container benchmarks. |
+| **FR-019** (Subagent Container Delegation) | Main agent container execution is strictly forbidden by repository memory convention. | Tag the Docker-running task in `tasks.md` for dedicated subagent execution. |
 
 ### What Speckit Plan Needs Next
 1. **Author `scripts/perf-l1-harness.mjs`**: A Bun script simulating synthetic chat completion requests against the `handleChat` pipeline using a mock upstream executor, measuring exact phase latency (`performance.now()`) across JSON parsing, auth/ACL, model resolution, translation, and response formatting.
 2. **Specify Request-Scoped Cache & Repo Micro-Cache**: In `src/sse/handlers/chat.js` and `src/sse/services/model.js`, thread a request cache object (or WeakMap) to reuse `keyRecord` and avoid redundant calls to `getApiKeyByKey` and `getSettings`. Micro-cache `providerNodes` in memory with invalidation on `khatam:events:config_reload`.
-3. **Design `docker-compose.scale.yml`**: Compose overlay removing static `container_name: 9router`, exposing scaled replicas, and configuring an internal round-robin proxy on host port `20128`.
-4. **Draft Tasks with Disjoint Ownership**: Structure `tasks.md` into discrete phases (Scaffolding, Hot-Path Slimming, Compose Scale Config, Ladder Execution) with subagent delegation for container tasks.
+3. **Design the vertical supervisor and IPC cache-invalidation fallback**: Primary supervisor (`cluster.isPrimary` branch in `custom-server.js`), IPC broker, and per-worker invalidation via `process.send` when Redis is unset.
+4. **Draft Tasks with Disjoint Ownership**: Structure `tasks.md` into discrete phases (Scaffolding, Hot-Path Slimming, Vertical Cluster, Ladder Execution) with subagent delegation for container tasks.

@@ -1,6 +1,6 @@
 # Research Note: L1 Hot-Path Profile & Slimming Plan
 
-**Target Spec**: `specs/008-bun-perf-scale/spec.md` (US1: Hot-path profile, slim, re-measure / FR-001..FR-003)  
+**Target Spec**: `specs/008-bun-perf-scale/spec.md` (US1: Hot-path profile, slim, re-measure / FR-001..FR-006)  
 **Scope**: Attribution of the ~8ms per-request gateway overhead in KhatamRouter  
 **Runtime Reality**: Bun-only (`bun:sqlite` sole driver, Redis default `khatam:` prefix; `db.json` passages in legacy docs are obsolete).  
 **Methodology**: Graph-first structural discovery via `codebase-memory-mcp` (`search_graph`, `trace_path`, `get_code_snippet`) confirmed with `check_index_coverage`.
@@ -126,7 +126,7 @@ Implementing the following targeted optimizations will reduce the L1 latency fro
 
 ## 4. Regression Guard & Golden Verifications
 
-Per requirement FR-003, all slimming changes must guarantee zero request/response behavior regressions.
+Per requirement FR-006, all slimming changes must guarantee zero request/response behavior regressions.
 
 ### 1. Translator Golden Snapshots
 The repository maintains exhaustive golden snapshots that lock the exact output of `translateRequest()` and response streaming:
@@ -202,12 +202,13 @@ As required by repository policy, `check_index_coverage` was executed for all 18
 ## ## Handoff
 
 ### Mapping to Specification Requirements
-- **FR-001 (L1 Profile & Hotspot Attribution)**: Delivered. File-level hotspots identified with line references across translation (`open-sse/translator/index.js:101-127`), model lookup (`src/sse/services/model.js:38-79`, `src/lib/db/repos/aliasRepo.js:10-12`), and middleware (`src/sse/handlers/chat.js:161, 276`). Cost breakdown attributed to ~35% translation, ~40% model-info/DB, ~25% glue.
-- **FR-002 (Slim Hotspot & Re-measure)**: Concrete plan targets the two largest hotspots: in-memory caching of model-info/combos/aliases (saving ~2.2ms) and translation short-circuits (saving ~1.5ms). Re-measurement protocol defined using isolated SQLite and mock upstreams.
-- **FR-003 (Regression Guard)**: Locked against regressions using the four P0 translator golden suites (`tests/translator/golden-*.test.js`) and core unit test suites.
+- **FR-001 (TTL Caches)**: Delivered at the attribution level. Uncached `getComboByName`, `getModelAliases`, and `getProviderNodes` identified as the model-info/DB hotspot (comprising ~40% of latency), with concrete file-level line references across `src/lib/db/repos/aliasRepo.js`, `src/lib/db/repos/combosRepo.js`, and `src/lib/db/repos/nodesRepo.js`.
+- **FR-002 (Map Index)**: Repeated linear `findModel` lookups identified in `providerModels.js`; a module-load `Map<modelId, entry>` index is the targeted fix.
+- **FR-004 (Request-Scoped Reuse)**: Concrete plan targets the two largest hotspots: request-scoped memoization of `keyRecord` (saving ~1.5ms when duplicate `getApiKeyByKey` calls are collapsed) and in-memory caching of model-info/combos/aliases (saving ~2.2ms). Re-measurement protocol defined using isolated SQLite and mock upstreams.
+- **FR-006 (Regression Guard)**: Locked against regressions using the four P0 translator golden suites (`tests/translator/golden-*.test.js`) and core unit test suites.
 
 ### Requirements for `speckit-plan` Next Phase
 1. **Design In-Memory Caching Architecture**: Add TTL/invalidation caches for `combosRepo.getComboByName` and `aliasRepo.getModelAliases` without violating multi-process SQLite consistency.
 2. **Refactor `src/sse/handlers/chat.js`**: Pass resolved `keyRecord` into `handleSingleModelChat` to eliminate duplicate `getApiKeyByKey` calls.
 3. **Short-Circuit Tool Checks**: Gate `ensureToolCallIds` and `fixMissingToolResponses` behind an initial scan for tool activity in `open-sse/translator/index.js`.
-4. **Author Benchmarking Script**: Implement `scripts/bench-l1.mjs` matching the protocol in Section 5 to establish baseline numbers before applying code changes.
+4. **Author Benchmarking Script**: Implement `scripts/perf-l1-harness.mjs` matching the protocol in Section 5 to establish baseline numbers before applying code changes. US1 spans FR-001..FR-006; this note maps directly onto them.

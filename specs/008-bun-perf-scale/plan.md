@@ -1,111 +1,204 @@
-# Implementation Plan: Wave 8 — Bun Hot-Path Profile, Multi-Process Scale, Ladder Re-Run
+# Implementation Plan: Wave 8 — Bun Hot-Path Slim and Vertical Scale (multi-core / multi-process on one host)
 
-**Branch**: `spec/008-bun-perf-scale` | **Date**: 2026-10-24 | **Spec**: [spec.md](./spec.md)
+**Branch**: `spec/008-vertical-scale` | **Date**: 2026-10-27 | **Spec**: [spec.md](./spec.md)  
+**Input**: Feature specification from `specs/008-bun-perf-scale/spec.md`  
 
-**Input**: Feature specification from `/specs/008-bun-perf-scale/spec.md`
+---
 
-## Summary
+## 1. Executive Summary
 
-Measure first, then slim, then scale, then prove. Strict sequential progression: **US1 complete (baseline, slim, guard, after-measure) → US2 complete (CIDR proxy + overlay + two-instance + delegated Docker verification) → US3 (ladder re-run)**. US1 builds an in-process L1 harness (`scripts/perf-l1-harness.mjs`), records a measured baseline, and removes the redundant per-request SQLite reads, linear model scans and no-op translation passes confirmed by baseline profiling. US2 scales horizontally across replicas sharing Wave 7.5 Redis state with zero engine routing rewrite, requiring a compose overlay (`docker-compose.scale.yml`), nginx LB config (`deploy/nginx-scale.conf`), and one explicitly approved, security-audited code edit: opt-in `TRUSTED_PROXY_CIDRS` parsing in `custom-server.js` (and its `custom-server.ts` twin) so real client IPs survive the LB while strictly preserving the loopback-only default when unset/empty and enforcing spoof protection. US3 re-runs the ladder using identical methods; every cell is a measured number or `UNMEASURED` with cause. Results are evaluated against research D7 thresholds (p50 reduction ≥35%, p95 reduction ≥25%, 2-replica throughput ≥1.6×), reporting missed thresholds honestly and rejecting unmeasured or noisy runs from certifying improvement. Decisions are in [research.md](./research.md).
+Wave 8 delivers **vertical scaling on a single Bun host**: unlocking all available host CPU cores without introducing external multi-replica container overlays, Nginx load balancers, or `TRUSTED_PROXY_CIDRS`.
 
-## Technical Context
+Execution progresses strictly sequentially:
+1. **US1 (P1, MVP)**: Re-land the independent hot-path performance work from reverted commit `6768fb82` (L1 harness, TTL caches for aliases/combos/nodes with a bounded 512-entry LRU for `comboByNameCache` and `settings`-scope invalidation, module-load `Map` index in `providerModels.js`, regex memoization in `pricing.js`, request-scoped reuse in `chat.js`, and `db.immediate()` SQLite write serialization). Measure before/after with `scripts/perf-l1-harness.mjs` and evaluate against Research D7 targets honestly. The historical `6768fb82` figures (p95 ~-48%, p50 ~-24..29%, ~15.2 -> ~10.8 queries/req, ~101 MB RSS, ~180–200 req/s) are **reference targets only** and must be re-measured on the current tree; the gating thresholds are p50 $\ge -35\%$, p95 $\ge -25\%$, `db_queries_per_req` $\le 11.0$ (SC-001). Misses are reported as misses.
+2. **US2 (P2)**: Vertical multi-process concurrency on Bun 1.4.3 via built-in `node:cluster`. The Primary supervisor runs SQLite migrations and the backup/integrity preflight once, exports `KHATAM_MIGRATIONS_DONE=1`, computes host sizing (`Math.max(1, nproc - 2)`), forks N worker processes sharing port 20128 via per-worker `SO_REUSEPORT` sockets, brokers IPC cache invalidations, restarts crashed workers with exponential backoff, and coordinates graceful stream drain on `SIGTERM` (30s timeout). Leader-only work (Worker 1, `KHATAM_WORKER_ROLE === "leader"`): `initializeApp.js` startup daemons, OAuth token refresh, and the WAL checkpoint timer. Followers (`KHATAM_WORKER_ROLE === "worker"`) skip all of it. Loopback-only reverse proxy trust in `custom-server.js` is preserved untouched (no `TRUSTED_PROXY_CIDRS`). Single-worker compatibility (`KHATAM_WORKERS=1`) is strictly preserved. `custom-server.ts` does not exist in this wave's touch list.
+3. **US3 (P3)**: Vertical performance ladder: benchmark 1 vs 2 vs 4 vs 6 workers on THIS host using loopback load driver `scripts/perf-ladder.sh`. Document throughput scaling, latency percentiles, per-worker RSS (reference: ~101 MB idle, ~150–220 MB peak), host CPU saturation, Redis-down degraded row, and honest ceiling verdict. Delegated container subagent verifies single-container multi-worker boot.
 
-**Language/Version**: JavaScript (ESM), Bun 1.4.3 (Bun-only; no TypeScript in the engine)
+---
 
-**Primary Dependencies**: Next.js 16 (webpack retained), `ioredis`, `bun:sqlite`, vitest (tests, Bun host)
+## 2. Technical Context
 
-**Storage**: SQLite WAL (`$DATA_DIR/db/data.sqlite`, authoritative) + Redis `khatam:` prefix (shared cluster state, fail-open except auth)
+- **Language / Runtime**: JavaScript (ESM), Bun 1.4.3 (Strictly Bun-only; NO Node fallback drivers, NO TypeScript in engine).
+- **Concurrency Mechanism**: `node:cluster` built into Bun 1.4.3. Native kernel-level listen socket sharing on port 20128.
+- **Primary Dependencies**: Next.js 16 (Webpack retained), `ioredis`, `bun:sqlite`, vitest (Bun host).
+- **Storage Tier**: Native `bun:sqlite` in WAL mode (`busy_timeout = 5000`, `temp_store = MEMORY`) with `db.immediate()` write serialization + Redis `khatam:` prefix (fail-open except auth).
+- **Testing**: `bun x vitest run` from `tests/`; baselines `tests/__baseline__/verify-*.mjs`; translator goldens.
+- **Target Platform**: Single Linux host (AMD Ryzen 7 4800H WSL2, 8 physical cores / 16 threads, 7.8 GB RAM).
+- **Security Boundary**: Loopback-only XFF trust in `custom-server.js` strictly preserved. Auth is fail-closed and NEVER cached across requests.
 
-**Testing**: `bun x vitest run` from `tests/`; baselines `tests/__baseline__/verify-*.mjs`; translator goldens
+---
 
-**Target Platform**: Linux, single host. Replicas share one SQLite volume (no NFS/EFS)
-
-**Project Type**: web-service (gateway plus dashboard)
-
-**Performance Goals**: L1 p50 ≥35% lower and p95 ≥25% lower; 2 replicas reach ≥1.6× single-replica throughput. Evaluated against research D7 thresholds. Missed thresholds must be reported honestly as a miss (never claiming the ceiling moved if unmet). Any unmeasured, invalid, or noisy profile/ladder run cannot certify improvement and must be rejected or re-run (FR-008, SC-002, SC-005). Cells that cannot be measured must be marked `UNMEASURED` with cause and handoff.
-
-**Constraints**: No behavior change (goldens green). Auth fail-closed, quota/limit fail-open. Loopback-only XFF trust unless `TRUSTED_PROXY_CIDRS` is set (with invalid entries strictly ignored). Harness uses a temp `DATA_DIR` and never touches `~/.9router`. The main agent never runs docker. Strict sequential progression: US1 complete → US2 complete → US3; no US2 work may overlap US1; no slim leaf is ready before baseline.
-
-**Scale/Scope**: ~8 source files touched (US1), 1 compose overlay + LB config + approved scoped code edit in `custom-server.js` (and `custom-server.ts` twin) for `TRUSTED_PROXY_CIDRS` (US2), 2 scripts + scoped results docs with unique owners (`results/ladder-host.md`, `results/ladder-l3.md`, `ladder-results.md`) (US3)
-
-## Constitution Check
+## 3. Constitution Check
 
 | Principle | Status | Evidence |
 |---|---|---|
-| I Upstream integrity | PASS | Additive caches and overlay only. No upstream capability removed. |
-| II Single runtime, port contract | PASS | Bun only. 20128 is published by the LB only in the overlay. Base compose is untouched. Approved code change in `custom-server.js` (+ `.ts` twin) for `TRUSTED_PROXY_CIDRS` preserves port 20128 and single-runtime contract. |
-| III SQLite WAL + Redis hybrid | PASS | SQLite stays authoritative. Redis state is reused as-is, nothing new is stored there. |
-| IV Graph-first discovery | PASS | The research notes attest `check_index_coverage` on every relied file. |
-| V Spec-Kit + Unlazy | PASS | `specs/008-*` plus `.unlazy/008-bun-perf-scale/`. Research gates are 10/10 met. |
-| VI Resilience, stealth | PASS | Executors stay stateless. XFF stripping is preserved by default (D2). Opt-in `TRUSTED_PROXY_CIDRS` approved edit strictly preserves loopback-only default when unset, treats invalid CIDRs strictly (logged and ignored), and enforces spoof negative controls. Redis-down behavior is re-verified under N replicas. |
+| **I Upstream Integrity** | PASS | Additive in-process TTL caches, O(1) Map index, and cluster supervisor. Zero upstream routing logic removed. |
+| **II Single Runtime, Port Contract** | PASS | Bun 1.4.3 only. All workers bind the single port 20128 with their own `SO_REUSEPORT` sockets via `node:cluster`. Zero port offset proxies or external forwarders. |
+| **III SQLite WAL + Redis Hybrid** | PASS | SQLite remains authoritative. `db.immediate()` write serialization eliminates lock upgrade deadlocks. Redis Pub/Sub provides sub-millisecond cache invalidation with IPC broadcast fallback. |
+| **IV Graph-First Discovery** | PASS | Graph index verified with `check_index_coverage` on all relied files. |
+| **V Spec-Kit + Unlazy** | PASS | Spec package in `specs/008-bun-perf-scale/`, Unlazy gates in `.unlazy/008-bun-perf-scale/`. |
+| **VI Resilience, Stealth** | PASS | Loopback-only XFF trust preserved byte-for-byte (no `TRUSTED_PROXY_CIDRS`, zero attack surface expansion). Auth is fail-closed. Redis outage degrades gracefully to in-process/IPC handling. |
 
-**Post-design re-check**: PASS. Zero engine routing rewrite. The only code edit is the approved, scoped `TRUSTED_PROXY_CIDRS` in `custom-server.js` (and twin). It is opt-in, defaults to today's loopback-only behavior, treats invalid CIDRs strictly (logged and ignored), and has spoof negative controls. A boolean flag was rejected for security reasons (D2).
+---
 
-## Project Structure
+## 4. Project Structure
 
-### Documentation (this feature)
-
+### Documentation (`specs/008-bun-perf-scale/`)
 ```text
 specs/008-bun-perf-scale/
-├── spec.md, plan.md, research.md, data-model.md, quickstart.md
-├── research-{profile,scale,ladder,index}.md
-├── contracts/{perf-harness,scale-compose}.md
-├── checklists/requirements.md
-└── tasks.md            # /speckit-tasks
+├── spec.md                         # Feature specification (vertical multi-process scale)
+├── plan.md                         # Implementation plan (this document)
+├── tasks.md                        # Dependency-ordered tasks T001..T030
+├── research.md                     # Architectural decisions D1..D11
+├── research-index.md               # Research inventory and contract agreement
+├── research-vertical-runtime.md    # Bun 1.4.3 multi-process runtime research & measurements
+├── research-profile.md             # L1 hot-path attribution research
+├── research-ladder.md              # Performance ladder methodology
+├── research-scale.md               # [SUPERSEDED] Historical horizontal research
+├── data-model.md                   # L1Profile, VerticalWorkerTopology, VerticalLadderRow
+├── quickstart.md                   # Operational verification guide
+├── checklists/requirements.md      # Specification quality checklist
+└── contracts/
+    ├── vertical-workers.md         # Worker lifecycle, IPC protocol, sizing, drain contract
+    └── perf-harness.md             # L1 harness & vertical ladder CLI contract
 ```
 
-### Source (touch list)
+### Source Touch List
 
 ```text
-scripts/perf-l1-harness.mjs        # NEW  L1 harness (US1, T006)
-scripts/perf-ladder.sh             # NEW  L2/L3 load driver, never calls docker (US3, T021)
-src/sse/handlers/chat.js           # request-scoped keyRecord/combo reuse (US1, T012)
-src/sse/services/model.js          # fewer provider-node/combo queries (US1, T012)
-src/lib/db/repos/{aliasRepo,combosRepo,nodesRepo}.js   # TTL caches + invalidation (US1, T009)
-open-sse/config/providerModels.js  # indexed Map for findModel (US1, T010)
-open-sse/handlers/chatCore.js      # use indexed lookups (read open-sse/AGENTS.md first) (US1, T010)
-open-sse/translator/concerns/toolCall.js, formats/openai.js   # tool-activity bailout, clean-content fast path (US1, T011)
-custom-server.js (+ .ts twin)      # APPROVED CODE CHANGE: TRUSTED_PROXY_CIDRS (US2, T016)
-docker-compose.scale.yml           # NEW  overlay (US2, T017)
-deploy/nginx-scale.conf            # NEW  LB config (US2, T017)
-scripts/scale-smoke.sh             # NEW  smoke script (US2, T018)
-tests/unit/{perf-harness,trusted-proxy,model-info-cache,cluster-two-instance}.test.js   # NEW (US1, US2)
-specs/008-bun-perf-scale/results/ladder-host.md         # NEW  L0-L2 host ladder rows (US3, T022)
-specs/008-bun-perf-scale/results/ladder-l3.md           # NEW  L3 multi-replica container rows (US3, T023)
-specs/008-bun-perf-scale/ladder-results.md             # NEW  integrated ladder table & verdict (US3, T024 alone)
+# US1: Hot-Path Slimming (Re-landed from 6768fb82)
+scripts/perf-l1-harness.mjs         # In-process L1 gateway harness
+scripts/perf-l0-micro.mjs           # Sub-microsecond micro-benchmark runner
+scripts/perf-mock-upstream.mjs      # Fast mock upstream streaming server
+src/lib/db/repos/aliasRepo.js       # In-memory TTL cache for modelAliases
+src/lib/db/repos/combosRepo.js      # In-memory TTL cache for getComboByName
+src/lib/db/repos/nodesRepo.js       # In-memory TTL cache for getProviderNodes
+src/lib/db/index.js                 # Cache invalidation hooks on write / importDb
+src/lib/db/repos/usageRepo.js       # db.immediate() write lock serialization
+open-sse/config/providerModels.js   # Module-load Map index for findModel
+open-sse/providers/pricing.js       # Memoized RegExp cache in matchPattern
+open-sse/handlers/chatCore.js       # Transport memoization tweak
+src/sse/handlers/chat.js            # Request-scoped keyRecord and combo reuse
+src/sse/services/keyAccess.js       # keyAccessContextFromRecord reuse helper
+src/sse/services/model.js           # Pre-resolved combo parameter in getModelInfo
+
+# US2: Vertical Multi-Process Supervisor Runtime
+src/lib/cluster/supervisor.js       # Primary supervisor: CPU sizing, one-time migrations, env export, fork, crash backoff, IPC broker
+src/lib/cluster/worker.js           # Worker lifecycle: role detection, graceful drain, IPC client (config_reload relay)
+src/lib/db/driver.js                # KHATAM_MIGRATIONS_DONE=1 skip gate for runMigrationOnce (internal edit, no export change)
+src/lib/db/adapters/bunSqliteAdapter.js  # Leader-only WAL checkpoint timer (internal edit, no export change - twins parity test)
+src/lib/redis/events.js             # IPC fallback: worker->Primary process.send, Primary broadcast, sibling local emit (no export change - twins parity test)
+src/shared/services/initializeApp.js  # Gate heavy startup daemons behind leader/unset role
+tests/unit/wave75-twins-alignment.test.js constraint  # bunSqliteAdapter/events twin files MUST keep exported-symbol parity (internal edits only)
+custom-server.js                    # Cluster primary branch, leader-gated token refresh registration (custom-server.ts NOT touched in Wave 8)
+scripts/copy-standalone-assets.mjs  # Include cluster modules in standalone package
+scripts/vertical-smoke.sh           # Host multi-worker smoke validation drill
+
+# US3: Vertical Ladder Benchmark
+scripts/perf-ladder.sh              # Loopback load driver supporting vertical worker counts
+scripts/perf-ladder-lib.mjs         # Ladder benchmark runner library
+scripts/perf-ladder-seed.mjs        # Database fixture seeding for ladder runs
+specs/008-bun-perf-scale/results/ladder-host.md  # Host ladder measurements (1, 2, 4, 6 workers)
+specs/008-bun-perf-scale/ladder-results.md       # Integrated master ladder table & honest verdict
+
+# Tests
+tests/unit/perf-harness.test.js
+tests/unit/model-info-cache.test.js
+tests/unit/model-index-map.test.js
+tests/unit/pattern-match-cache.test.js
+tests/unit/request-scoped-reuse.test.js
+tests/unit/usage-concurrent-writers.test.js
+tests/unit/import-db-cache-invalidation.test.js
+tests/unit/model-reserved-prefix.test.js
+tests/unit/vertical-cluster-supervisor.test.js
+tests/unit/vertical-custom-server-integration.test.js
+tests/unit/cluster-database-roles.test.js
+tests/unit/perf-ladder-contract.test.js
 ```
 
-**Structure Decision**: Existing single-repo layout. No new packages. The `.ts` twin of `custom-server` is updated in lockstep, and the plan names `.js` as the runtime-loaded file (Wave 7.5 twin rule).
+---
 
-## Phases
+## 5. Implementation Phases & Gate Progression
 
-| Phase | Story | Gate to leave the phase |
-|---|---|---|
-| A. Harness + baseline | US1 | `PERF_L1_OK baseline`, baseline JSON committed under `specs/008-bun-perf-scale/results/l1-baseline.json`, hotspot ranking confirmed or re-ranked against research (D3). Any unmeasured, invalid, or noisy run cannot certify improvement and must be rejected. |
-| B. Slim + guard + after-measure | US1 | Goldens + `verify-*.mjs` + unit subset green (`guard-after.txt`), `db_queries_per_req` strictly lower, `l1-after.json` and `l1-compare.md` recorded, research D7 targets evaluated. Strict US1 complete. |
-| C. Trusted proxy + overlay + two-instance | US2 | Approved `custom-server.js` (+ twin) code edit lands, `trusted-proxy.test.js` green with spoof controls, `cluster-two-instance.test.js` green, `docker compose config` valid. |
-| D. Replica verification | US2 | Container subagent: delegated `scale-smoke.sh 2` cross-replica trip, single refresh, rotation, Redis-halt drill all pass, transcript in `results/scale-smoke.md`. Strict US2 complete. |
-| E. Ladder re-run + verdict | US3 | T021 driver ready, T022 host rows in `results/ladder-host.md`, T023 container rows in `results/ladder-l3.md`, T024 integrates into `ladder-results.md` with honest verdict evaluated against D7 thresholds. Strict US3 complete. |
+Execution proceeds through six strictly ordered phases:
 
-**Strict Sequential Execution**:
-Order is strictly sequential: **US1 complete → US2 complete → US3 complete**.
-- **No US2 authoring or implementation work may overlap or run alongside US1**. All US1 tasks (baseline, slim, guard, after-measure) must be 100% complete and verified before any US2 task begins.
-- **No slim leaf or task may be marked READY or executed before Phase A produces and gates the measured baseline**.
-- **No US3 ladder task may begin before US2 is strictly complete and verified** (including delegated Docker verification).
-- **Disjoint results docs**: T022 writes `results/ladder-host.md`; T023 writes `results/ladder-l3.md`; T024 alone integrates them into `ladder-results.md`. T022 and T024 do not share ownership of `ladder-results.md`.
+```
+[Phase 1: Setup] ──► [Phase 2: Guard Baseline]
+                            │
+                            ▼
+           [Phase 3: US1 Hot-Path Slimming] (T004..T013)
+           • L1 harness, TTL caches (512-entry LRU + settings scope), Map index, regex cache, request reuse, db.immediate
+           • Exit Gate: guard-after diff zero, db_queries_per_req <= 11.0, p95 reduced >=25%, p50 honest
+                            │
+                            ▼
+           [Phase 4: US2 Vertical Runtime] (T014..T024)
+           • node:cluster supervisor, one-time migrations, worker lifecycle, IPC invalidation,
+             leader-only daemons + WAL checkpoint, graceful drain, loopback XFF
+           • Exit Gate: cluster tests pass, smoke drill shows >=2 worker PIDs, container subagent boots 2 workers
+                            │
+                            ▼
+           [Phase 5: US3 Vertical Ladder] (T025..T027)
+           • perf-ladder.sh driver, 1 vs 2 vs 4 vs 6 workers on host, ladder-results.md
+           • Exit Gate: honest D7 evaluation, per-worker RSS, host saturation documented
+                            │
+                            ▼
+           [Phase 6: Polish & Closeout] (T028..T030)
+           • README, ROADMAP, CHANGELOG, PERFORMANCE.md, full vitest suite green, PR audit
+```
 
-## Risks
+### Phase Details
+
+#### Phase 1: Setup & Preflight (T001–T002)
+- Confirm Bun 1.4.3 environment.
+- Document baseline test results against `tests/__baseline__/known-fails.txt` in `results/preflight.md`.
+
+#### Phase 2: Foundational Regression Guard (T003)
+- Capture pre-change regression baseline (`results/guard-before.txt`) covering alias/provider snapshot verifiers and golden translator suites.
+
+#### Phase 3: User Story 1 — Hot-Path Slimming & Re-Land (T004–T013)
+- Re-land independent hot-path work from commit `6768fb82`.
+- Run baseline L1 profile (`results/l1-baseline.json`).
+- Implement and test TTL caches, Map index, pattern match cache, request-scoped reuse, and `db.immediate()`.
+- Re-run regression guard (`results/guard-after.txt`); assert zero regressions.
+- Measure after slimming (`results/l1-after.json`, `results/l1-compare.md`, `results/l1-hotspots.md`).
+- Reference targets: the historical `6768fb82` numbers (p95 ~-48%, p50 ~-24..29%, ~15.2 -> ~10.8 queries/req) are reference targets only and MUST be re-measured on this tree; acknowledge historical figures honestly but do not assert them as achieved results.
+- **Phase Exit Gate**: `db_queries_per_req` strictly lower ($\le 11.0$, SC-001), p95 latency reduced by $\ge 25\%$, p50 reported honestly against the D7 p50 threshold ($\ge 35\%$, reported as missed if unmet), translator goldens 100% green.
+
+#### Phase 4: User Story 2 — Vertical Multi-Process Scale (T014–T024)
+- Implement vertical cluster supervisor in `src/lib/cluster/supervisor.js` and worker lifecycle in `src/lib/cluster/worker.js` (T014, T015).
+- Implement standalone IPC cache invalidation fallback in `src/lib/redis/events.js` (internal edit, no export change) (T016, T017).
+- Wire Primary-side one-time migrations and `KHATAM_MIGRATIONS_DONE=1` export (T018, T019), leader-only background daemons (T020, T021), and leader-only WAL checkpoint gating (T019).
+- Integrate into `custom-server.js` only (`custom-server.ts` is NOT touched in Wave 8) and update standalone asset copying (T022).
+- Ensure loopback-only reverse proxy trust is preserved strictly.
+- Author and execute host smoke drill (`scripts/vertical-smoke.sh`) (T023).
+- Container subagent validates single-container multi-worker boot (`results/vertical-container-smoke.md`) (T024).
+- **Phase Exit Gate**: Cluster unit tests pass, host smoke drill passes with >= 2 distinct worker PIDs under connected load, container subagent confirms 2-worker boot in one container.
+
+#### Phase 5: User Story 3 — Vertical Ladder Benchmark & Master Results (T025–T027)
+- Implement `scripts/perf-ladder.sh` load driver (T025).
+- Run host ladder across 1, 2, 4, 6 workers with mock upstream and temporary `DATA_DIR`, driving many `Connection: close` connections so the kernel `SO_REUSEPORT` hash spreads load across workers (T026).
+- Record per-worker RSS, latency percentiles, throughput, and Redis-down degraded row in `results/ladder-host.md`.
+- Synthesize master ladder table and write honest verdict in `specs/008-bun-perf-scale/ladder-results.md` (T027).
+- **Phase Exit Gate**: All cells are measured numbers or `UNMEASURED` with cause; D7 targets evaluated honestly; next bottlenecks named.
+
+#### Phase 6: Documentation, Polish & Closeout (T028–T030)
+- Update `README.md`, `ROADMAP.md`, `CHANGELOG.md`, and `docs/PERFORMANCE.md`.
+- Run `bun x eslint` across touched files.
+- Run full vitest suite (`cd tests && bun x vitest run`). Assert red set equals `known-fails.txt` exactly.
+- Orchestrator final audit against FRs and SCs; prepare PR.
+
+---
+
+## 6. Risks & Mitigations
 
 | Risk | Mitigation |
 |---|---|
-| Static estimate (8 ms split) is wrong | Phase A measures first. Re-rank before coding (D3). |
-| TTL cache serves stale combos/aliases across replicas | 5 s hard TTL, `config_reload` invalidation, auth never cached across requests (D4). |
-| Spoofed XFF through the LB | CIDR-scoped trust, LB overwrites XFF, spoof tests (D2). |
-| SQLite writer contention at N replicas | Measured in the ladder (`busy_timeout` 5000). If it is the next bottleneck, the report says so. |
-| Shared volume on unsupported FS | Documented as single-host only (D6). |
-| Noisy host skews numbers | 5 runs, median of means, CV>15% flagged `noisy`. Any unmeasured, invalid, or noisy profile/ladder run cannot certify improvement and must be rejected or re-run (FR-008, SC-002, SC-005). |
-| Missed performance thresholds | Evaluated against research D7 thresholds (p50 reduction ≥35%, p95 reduction ≥25%, 2-replica throughput ≥1.6×). Missed thresholds reported honestly as a miss; never claim ceiling moved if targets are unmet. |
-
-## Complexity Tracking
-
-No constitution violations. Nothing to justify.
+| **EADDRINUSE port conflicts across workers** | Bun's `node:cluster` intercepts `server.listen()` and each worker binds its own `SO_REUSEPORT` socket. Empirically verified on Bun 1.4.3 with the Next.js standalone build. |
+| **Uneven connection distribution** | Bun ignores `cluster.schedulingPolicy` (no `SCHED_RR` handoff); distribution is kernel 4-tuple hashing. Ladders and smoke use many `Connection: close` requests and assert `>= 2` distinct worker PIDs rather than exact evenness. |
+| **Worker crash terminates active AI completion streams** | Multi-process fault isolation: a worker crash drops only that worker's connections. Sibling workers continue serving traffic. Supervisor respawns worker within backoff limits. |
+| **Rapid crash cycling on bad config or corrupt DB** | Exponential backoff algorithm (`Math.min(250 * 2^restarts, 10000)ms`, crash window < 5000 ms). Throttles restarts; logs high-priority alert after 5 rapid crashes. |
+| **Concurrent migration/DDL races at boot** | Primary runs `runMigrationOnce(adapter)` + backup preflight once before `cluster.fork()` and exports `KHATAM_MIGRATIONS_DONE=1`; workers short-circuit the migration path (single-process mode unchanged). |
+| **Duplicate upstream OAuth token refreshes / duplicate tunnel + quota daemons** | Leader-only gates: `initializeApp.js` `runHeavyStartup()` daemons, `startBackgroundTokenRefreshFromCustomServer`, and the 60 s WAL checkpoint timer run only when `KHATAM_WORKER_ROLE === "leader"` or the role is unset. |
+| **SQLite write lock upgrade deadlocks (`SQLITE_BUSY_SNAPSHOT`)** | `db.immediate(...)` (`BEGIN IMMEDIATE`) acquires write locks upfront for usage persistence, eliminating lock upgrade conflicts across workers. |
+| **Cross-process cache staleness without Redis** | Primary brokers IPC `config_reload` broadcasts to sibling workers (sender skipped, no echo loops); 5-second hard TTL ceiling bounds staleness if IPC drops. Scopes `aliases/combos/nodes/settings/all` are all honored. |
+| **Host CPU core saturation during benchmark** | Canonical scalar sizing `Math.max(1, nproc - 2)` reserves 2 dedicated cores for kernel/SQLite/Redis/GC. Ladder reports host saturation honestly rather than misattributing bottleneck to code. |
