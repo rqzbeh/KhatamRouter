@@ -96,6 +96,29 @@ If you want to run KhatamRouter completely standalone without Redis:
 2. Remove `REDIS_URL` from the `environment` section and remove the `depends_on: redis` block.
 3. Start the stack: `docker compose up -d`. All state is stored solely in `bun:sqlite` (`$DATA_DIR/db/data.sqlite`).
 
+### Multi-Process Scale Overlay (Scale Replicas)
+
+To scale KhatamRouter across multiple container replicas on a single host behind a local Nginx load balancer:
+
+```bash
+JWT_SECRET=your-jwt-secret \
+API_KEY_SECRET=your-api-key-secret \
+INITIAL_PASSWORD=your-initial-password \
+MACHINE_ID_SALT=your-machine-id-salt \
+  docker compose -f docker-compose.yml -f docker-compose.scale.yml up -d --scale 9router=2
+```
+
+The scale overlay (`docker-compose.scale.yml`):
+- Removes the fixed `container_name` and resets published host ports from the `9router` app replicas.
+- Starts an Nginx load balancer service publishing port `${SCALE_SMOKE_LB_PORT:-20128}:20128` (defaulting to host port `20128`) that round-robins across the replicas.
+- Configures Nginx with dynamic runtime DNS re-resolution via Docker embedded DNS (`resolver 127.0.0.11 valid=5s ipv6=off;`, `set $khatam_upstream http://9router:20128; proxy_pass $khatam_upstream;`), `proxy_set_header X-Forwarded-For $remote_addr;` (overwriting client-supplied headers), and SSE streaming support (`proxy_buffering off`, long timeouts).
+- Configures `TRUSTED_PROXY_CIDRS` to trust forwarded client IPs ONLY from the exact static address of the Nginx load balancer (`172.31.250.254/32`), NOT the whole subnet.
+  - **Trust Boundary**: Only the load balancer is trusted to provide forwarding headers. Any other container on the shared network (such as Redis, monitoring, or co-tenant services) that can reach the replicas directly but is not listed in `TRUSTED_PROXY_CIDRS` cannot spoof `X-Forwarded-For` or `X-Real-IP`. Any address listed in `TRUSTED_PROXY_CIDRS` has full authority to dictate client IPs, so scoping trust strictly to the single `/32` proxy address prevents co-tenant privilege escalation and spoofing.
+- Disables IPv6 on the internal scale network (`enable_ipv6: false`) to prevent dual-stack upstream connection refused errors against IPv4-only replicas.
+- Shares the `9router-data` volume and single Redis service across all replicas.
+
+> **CRITICAL: Single-Host Only**: The shared `9router-data` SQLite WAL volume **must reside on a local filesystem** on a single host. Network filesystems such as NFS, SMB, or AWS EFS are **strictly unsupported** for SQLite in WAL mode due to POSIX shared-memory (`-shm`) and file-locking semantics across hosts, which cause database corruption. Multi-replica scaling is intended strictly for multi-core scale on a single host.
+
 ---
 
 ## Standalone Quick Start (Single Container)

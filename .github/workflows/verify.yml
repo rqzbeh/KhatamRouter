@@ -207,7 +207,19 @@ jobs:
             unit/wave75-idempotency.test.js \
             unit/wave75-redis-accelerators.test.js \
             unit/wave75-redis-shared-state.test.js \
-            unit/wave75-twins-alignment.test.js
+            unit/wave75-twins-alignment.test.js \
+            unit/trusted-proxy.test.js \
+            unit/trusted-proxy-packaging.test.js \
+            unit/model-index-map.test.js \
+            unit/pattern-match-cache.test.js \
+            unit/request-scoped-reuse.test.js \
+            unit/import-db-cache-invalidation.test.js \
+            unit/model-info-cache.test.js \
+            unit/model-reserved-prefix.test.js \
+            unit/scale-compose-contract.test.js \
+            unit/perf-ladder-contract.test.js \
+            unit/cluster-two-instance.test.js \
+            unit/usage-concurrent-writers.test.js
 
   verify:
     name: Verify (tests + baselines)
@@ -274,6 +286,18 @@ jobs:
             echo "   - \`unit/wave75-redis-accelerators.test.js\`"
             echo "   - \`unit/wave75-redis-shared-state.test.js\`"
             echo "   - \`unit/wave75-twins-alignment.test.js\`"
+            echo "   - \`unit/trusted-proxy.test.js\`"
+            echo "   - \`unit/trusted-proxy-packaging.test.js\`"
+            echo "   - \`unit/model-index-map.test.js\`"
+            echo "   - \`unit/pattern-match-cache.test.js\`"
+            echo "   - \`unit/request-scoped-reuse.test.js\`"
+            echo "   - \`unit/import-db-cache-invalidation.test.js\`"
+            echo "   - \`unit/model-info-cache.test.js\`"
+            echo "   - \`unit/model-reserved-prefix.test.js\`"
+            echo "   - \`unit/scale-compose-contract.test.js\`"
+            echo "   - \`unit/perf-ladder-contract.test.js\`"
+            echo "   - \`unit/cluster-two-instance.test.js\`"
+            echo "   - \`unit/usage-concurrent-writers.test.js\`"
             echo ""
             echo "### Checks deliberately excluded (this gate does NOT run them)"
             echo ""

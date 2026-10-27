@@ -1,0 +1,59 @@
+# ── Wave 8: Multi-Replica Scale Overlay (contracts/scale-compose.md) ─────────
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.scale.yml up -d --scale 9router=N
+#
+# Rules:
+#   - App service (9router) has NO fixed container_name and publishes NO host ports.
+#   - Only the load balancer (lb) publishes port 20128.
+#   - Fixed LB address 172.31.250.254 matches TRUSTED_PROXY_CIDRS (/32) so ONLY Nginx is trusted.
+#   - Dynamic IP pool (172.31.250.0/25) prevents replicas/redis from colliding with the static LB address.
+#   - Shared 9router-data volume and single Redis service ensure cluster state consistency.
+#   - Production secrets are enforced via ${VAR:?...} so the stack refuses to boot without them.
+
+services:
+  9router:
+    container_name: !reset null
+    ports: !reset []
+    volumes:
+      - 9router-data:/app/data
+    environment:
+      DATA_DIR: /app/data
+      REDIS_URL: redis://redis:6379
+      TRUSTED_PROXY_CIDRS: "172.31.250.254/32"
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      API_KEY_SECRET: ${API_KEY_SECRET:?API_KEY_SECRET is required}
+      INITIAL_PASSWORD: ${INITIAL_PASSWORD:?INITIAL_PASSWORD is required}
+      MACHINE_ID_SALT: ${MACHINE_ID_SALT:?MACHINE_ID_SALT is required}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:20128/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+
+  lb:
+    image: nginx:alpine
+    restart: always
+    ports:
+      - "${SCALE_SMOKE_LB_PORT:-20128}:20128"
+    volumes:
+      - ./deploy/nginx-scale.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      default:
+        ipv4_address: 172.31.250.254
+    depends_on:
+      9router:
+        condition: service_healthy
+
+volumes:
+  9router-data:
+    name: 9router-data
+
+networks:
+  default:
+    enable_ipv6: false
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.31.250.0/24
+          ip_range: 172.31.250.0/25
