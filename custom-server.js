@@ -53,6 +53,94 @@ const clusterModules = fs.existsSync(path.join(CLUSTER_DIR, "supervisor.js"))
   : null;
 const WORKER_COUNT = clusterModules ? clusterModules.supervisor.sizeWorkers(os.cpus().length, process.env) : 1;
 
+const DEFAULT_DRAIN_TIMEOUT_MS = 30000;
+
+function getDrainTimeoutMs(env = process.env) {
+  if (clusterModules) return clusterModules.supervisor.drainDeadlineMs(env);
+  const raw = env.KHATAM_DRAIN_TIMEOUT_MS;
+  if (raw !== undefined && raw !== null && String(raw).trim() !== "") {
+    const parsed = Number.parseInt(String(raw).trim(), 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return DEFAULT_DRAIN_TIMEOUT_MS;
+}
+
+function isMultiWorkerPrimary() {
+  if (!cluster.isPrimary || !clusterModules) return false;
+  return clusterModules.supervisor.sizeWorkers(os.cpus().length, process.env) > 1;
+}
+
+// Standalone fallback: when src/lib/cluster is missing from disk, this provides the
+// same in-flight tracking, idle close, deadline and second-signal force-exit contract.
+let standaloneInFlight = 0;
+function setupSingleProcessFallback(server, { drainTimeoutMs = getDrainTimeoutMs(), proc = process, exit = (c) => proc.exit(c) } = {}) {
+  const sockets = new Set();
+  let draining = false;
+  let deadlineTimer = null;
+
+  server.on("connection", (socket) => {
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
+  });
+
+  server.on("request", (req, res) => {
+    standaloneInFlight += 1;
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      standaloneInFlight -= 1;
+      if (draining && standaloneInFlight === 0) finish();
+    };
+    res.once("finish", done);
+    res.once("close", done);
+  });
+
+  function finish() {
+    if (deadlineTimer) clearTimeout(deadlineTimer);
+    exit(0);
+  }
+
+  function beginDrain() {
+    if (draining) return;
+    draining = true;
+    try {
+      server.close(() => {
+        if (standaloneInFlight === 0) finish();
+      });
+    } catch {
+      /* ignore if not listening */
+    }
+    if (typeof server.closeIdleConnections === "function") {
+      try { server.closeIdleConnections(); } catch { /* ignore */ }
+    }
+    if (standaloneInFlight === 0) {
+      finish();
+    } else if (!deadlineTimer) {
+      deadlineTimer = setTimeout(() => {
+        for (const s of sockets) {
+          try { s.destroy(); } catch { /* ignore */ }
+        }
+        finish();
+      }, drainTimeoutMs);
+      if (typeof deadlineTimer?.unref === "function") deadlineTimer.unref();
+    }
+  }
+
+  function onSignal(sig) {
+    if (draining) {
+      exit(sig === "SIGINT" ? 130 : 143);
+      return;
+    }
+    beginDrain();
+  }
+
+  proc.on("SIGTERM", () => onSignal("SIGTERM"));
+  proc.on("SIGINT", () => onSignal("SIGINT"));
+
+  return { beginDrain, isDraining: () => draining };
+}
+
 // Worker 1 (or unset, single-process) owns the background daemons and token refresh.
 function isLeaderRole() {
   const role = process.env.KHATAM_WORKER_ROLE;
@@ -187,7 +275,13 @@ http.createServer = (...args) => {
     }
     if (server.listenerCount("error") <= 1) throw err;
   });
-  if (cluster.isWorker && clusterModules) clusterModules.worker.setupWorkerLifecycle(server);
+  // Multi-worker primary never creates a server; its supervisor owns SIGTERM/SIGINT.
+  // Workers and single-process both get drain; the standalone fallback covers missing cluster modules.
+  if (!isMultiWorkerPrimary()) {
+    const drainTimeoutMs = getDrainTimeoutMs();
+    if (clusterModules) clusterModules.worker.setupWorkerLifecycle(server, { drainTimeoutMs });
+    else setupSingleProcessFallback(server, { drainTimeoutMs });
+  }
   server.once("listening", () => {
     if (isLeaderRole()) startBackgroundTokenRefreshFromCustomServer();
   });

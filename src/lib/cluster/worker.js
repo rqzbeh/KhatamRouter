@@ -60,19 +60,36 @@ export function setupWorkerLifecycle(server, { drainTimeoutMs = drainDeadlineMs(
   function beginDrain() {
     if (draining) return;
     draining = true;
-    server.close(() => maybeExit());
-    if (typeof server.closeIdleConnections === "function") server.closeIdleConnections();
+    try {
+      server.close(() => maybeExit());
+    } catch {
+      /* ignore if not listening */
+    }
+    if (typeof server.closeIdleConnections === "function") {
+      try { server.closeIdleConnections(); } catch { /* ignore */ }
+    }
     maybeExit();
     if (!deadlineTimer && inFlight > 0) {
       deadlineTimer = setTimeout(() => {
-        for (const s of sockets) s.destroy();
+        for (const s of sockets) {
+          try { s.destroy(); } catch { /* ignore */ }
+        }
         finish();
       }, drainTimeoutMs);
       if (typeof deadlineTimer?.unref === "function") deadlineTimer.unref();
     }
   }
 
-  proc.on("SIGTERM", beginDrain);
+  function onSignal(sig) {
+    if (draining) {
+      exit(sig === "SIGINT" ? 130 : 143);
+      return;
+    }
+    beginDrain();
+  }
+
+  proc.on("SIGTERM", () => onSignal("SIGTERM"));
+  proc.on("SIGINT", () => onSignal("SIGINT"));
   proc.on("disconnect", beginDrain);
 
   proc.on("message", (msg) => {

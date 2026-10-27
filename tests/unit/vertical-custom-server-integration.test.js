@@ -38,6 +38,13 @@ const STRIPPED_ENV = [
 // Stand-in for Next's standalone server.js. Goes through the real http.createServer wrapper.
 const STUB_SERVER = `const http = require("http");
 const server = http.createServer((req, res) => {
+  if (req.url === "/slow") {
+    setTimeout(() => {
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ slow: "done" }));
+    }, 1500);
+    return;
+  }
   res.setHeader("content-type", "application/json");
   res.end(JSON.stringify({
     pid: process.pid,
@@ -96,13 +103,13 @@ function pickPort() {
 
 // Builds the standalone layout the way the production build does: copy-standalone-assets
 // output with the real custom-server.js, runtime-secrets.cjs and src/lib/cluster/*.
-function buildStandalone({ withDriver }) {
+function buildStandalone({ withDriver, withCluster = true }) {
   const root = tempDir("khatam-vertical-proj-");
   const dataDir = tempDir("khatam-vertical-data-");
   cpSync(join(REPO, "custom-server.js"), join(root, "custom-server.js"));
   cpSync(join(REPO, "runtime-secrets.cjs"), join(root, "runtime-secrets.cjs"));
   mkdirSync(join(root, "src", "lib"), { recursive: true });
-  cpSync(join(REPO, "src", "lib", "cluster"), join(root, "src", "lib", "cluster"), { recursive: true });
+  if (withCluster) cpSync(join(REPO, "src", "lib", "cluster"), join(root, "src", "lib", "cluster"), { recursive: true });
   mkdirSync(join(root, ".next", "standalone"), { recursive: true });
   copyStandaloneAssets({ projectRoot: root, distDir: ".next" });
 
@@ -189,7 +196,103 @@ describe("custom-server vertical integration: standalone layout", () => {
   }, TEST_TIMEOUT);
 });
 
-describe("custom-server vertical integration: real child boot", () => {
+// Single-process graceful drain (KHATAM_WORKERS=1 or no src/lib/cluster on disk). Real child
+// processes booting the real custom-server.js with the stub Next server. Covered: http.createServer
+// wrapper, signal ownership, drain/exit codes, DB-free. Not covered: real Next request handling.
+describe("custom-server single-process graceful drain", () => {
+  const waitListening = (boot) => waitFor(() => countReady(boot) >= 1);
+
+  it("(a) idle SIGTERM exits 0 within 3 s", async () => {
+    const { standalone, dataDir } = buildStandalone({ withDriver: false });
+    const port = await pickPort();
+    const boot = bootChild(standalone, { PORT: String(port), DATA_DIR: dataDir, KHATAM_WORKERS: "1" });
+    await waitListening(boot);
+    const t0 = Date.now();
+    boot.child.kill("SIGTERM");
+    const { code } = await boot.closed;
+    expect(code).toBe(0);
+    expect(Date.now() - t0).toBeLessThan(3000);
+  }, TEST_TIMEOUT);
+
+  it("(b) SIGTERM during an in-flight slow response: response completes, then exit 0", async () => {
+    const { standalone, dataDir } = buildStandalone({ withDriver: false });
+    const port = await pickPort();
+    const boot = bootChild(standalone, { PORT: String(port), DATA_DIR: dataDir, KHATAM_WORKERS: "1" });
+    await waitListening(boot);
+    const slow = new Promise((resolveP, reject) => {
+      const req = http.request(
+        { host: "127.0.0.1", port, path: "/slow", agent: false, headers: { connection: "close" } },
+        (res) => {
+          let body = "";
+          res.on("data", (d) => { body += d; });
+          res.on("end", () => resolveP({ status: res.statusCode, body }));
+        },
+      );
+      req.on("error", reject);
+      req.end();
+    });
+    await new Promise((r) => setTimeout(r, 300));
+    boot.child.kill("SIGTERM");
+    const res = await slow;
+    const { code } = await boot.closed;
+    expect(res.body).toContain('"slow":"done"');
+    expect(code).toBe(0);
+  }, TEST_TIMEOUT);
+
+  it("(c) second SIGTERM during drain forces exit 143 before the slow response finishes", async () => {
+    const { standalone, dataDir } = buildStandalone({ withDriver: false });
+    const port = await pickPort();
+    const boot = bootChild(standalone, { PORT: String(port), DATA_DIR: dataDir, KHATAM_WORKERS: "1" });
+    await waitListening(boot);
+    http.get({ host: "127.0.0.1", port, path: "/slow", agent: false }, () => {}).on("error", () => {});
+    await new Promise((r) => setTimeout(r, 300));
+    boot.child.kill("SIGTERM");
+    await new Promise((r) => setTimeout(r, 200));
+    const t0 = Date.now();
+    boot.child.kill("SIGTERM");
+    const { code } = await boot.closed;
+    expect(code).toBe(143);
+    expect(Date.now() - t0).toBeLessThan(1000);
+  }, TEST_TIMEOUT);
+
+  it("(d) SIGINT behaves like SIGTERM: idle exits 0; second SIGINT forces 130", async () => {
+    const { standalone, dataDir } = buildStandalone({ withDriver: false });
+    const port = await pickPort();
+    const boot = bootChild(standalone, { PORT: String(port), DATA_DIR: dataDir, KHATAM_WORKERS: "1" });
+    await waitListening(boot);
+    boot.child.kill("SIGINT");
+    const { code } = await boot.closed;
+    expect(code).toBe(0);
+  }, TEST_TIMEOUT);
+
+  it("(d2) SIGINT during in-flight drain, then second SIGINT forces 130", async () => {
+    const { standalone, dataDir } = buildStandalone({ withDriver: false });
+    const port = await pickPort();
+    const boot = bootChild(standalone, { PORT: String(port), DATA_DIR: dataDir, KHATAM_WORKERS: "1" });
+    await waitListening(boot);
+    http.get({ host: "127.0.0.1", port, path: "/slow", agent: false }, () => {}).on("error", () => {});
+    await new Promise((r) => setTimeout(r, 300));
+    boot.child.kill("SIGINT");
+    await new Promise((r) => setTimeout(r, 200));
+    boot.child.kill("SIGINT");
+    const { code } = await boot.closed;
+    expect(code).toBe(130);
+  }, TEST_TIMEOUT);
+
+  it("standalone fallback (no src/lib/cluster on disk): idle SIGTERM still exits 0 within 3 s", async () => {
+    const { standalone, dataDir } = buildStandalone({ withDriver: false, withCluster: false });
+    const port = await pickPort();
+    const boot = bootChild(standalone, { PORT: String(port), DATA_DIR: dataDir });
+    await waitListening(boot);
+    const t0 = Date.now();
+    boot.child.kill("SIGTERM");
+    const { code } = await boot.closed;
+    expect(code).toBe(0);
+    expect(Date.now() - t0).toBeLessThan(3000);
+  }, TEST_TIMEOUT);
+});
+
+describe("custom-server.js real child boot", () => {
   it("KHATAM_WORKERS=2: primary never serves, 2 workers (leader + worker), migrations once", async () => {
     const { standalone, dataDir } = buildStandalone({ withDriver: true });
     const port = await pickPort();
