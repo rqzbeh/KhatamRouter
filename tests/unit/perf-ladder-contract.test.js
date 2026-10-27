@@ -164,6 +164,75 @@ describe("perf-ladder-contract test suite", () => {
       expect(unmeasuredRow).toContain("| L3 | 2 | UNMEASURED | UNMEASURED | UNMEASURED | UNMEASURED |");
       expect(unmeasuredRow).toContain("Coefficient of variation 18.2% > 15% threshold (noisy)");
     });
+
+    it("pure functions deterministically certify low-CV arrays and flag high-CV arrays as UNMEASURED/noisy", async () => {
+      const { computeCV, computeStats, evaluateLadderCertification, formatLadderRow } = await import(LIB_PATH);
+
+      // Low-CV array (< 15%): deterministic certification
+      const lowCvSamples = [100, 102, 99, 101, 100];
+      const lowCv = computeCV(lowCvSamples);
+      expect(lowCv.noisy).toBe(false);
+      expect(lowCv.cv_pct).toBeLessThan(15);
+
+      const lowStats = computeStats(lowCvSamples);
+      const certifiedRes = evaluateLadderCertification({
+        medianRun: { p50_ms: lowStats.p50, p95_ms: lowStats.p95, p99_ms: lowStats.p99, req_per_s: 500.0 },
+        cv: lowCv,
+        errorRate: 0.0,
+        targetReachable: true,
+      });
+      expect(certifiedRes.certified).toBe(true);
+      expect(certifiedRes.p50_ms).toBe(lowStats.p50);
+      expect(certifiedRes.req_per_s).toBe(500.0);
+      expect(certifiedRes.cause).toBe("-");
+
+      const certifiedRow = formatLadderRow({
+        tier: "L2",
+        replicas: 1,
+        p50_ms: certifiedRes.p50_ms,
+        p95_ms: certifiedRes.p95_ms,
+        p99_ms: certifiedRes.p99_ms,
+        req_per_s: certifiedRes.req_per_s,
+        cv_pct: lowCv.cv_pct,
+        cause: certifiedRes.cause,
+      });
+      expect(certifiedRow).not.toContain("UNMEASURED");
+      expect(certifiedRow).toContain("| L2 | 1 |");
+
+      // High-CV array (> 15%): deterministic refusal with UNMEASURED
+      const highCvSamples = [100, 200, 50, 150, 80];
+      const highCv = computeCV(highCvSamples);
+      expect(highCv.noisy).toBe(true);
+      expect(highCv.cv_pct).toBeGreaterThan(15);
+
+      const highStats = computeStats(highCvSamples);
+      const unmeasuredRes = evaluateLadderCertification({
+        medianRun: { p50_ms: highStats.p50, p95_ms: highStats.p95, p99_ms: highStats.p99, req_per_s: 500.0 },
+        cv: highCv,
+        errorRate: 0.0,
+        targetReachable: true,
+      });
+      expect(unmeasuredRes.certified).toBe(false);
+      expect(unmeasuredRes.p50_ms).toBe("UNMEASURED");
+      expect(unmeasuredRes.p95_ms).toBe("UNMEASURED");
+      expect(unmeasuredRes.p99_ms).toBe("UNMEASURED");
+      expect(unmeasuredRes.req_per_s).toBe("UNMEASURED");
+      expect(unmeasuredRes.cause).toMatch(/coefficient of variation/i);
+      expect(unmeasuredRes.cause.length).toBeGreaterThan(0);
+
+      const unmeasuredRow = formatLadderRow({
+        tier: "L2",
+        replicas: 1,
+        p50_ms: unmeasuredRes.p50_ms,
+        p95_ms: unmeasuredRes.p95_ms,
+        p99_ms: unmeasuredRes.p99_ms,
+        req_per_s: unmeasuredRes.req_per_s,
+        cv_pct: highCv.cv_pct,
+        cause: unmeasuredRes.cause,
+      });
+      expect(unmeasuredRow).toContain("UNMEASURED");
+      expect(unmeasuredRow).toContain(unmeasuredRes.cause);
+    });
   });
 
   describe("scripts/perf-mock-upstream.mjs in-process server", () => {
@@ -261,6 +330,31 @@ describe("perf-ladder-contract test suite", () => {
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "khatam-ladder-test-"));
       const outFile = path.join(tempDir, "ladder-row.md");
 
+      const validateRowStructure = (rawRow) => {
+        // Line format: | tier | replicas | p50_ms | p95_ms | p99_ms | req_per_s | mode | cv_pct | errors | env | command | cause |
+        const cells = rawRow.split("|").map((c) => c.trim()).filter((_, idx, arr) => idx > 0 && idx < arr.length - 1);
+        expect(cells.length).toBe(12);
+        const [tier, replicas, p50, p95, p99, rps, mode, cv, errors, env, cmd, cause] = cells;
+        expect(tier).toBe("L2");
+        expect(replicas).toBe("1");
+        expect(mode).toBe("normal");
+        expect(errors).toBe("0");
+
+        if (p50 === "UNMEASURED") {
+          expect(p95).toBe("UNMEASURED");
+          expect(p99).toBe("UNMEASURED");
+          expect(rps).toBe("UNMEASURED");
+          expect(cause).not.toBe("-");
+          expect(cause.length).toBeGreaterThan(0);
+        } else {
+          expect(Number(p50)).toBeGreaterThan(0);
+          expect(Number(p95)).toBeGreaterThan(0);
+          expect(Number(p99)).toBeGreaterThan(0);
+          expect(Number(rps)).toBeGreaterThan(0);
+          expect(cause).toBe("-");
+        }
+      };
+
       try {
         const res = await runScriptAsync([
           LADDER_SCRIPT,
@@ -279,12 +373,17 @@ describe("perf-ladder-contract test suite", () => {
         const output = res.stdout;
         expect(output).toContain("| L2 | 1 |");
         expect(res.stderr).toMatch(/p50|p95/i);
-        expect(output).not.toContain("UNMEASURED");
+
+        const outRow = output.split("\n").find((l) => l.includes("| L2 | 1 |"));
+        expect(outRow).toBeDefined();
+        validateRowStructure(outRow);
 
         expect(fs.existsSync(outFile)).toBe(true);
         const fileContent = fs.readFileSync(outFile, "utf8");
         expect(fileContent).toContain("| L2 | 1 |");
-        expect(fileContent).toMatch(/p50|p95/i);
+        const fileRow = fileContent.split("\n").find((l) => l.includes("| L2 | 1 |"));
+        expect(fileRow).toBeDefined();
+        validateRowStructure(fileRow);
       } finally {
         await mockServer.close();
         fs.rmSync(tempDir, { recursive: true, force: true });
@@ -292,11 +391,20 @@ describe("perf-ladder-contract test suite", () => {
     });
 
     it("emits UNMEASURED with cause when target server is unreachable", async () => {
-      // Port 59999 is intentionally unused on loopback
+      // Ephemeral port guaranteed to be closed
+      const net = await import("node:net");
+      const closedPort = await new Promise((resolve, reject) => {
+        const s = net.createServer();
+        s.listen(0, "127.0.0.1", () => {
+          const port = s.address().port;
+          s.close((err) => (err ? reject(err) : resolve(port)));
+        });
+      });
+
       const res = await runScriptAsync([
         LADDER_SCRIPT,
         "1",
-        "--url", "http://127.0.0.1:59999",
+        "--url", `http://127.0.0.1:${closedPort}`,
         "--warmup", "1",
         "--requests", "2",
         "--runs", "1",
