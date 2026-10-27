@@ -201,6 +201,17 @@ describe("Wave 8: Multi-Replica Scale Compose & Trusted Proxy Contract (T017, T0
       expect(conf).toMatch(/keepalive/i);
     });
 
+    it("configures client_max_body_size matching or exceeding 64m (default 128m)", () => {
+      const conf = loadNginxConf();
+      const match = conf.match(/client_max_body_size\s+([0-9]+)([mMkKgG]?)\s*;/);
+      expect(match).not.toBeNull();
+      const num = parseInt(match[1], 10);
+      const unit = (match[2] || "m").toLowerCase();
+      const bytesInMb = unit === "g" ? num * 1024 : unit === "k" ? num / 1024 : num;
+      expect(bytesInMb).toBeGreaterThanOrEqual(64);
+      expect(conf).toMatch(/client_max_body_size\s+128m\s*;/);
+    });
+
     it("never contains prune commands", () => {
       const conf = loadNginxConf();
       expect(conf).not.toMatch(/prune/i);
