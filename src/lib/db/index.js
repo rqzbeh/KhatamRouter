@@ -3,6 +3,19 @@ import { getAdapter } from "./driver.js";
 import { stringifyJson, parseJson } from "./helpers/jsonCol.js";
 import { keyAccessFromColumns, keyAccessToColumns, validateKeyAccessInput } from "@/shared/utils/keyAccess.js";
 import { KEY_ACCESS_UNRESTRICTED } from "@/shared/constants/keyAccess.js";
+import { invalidateSettingsCache } from "./repos/settingsRepo.js";
+import { invalidateAliasesCache } from "./repos/aliasRepo.js";
+import { invalidateCombosCache } from "./repos/combosRepo.js";
+import { invalidateNodesCache } from "./repos/nodesRepo.js";
+import { publishKhatamEvent, KHATAM_EVENTS } from "../redis/events.js";
+
+// Every cache over these tables must drop before any reader can see a half-imported state.
+function invalidateAllRepoCaches() {
+  invalidateSettingsCache();
+  invalidateAliasesCache();
+  invalidateCombosCache();
+  invalidateNodesCache();
+}
 
 // Settings
 export {
@@ -22,6 +35,7 @@ export {
 export {
   getProviderNodes, getProviderNodeById,
   createProviderNode, updateProviderNode, deleteProviderNode,
+  invalidateNodesCache,
 } from "./repos/nodesRepo.js";
 
 // Proxy pools
@@ -39,6 +53,7 @@ export {
 export {
   getCombos, getComboById, getComboByName,
   createCombo, updateCombo, deleteCombo,
+  invalidateCombosCache,
 } from "./repos/combosRepo.js";
 
 // Aliases (model + custom + mitm)
@@ -46,6 +61,7 @@ export {
   getModelAliases, setModelAlias, deleteModelAlias,
   getCustomModels, addCustomModel, deleteCustomModel,
   getMitmAlias, setMitmAliasAll,
+  invalidateAliasesCache,
 } from "./repos/aliasRepo.js";
 
 // Pricing
@@ -111,6 +127,7 @@ export async function importDb(payload) {
     db.run(`DELETE FROM apiKeys`);
     db.run(`DELETE FROM combos`);
     db.run(`DELETE FROM kv WHERE scope IN ('modelAliases', 'customModels', 'mitmAlias', 'pricing')`);
+    invalidateAllRepoCaches();
 
     // Settings
     if (payload.settings) {
@@ -183,7 +200,13 @@ export async function importDb(payload) {
     for (const [provider, models] of Object.entries(payload.pricing || {})) {
       db.run(`INSERT OR REPLACE INTO kv(scope, key, value) VALUES('pricing', ?, ?)`, [provider, stringifyJson(models || {})]);
     }
+    invalidateAllRepoCaches();
   });
+
+  invalidateAllRepoCaches();
+  try {
+    publishKhatamEvent(KHATAM_EVENTS.CONFIG_RELOAD, { scope: "all", timestamp: Date.now() });
+  } catch {}
 
   return await exportDb();
 }

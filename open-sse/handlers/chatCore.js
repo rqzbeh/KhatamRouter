@@ -130,10 +130,9 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   // Spark: supportedFormats ["openai-responses"]) requested by an OpenAI client is
   // translated to the Responses body (`input`) yet POSTed to the default Chat
   // Completions URL, and upstream rejects it: "unknown parameter `input`".
-  const modelTargetTransport = modelTargetFormat ? resolveTransport(provider, modelTargetFormat) : null;
   const useTransport = (!modelSupportedFormats || modelSupportedFormats.includes(sourceFormat))
     ? runtimeTransport
-    : modelTargetTransport;
+    : (modelTargetFormat ? resolveTransport(provider, modelTargetFormat) : null);
   // A source-format-matched endpoint keeps the request lossless. Prefer it
   // over a model-level targetFormat, which is only the fallback for clients
   // whose wire format has no supported transport (for example MiniMax-M3:
@@ -294,7 +293,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   }
 
   // TTS models don't support tool messages/function calling
-  if (getModelType(alias, model) === "tts" && translatedBody.messages) {
+  if (modelType === "tts" && translatedBody.messages) {
     translatedBody.messages = translatedBody.messages.filter(msg => msg.role !== "tool");
     delete translatedBody.tools;
   }

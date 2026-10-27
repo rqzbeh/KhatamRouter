@@ -397,13 +397,41 @@ export const PATTERN_PRICING = [
   { pattern: "grok-*",          pricing: { input: 0.50,  output: 2.00,  cached: 0.25,  reasoning: 3.00,   cache_creation: 0.50  } },
 ];
 
+// Bounded LRU cache of compiled glob regexes (max 512 entries). Map insertion
+// order is the recency order: a hit is re-inserted at the tail, eviction drops the head.
+// ponytail: module-level Map, process-local, no TTL; patterns are a fixed registry so growth is capped by PATTERN_CAPABILITIES/PATTERN_PRICING size plus caller patterns.
+const PATTERN_CACHE_MAX = 512;
+const patternCache = new Map();
+
+function getCompiledPattern(pattern) {
+  const cached = patternCache.get(pattern);
+  if (cached !== undefined) {
+    patternCache.delete(pattern);
+    patternCache.set(pattern, cached);
+    return cached;
+  }
+  const regex = new RegExp("^" + pattern.split("*").map(s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*") + "$", "i");
+  if (patternCache.size >= PATTERN_CACHE_MAX) {
+    patternCache.delete(patternCache.keys().next().value);
+  }
+  patternCache.set(pattern, regex);
+  return regex;
+}
+
 /**
  * Match a model ID against a glob pattern (* = wildcard). Case-insensitive:
  * registry ids mix casing (e.g. "MiniMax-M2.5" vs "minimax-m2.5").
  */
 export function matchPattern(pattern, model) {
-  const regex = new RegExp("^" + pattern.split("*").map(s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*") + "$", "i");
-  return regex.test(model);
+  return getCompiledPattern(pattern).test(model);
+}
+
+export function _getPatternCacheSize() {
+  return patternCache.size;
+}
+
+export function _clearPatternCache() {
+  patternCache.clear();
 }
 
 /**
