@@ -316,9 +316,19 @@ describe("OpenCode Free ids newer than the capability tables", () => {
     // (VS Code Copilot etc.) never compact and hard-fail mid-session.
     expect(caps.contextWindow).toBeLessThanOrEqual(330000);
     expect(caps.maxOutput).toBeLessThanOrEqual(caps.contextWindow);
+    expect(caps.contextWindow).toBe(330000);
+    expect(caps.maxOutput).toBe(128000);
     // Vision and reasoning should still be reported correctly.
     expect(caps.vision).toBe(true);
     expect(caps.reasoning).toBe(true);
+
+    // Generic lookup without provider is consistent with the provider override
+    const genericCaps = getCapabilitiesForModel(undefined, "deepseek-v4.1-flash-free");
+    expect(genericCaps.contextWindow).toBe(330000);
+    expect(genericCaps.maxOutput).toBe(128000);
+    expect(genericCaps.vision).toBe(true);
+    expect(genericCaps.reasoning).toBe(true);
+    expect(genericCaps.thinkingFormat).toBe("deepseek");
   });
 
   it("keeps per-id modalities and limits instead of a generic floor", () => {

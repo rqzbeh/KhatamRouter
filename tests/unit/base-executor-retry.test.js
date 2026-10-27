@@ -105,3 +105,42 @@ describe("BaseExecutor.execute — computeRetryDelay hook veto", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("BaseExecutor.execute — directFetch forwarding", () => {
+  it("forwards directFetch option into proxyAwareFetch options", async () => {
+    const ex = makeExec({ baseUrl: "https://x/api" });
+    fetchMock.mockResolvedValueOnce(res(200));
+    const directFetchHook = vi.fn();
+
+    const out = await ex.execute({
+      model: "m",
+      body: {},
+      stream: false,
+      credentials: creds,
+      directFetch: directFetchHook,
+    });
+
+    expect(out.response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const optionsPassed = fetchMock.mock.calls[0][1];
+    expect(optionsPassed.directFetch).toBe(directFetchHook);
+  });
+
+  it("omits directFetch when not provided", async () => {
+    const ex = makeExec({ baseUrl: "https://x/api" });
+    fetchMock.mockResolvedValueOnce(res(200));
+
+    const out = await ex.execute({
+      model: "m",
+      body: {},
+      stream: false,
+      credentials: creds,
+    });
+
+    expect(out.response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const optionsPassed = fetchMock.mock.calls[0][1];
+    expect(optionsPassed.directFetch).toBeUndefined();
+  });
+});
+

@@ -251,20 +251,43 @@ async function getDispatcher(proxyUrl, insecure = false) {
   return proxyDispatchers.get(key);
 }
 
+const OPENCODE_BASE_DOMAIN = "opencode.ai";
+
+/** Check if url belongs to the OpenCode domain or its subdomains over https. */
+function isOpenCodeHost(url) {
+  try {
+    const parsed = new URL(typeof url === "string" ? url : url.toString());
+    if (parsed.protocol !== "https:") return false;
+    const hostname = parsed.hostname.toLowerCase();
+    return hostname === OPENCODE_BASE_DOMAIN
+      || (hostname.endsWith(`.${OPENCODE_BASE_DOMAIN}`) && hostname.length > OPENCODE_BASE_DOMAIN.length + 1);
+  } catch {
+    return false;
+  }
+}
+
 async function fetchWithTlsFallback(url, options, proxyUrl) {
   try {
+    // Protocol adapters (e.g. OpenCode TLS impersonation) override the direct path
+    // only when no proxy is configured, and only for allowed hosts (opencode.ai and subdomains).
+    // Codex STT passes directFetch targeting chatgpt.com, which is safely excluded here.
+    const { directFetch, ...fetchOptions } = options || {};
+    if (!proxyUrl && directFetch && isOpenCodeHost(url)) {
+      return await directFetch(url, options);
+    }
     const dispatcher = proxyUrl ? await getDispatcher(proxyUrl) : undefined;
-    return await originalFetch(url, dispatcher ? { ...options, dispatcher } : options);
+    return await originalFetch(url, dispatcher ? { ...fetchOptions, dispatcher } : fetchOptions);
   } catch (err) {
-    const isStrictSsl = process.env.STRICT_SSL === "true" || process.env.STRICT_SSL === "1";
+    const isStrictSsl = options?.strictTls === true || process.env.STRICT_SSL === "true" || process.env.STRICT_SSL === "1";
     if (!isStrictSsl && isTlsCertError(err)) {
-      if (options.body && typeof options.body.getReader === "function" && options.body.locked) {
+      if (options?.body && typeof options.body.getReader === "function" && options.body.locked) {
         throw err;
       }
       // ponytail: in-memory insecure agent fallback for self-signed MITM corporate/antivirus certs
       console.warn(`[ProxyFetch] TLS cert verification failed (${err.cause?.code || err.code}), retrying with insecure TLS: ${url}`);
       const insecureDispatcher = await getDispatcher(proxyUrl, true);
-      return await originalFetch(url, { ...options, dispatcher: insecureDispatcher });
+      const { directFetch: _df, ...fetchOptions } = options || {};
+      return await originalFetch(url, { ...fetchOptions, dispatcher: insecureDispatcher });
     }
     throw err;
   }
@@ -337,17 +360,6 @@ async function createBypassRequest(parsedUrl, realIP, options) {
 // direct egress → 200.
 const FREE_TIER_ERROR_MARKER = "FreeTierError";
 const MAX_FREE_TIER_BODY_BYTES = 64 * 1024; // 64 KiB
-const OPENCODE_BASE_DOMAIN = "opencode.ai";
-
-/** Check if url belongs to the OpenCode domain or its subdomains. */
-function isOpenCodeHost(url) {
-  try {
-    const hostname = new URL(typeof url === "string" ? url : url.toString()).hostname.toLowerCase();
-    return hostname === OPENCODE_BASE_DOMAIN || hostname.endsWith(`.${OPENCODE_BASE_DOMAIN}`);
-  } catch {
-    return false;
-  }
-}
 
 /** Extract target host safely for logging without leaking path, query, or credentials. */
 function targetHost(url) {

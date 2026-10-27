@@ -46,6 +46,18 @@ export function copyStandaloneAssets({ projectRoot = process.cwd(), distDir = pr
     cpSync(secretsSource, secretsDestination, { force: true });
     console.log(`[standalone-assets] Copied runtime-secrets.cjs to ${secretsDestination}`);
   }
+
+  // Next's standalone tracing may omit optional native bindings under @wreq-js
+  // (e.g. @wreq-js/binding-linux-x64-gnu). Copy wreq-js and @wreq-js into the
+  // standalone node_modules so dynamic import("wreq-js") resolves at runtime.
+  for (const pkg of ["wreq-js", "@wreq-js"]) {
+    const pkgSource = resolve(projectRoot, "node_modules", pkg);
+    const pkgDestination = resolve(standaloneDir, "node_modules", pkg);
+    if (existsSync(pkgSource)) {
+      cpSync(pkgSource, pkgDestination, { recursive: true, force: true });
+      console.log(`[standalone-assets] Copied ${pkg} to ${pkgDestination}`);
+    }
+  }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(dirname(fileURLToPath(import.meta.url)), "copy-standalone-assets.mjs")) {

@@ -90,11 +90,17 @@ COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/custom-server.js ./custom-server.js
 COPY --from=builder /app/runtime-secrets.cjs ./runtime-secrets.cjs
+# Ensure native wreq-js and @wreq-js packages are present in runner if omitted by Next tracing
+COPY --from=builder /app/node_modules/wreq-js ./node_modules/wreq-js
+COPY --from=builder /app/node_modules/@wreq-js ./node_modules/@wreq-js
 
 # Wave 7.5 / SC-009: bun:sqlite is built into the Bun binary, so the image must
 # ship no Node-only SQLite addon. If output tracing ever drags one in, fail the
 # build here instead of shipping it.
 RUN test -z "$(find /app -type f -name 'better_sqlite3.node' -print -quit 2>/dev/null || true)"
+
+# Smoke check that wreq-js native binding resolves under Bun in production runner
+RUN bun -e "import('wreq-js').then(w => { if (typeof w.createSession !== 'function') throw new Error('createSession missing'); console.log('wreq-js runner smoke: OK'); });"
 
 RUN chown -R bun:bun /app /app/data
 

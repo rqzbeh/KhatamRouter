@@ -81,6 +81,27 @@ function copyRecursive(src, dest) {
   }
 }
 
+function ensureModuleInBundle(pkg, targetAppDir = cliAppDir, sourceAppDir = appDir, sourceRootDir = rootDir) {
+  const dest = path.join(targetAppDir, "node_modules", pkg);
+  if (fs.existsSync(dest)) {
+    console.log(`✅ ${pkg} already bundled`);
+    return dest;
+  }
+  const candidates = [
+    path.join(sourceAppDir, "node_modules", pkg),
+    path.join(sourceRootDir, "node_modules", pkg),
+  ];
+  const src = candidates.find((p) => fs.existsSync(p));
+  if (!src) {
+    console.warn(`⚠️  ${pkg} not found locally — it must be present at runtime`);
+    return null;
+  }
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  copyRecursive(src, dest);
+  console.log(`✅ Bundled ${pkg}`);
+  return dest;
+}
+
 function resolveStandaloneBuild(appDir, buildDistDir) {
   const legacyStandaloneRoot = path.join(appDir, ".next", "standalone");
   const resolvedStandaloneRoot = path.join(buildDistDir, "standalone");
@@ -226,28 +247,13 @@ function buildCliPackage() {
   // built-in bun:sqlite, so there is nothing to copy or strip here. Only `open`
   // still needs an explicit copy below.
   console.log("3️⃣ b SQLite drivers: built into Bun (bun:sqlite) — nothing to bundle");
-  function ensureModuleInBundle(pkg) {
-    const dest = path.join(cliAppDir, "node_modules", pkg);
-    if (fs.existsSync(dest)) {
-      console.log(`✅ ${pkg} already bundled`);
-      return;
-    }
-    const candidates = [
-      path.join(appDir, "node_modules", pkg),
-      path.join(rootDir, "node_modules", pkg),
-    ];
-    const src = candidates.find((p) => fs.existsSync(p));
-    if (!src) {
-      console.warn(`⚠️  ${pkg} not found locally — it must be present at runtime`);
-      return;
-    }
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    copyRecursive(src, dest);
-    console.log(`✅ Bundled ${pkg}`);
-  }
   // `open` is external (see serverExternalPackages in next.config.mjs), so it must exist in
   // the bundle's node_modules or every importer throws MODULE_NOT_FOUND at runtime.
   ensureModuleInBundle("open");
+  // `wreq-js` is external (see serverExternalPackages in next.config.mjs) for native BoringSSL
+  // ClientHello support on OpenCode free tier. Copy both wreq-js and @wreq-js native bindings.
+  ensureModuleInBundle("wreq-js");
+  ensureModuleInBundle("@wreq-js");
   for (const stale of ["better-sqlite3", "sql.js"]) {
     const dir = path.join(cliAppDir, "node_modules", stale);
     if (fs.existsSync(dir)) {
@@ -346,6 +352,7 @@ function buildCliPackage() {
 module.exports = {
   assertRequiredApiArtifacts,
   copyStandaloneBuild,
+  ensureModuleInBundle,
   mergeServerArtifacts,
 };
 
