@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 
 const originalDataDir = process.env.DATA_DIR;
+const originalAllowTemp = process.env.DATA_DIR_ALLOW_TEMP;
 let tempDir;
 let db;
 let apiKeysQueries = [];
@@ -13,6 +14,7 @@ let combosQueries = [];
 beforeAll(async () => {
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "9r-request-scoped-test-"));
   process.env.DATA_DIR = tempDir;
+  process.env.DATA_DIR_ALLOW_TEMP = "1";
   global._dbAdapter = null;
 
   const { getAdapter } = await import("@/lib/db/driver.js");
@@ -97,6 +99,8 @@ afterAll(() => {
   if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true });
   if (originalDataDir === undefined) delete process.env.DATA_DIR;
   else process.env.DATA_DIR = originalDataDir;
+  if (originalAllowTemp === undefined) delete process.env.DATA_DIR_ALLOW_TEMP;
+  else process.env.DATA_DIR_ALLOW_TEMP = originalAllowTemp;
   global._dbAdapter = null;
 });
 

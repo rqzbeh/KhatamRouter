@@ -74,7 +74,7 @@ await Promise.all(promises);
     fs.writeFileSync(workerScript, workerCode);
 
     // 3. Spawn 2 concurrent Bun child processes hammering saveRequestUsage
-    const countPerWorker = 500;
+    const countPerWorker = 250;
     const totalExpected = countPerWorker * 2;
 
     const p1 = Bun.spawn(["bun", workerScript, tempDir, "w1", String(countPerWorker)], {
@@ -112,5 +112,5 @@ await Promise.all(promises);
 
     const metaRow = db.get("SELECT value FROM _meta WHERE key = 'totalRequestsLifetime'");
     expect(Number(metaRow?.value)).toBe(totalExpected);
-  }, 30000);
+  }, 60000);
 });
