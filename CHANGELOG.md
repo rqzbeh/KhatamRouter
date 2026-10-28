@@ -1,4 +1,4 @@
-# Unreleased — Wave 8: Bun Performance & Vertical Scale (implemented on branch `wave8/vertical-scale`, pending merge)
+# Unreleased — Wave 8: Bun Performance & Vertical Scale (PR #79, merged 2026-10-28)
 
 ## Performance
 - **perf(slim)**: in-process hot-path slimming. Measured with `scripts/perf-l1-harness.mjs` (5 x 1,000 requests, 100 warmup): DB queries/req 15.20 -> 10.78 (met, target <= 11.0), p95 4.93 -> 2.56 ms (-47.96%, met), p50 1.35 -> 1.00 ms (-25.67%, **misses** the 35% p50 target). Contents:
