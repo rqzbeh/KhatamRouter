@@ -1,3 +1,33 @@
+# Unreleased — Wave 8: Bun Performance & Vertical Scale (implemented on branch `wave8/vertical-scale`, pending merge)
+
+## Performance
+- **perf(slim)**: in-process hot-path slimming. Measured with `scripts/perf-l1-harness.mjs` (5 x 1,000 requests, 100 warmup): DB queries/req 15.20 -> 10.78 (met, target <= 11.0), p95 4.93 -> 2.56 ms (-47.96%, met), p50 1.35 -> 1.00 ms (-25.67%, **misses** the 35% p50 target). Contents:
+  - 5 s TTL caches for model aliases (`aliasRepo.js`), combos (`combosRepo.js`) and provider nodes (`nodesRepo.js`), invalidated on `config_reload` scopes `aliases`, `combos`, `nodes`, `settings` and `all`
+  - Bounded LRU for `comboByNameCache` (512 entries, oldest evicted)
+  - Module-load `Map` index for model lookups (`open-sse/config/providerModels.js`)
+  - Regex memoization for `matchPattern` in `open-sse/providers/pricing.js`
+  - Request-scoped reuse of key and combo resolution in `src/sse/handlers/chat.js`, `keyAccess.js` and `model.js`. API keys and ACL are never cached across requests.
+- **fix(db)**: `saveRequestUsage` (`src/lib/db/repos/usageRepo.js`) runs in `db.immediate(...)` (`BEGIN IMMEDIATE`), so concurrent writers take the write lock upfront instead of failing with `SQLITE_BUSY_SNAPSHOT`.
+
+## Features
+- **feat(cluster)**: vertical multi-process runtime on one host via Bun `node:cluster` (`src/lib/cluster/supervisor.js`, `src/lib/cluster/worker.js`, `custom-server.js`):
+  - `KHATAM_WORKERS`: `auto` (default) = `Math.max(1, nproc - 2)`; `WEB_CONCURRENCY` is the fallback; `1` = legacy single process; clamped to 1..64
+  - Supervisor runs migrations once before fork and sets `KHATAM_MIGRATIONS_DONE=1` for workers
+  - Leader-only daemons (`KHATAM_WORKER_ROLE=leader`): token refresh, `initializeApp.js` daemons (tunnel, Tailscale, MITM, quota auto-ping), WAL checkpoint
+  - Cache invalidation: Redis Pub/Sub when `REDIS_URL` is set, otherwise supervisor IPC broadcast (`config_reload`), bounded by the 5 s TTL
+  - Graceful drain on `SIGTERM`/`SIGINT` (`KHATAM_DRAIN_TIMEOUT_MS`, default 30000) and crash backoff `min(250 * 2^n, 10000)` ms for exits under 5 s (`KHATAM_CRASH_RESET_MS`, default 30000)
+  - Loopback-only `X-Forwarded-For` trust is unchanged. No `TRUSTED_PROXY_CIDRS`.
+- **Docker**: one container runs multiple workers via `KHATAM_WORKERS` in `Dockerfile.bun`. `docker stop` drains. Single-container smoke with 2 workers: port sharing, 40 keep-alive connections split across both PIDs, clean stop in 0.58 s.
+- **tooling(perf)**: benchmark harnesses `scripts/perf-l0-micro.mjs`, `scripts/perf-l1-harness.mjs`, `scripts/perf-ladder.sh`, and the zero-latency mock upstream `scripts/perf-mock-upstream.mjs`.
+- **docs(perf)**: vertical ladder on an 8-logical-CPU WSL2 host with a zero-latency mock upstream: 238.3 -> 361.3 -> 453.7 -> 494.6 req/s at 1/2/4/6 workers (efficiency 100/76/48/35%). Scaling is **not linear**. Causes of the flattening are unprofiled. Details in [`docs/PERFORMANCE.md`](./docs/PERFORMANCE.md).
+
+## Known Limitations
+- Without Redis, login lockout, rate limits, circuit-breaker trips, combo rotation and concurrency semaphores are per worker, not per host. Effective limits multiply by worker count; set `REDIS_URL` for multi-worker deployments.
+- `requestDetails` buffer (up to 5 s) is lost on `SIGKILL`. Usage rows are written synchronously.
+- A `SIGKILL`ed worker drops in-flight requests on its sockets (1 observed per kill, spec tolerance 2). Graceful in-flight SSE drain on `SIGTERM` is verified for one clean mock stream: `scripts/vertical-smoke.sh` passes with at least 3 of 8 chunks unsent at SIGTERM, the client receiving the remaining chunks plus `[DONE]`, and the primary exiting 0 after stream end. The earlier failure was caused by a `process.exit(0)` in the sqlite adapter's `SIGTERM` handler in the primary and was fixed in `df1ef7ae`. Drain under upstream stall or error, and streams near the 30 s drain timeout, are not verified.
+- The npm `9router` CLI bundle falls back to single-process: `cli/scripts/build-cli.js` sets `NEXT_TRACING_ROOT_MODE=workspace`, so `scripts/copy-standalone-assets.mjs` returns early.
+- Leader-only daemons are verified through the role env contract only.
+
 # v0.5.111 (2026-10-26) — Upstream Port Window v0.5.109 → v0.5.111
 
 ## Security

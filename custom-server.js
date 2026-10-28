@@ -434,6 +434,23 @@ async function runMigrationsOnce() {
   return true;
 }
 
+// Secrets are generated once here, before any fork, so N cold-booting workers cannot each mint
+// their own. Forked workers inherit the resolved values through process.env. Loaded like
+// runMigrationsOnce: a module missing from the standalone copy is skipped, not an error.
+async function resolveRuntimeSecretsOnce() {
+  const authPath = path.join(__dirname, "src", "lib", "auth", "dashboardSession.js");
+  const machinePath = path.join(__dirname, "src", "shared", "utils", "machineId.js");
+  if (fs.existsSync(authPath) && !process.env.JWT_SECRET) {
+    const { loadJwtSecret } = await import(pathToFileURL(authPath).href);
+    process.env.JWT_SECRET = loadJwtSecret();
+  }
+  if (fs.existsSync(machinePath)) {
+    const { loadRawMachineId, loadCliSecret } = await import(pathToFileURL(machinePath).href);
+    loadRawMachineId();
+    loadCliSecret();
+  }
+}
+
 async function startPrimary(count) {
   let migrated;
   try {
@@ -449,6 +466,16 @@ async function startPrimary(count) {
     primaryFellBackToSingleProcess = true;
     startNextServer();
     return;
+  }
+  try {
+    await resolveRuntimeSecretsOnce();
+  } catch (error) {
+    // Fail closed: a worker that minted its own secret would split sessions across the pool.
+    console.error(`[Cluster] Runtime secret resolution failed, not starting workers: ${error && error.message ? error.message : error}`);
+    process.exit(1);
+  }
+  if (!process.env.REDIS_URL) {
+    console.warn("[Cluster] REDIS_URL is not set: login lockout and rate limits are per worker (limits are effectively multiplied by the worker count)");
   }
   clusterModules.supervisor.startSupervisor({
     workerScript: __filename,
@@ -479,4 +506,5 @@ module.exports = {
   MAX_H2C_BODY_BYTES,
   parseChunkedBody,
   startBackgroundTokenRefreshFromCustomServer,
+  resolveRuntimeSecretsOnce,
 };

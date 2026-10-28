@@ -2,7 +2,7 @@
 
 **Feature Branch**: `spec/008-vertical-scale`  
 **Classification**: Runtime Concurrency, In-Process Performance, and Vertical Scalability  
-**Status**: Ready for Planning & Implementation  
+**Status**: Implemented; T011, T020, T022, T028 oracles pass (word-bounded `\bxit\b` fixes the substring match on `exit`); T029, T030 open (Phase 6 closeout)  
 
 ---
 

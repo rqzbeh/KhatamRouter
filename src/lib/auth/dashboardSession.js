@@ -5,20 +5,21 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { DATA_DIR } from "@/lib/dataDir";
 import { getSettings } from "@/lib/localDb";
+import { publishSecretOnce } from "@/shared/utils/secretFile.js";
 
 const DEFAULT_PASSWORD = "123456";
 const SESSION_MAX_AGE_SEC = 24 * 60 * 60;
 
-function loadJwtSecret() {
+export function loadJwtSecret() {
   if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
   const file = path.join(DATA_DIR, "jwt-secret");
   try {
-    return fs.readFileSync(file, "utf8").trim();
+    const existing = fs.readFileSync(file, "utf8").trim();
+    if (existing) return existing;
   } catch {}
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  const generated = crypto.randomBytes(32).toString("hex");
-  fs.writeFileSync(file, generated, { mode: 0o600 });
-  return generated;
+  // Concurrent cold boots converge on whichever secret was published first.
+  return publishSecretOnce(file, crypto.randomBytes(32).toString("hex"));
 }
 
 const SECRET = new TextEncoder().encode(loadJwtSecret());

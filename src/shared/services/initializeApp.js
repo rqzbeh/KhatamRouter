@@ -71,6 +71,12 @@ export async function initializeApp() {
       process.on("SIGINT", onSignal);
       process.on("SIGTERM", onSignal);
       process.on("exit", () => {
+        // Followers share the host with the leader: DNS and the cloudflared pid file are host-wide.
+        // A follower exit only reaps its own stdio bridges.
+        if (process.env.KHATAM_WORKER_ROLE === "worker") {
+          try { killAllBridges(); } catch { /* ignore */ }
+          return;
+        }
         try { removeAllDNSEntriesSync(); } catch { /* ignore */ }
         if (lifecycleOwned) {
           doCleanup();
