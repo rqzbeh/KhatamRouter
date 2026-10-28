@@ -56,6 +56,33 @@ export function copyStandaloneAssets({ projectRoot = process.cwd(), distDir = pr
     console.log(`[standalone-assets] Copied src/lib/cluster to ${clusterDestination}`);
   }
 
+  // custom-server.js's primary runs migrations through src/lib/db/driver.js,
+  // whose transitive imports reach src/lib/dataDir.js. Next's standalone trace
+  // bundles these routes into .next/server and does not ship loose src/lib files,
+  // so without copying them runMigrationsOnce() finds driver.js missing and
+  // KHATAM_WORKERS>1 silently falls back to single-process. dataDir.js is
+  // imported as '@/lib/dataDir.js', which Bun only resolves via jsconfig.json,
+  // so jsconfig.json must ship beside the sources preserving relative layout.
+  const dbSource = resolve(projectRoot, "src", "lib", "db");
+  const dbDestination = resolve(standaloneDir, "src", "lib", "db");
+  if (existsSync(dbSource)) {
+    cpSync(dbSource, dbDestination, { recursive: true, force: true });
+    console.log(`[standalone-assets] Copied src/lib/db to ${dbDestination}`);
+  }
+  // Currently only src/lib/db/paths.js uses '@/' within the driver closure.
+  const dataDirSource = resolve(projectRoot, "src", "lib", "dataDir.js");
+  const dataDirDestination = resolve(standaloneDir, "src", "lib", "dataDir.js");
+  if (existsSync(dataDirSource)) {
+    cpSync(dataDirSource, dataDirDestination, { force: true });
+    console.log(`[standalone-assets] Copied src/lib/dataDir.js to ${dataDirDestination}`);
+  }
+  const jsconfigSource = resolve(projectRoot, "jsconfig.json");
+  const jsconfigDestination = resolve(standaloneDir, "jsconfig.json");
+  if (existsSync(jsconfigSource)) {
+    cpSync(jsconfigSource, jsconfigDestination, { force: true });
+    console.log(`[standalone-assets] Copied jsconfig.json to ${jsconfigDestination}`);
+  }
+
   // Next's standalone tracing may omit optional native bindings under @wreq-js
   // (e.g. @wreq-js/binding-linux-x64-gnu). Copy wreq-js and @wreq-js into the
   // standalone node_modules so dynamic import("wreq-js") resolves at runtime.

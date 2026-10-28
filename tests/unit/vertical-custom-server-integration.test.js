@@ -10,7 +10,7 @@
 //   - `src/lib/db/driver.js` in the fixture is a counter stub. Real SQLite migrations are
 //     covered by tests/unit/cluster-db-safety.test.js, not here.
 import { describe, it, expect, afterEach, afterAll } from "vitest";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createServer as createNetServer } from "node:net";
 import http from "node:http";
 import {
@@ -103,19 +103,25 @@ function pickPort() {
 
 // Builds the standalone layout the way the production build does: copy-standalone-assets
 // output with the real custom-server.js, runtime-secrets.cjs and src/lib/cluster/*.
-function buildStandalone({ withDriver, withCluster = true }) {
+function buildStandalone({ withDriver, withCluster = true, realDriver = false }) {
   const root = tempDir("khatam-vertical-proj-");
   const dataDir = tempDir("khatam-vertical-data-");
   cpSync(join(REPO, "custom-server.js"), join(root, "custom-server.js"));
   cpSync(join(REPO, "runtime-secrets.cjs"), join(root, "runtime-secrets.cjs"));
   mkdirSync(join(root, "src", "lib"), { recursive: true });
   if (withCluster) cpSync(join(REPO, "src", "lib", "cluster"), join(root, "src", "lib", "cluster"), { recursive: true });
+  if (realDriver) {
+    // Real migration graph, copied from the repo the way the production tree holds it.
+    cpSync(join(REPO, "src", "lib", "db"), join(root, "src", "lib", "db"), { recursive: true });
+    cpSync(join(REPO, "src", "lib", "dataDir.js"), join(root, "src", "lib", "dataDir.js"));
+    cpSync(join(REPO, "jsconfig.json"), join(root, "jsconfig.json"));
+  }
   mkdirSync(join(root, ".next", "standalone"), { recursive: true });
   copyStandaloneAssets({ projectRoot: root, distDir: ".next" });
 
   const standalone = join(root, ".next", "standalone");
   writeFileSync(join(standalone, "server.js"), STUB_SERVER);
-  if (withDriver) {
+  if (withDriver && !realDriver) {
     mkdirSync(join(standalone, "src", "lib", "db"), { recursive: true });
     writeFileSync(join(standalone, "src", "lib", "db", "driver.js"), STUB_DRIVER);
   }
@@ -293,6 +299,74 @@ describe("custom-server single-process graceful drain", () => {
 });
 
 describe("custom-server.js real child boot", () => {
+  // Regression: Dockerfile.bun shipped no src/lib/db, so the primary found no
+  // driver.js, skipped migrations and forked zero workers (single-process fallback).
+  it("real driver.js closure in standalone: KHATAM_WORKERS=2 forks 2 workers, migrations applied once", async () => {
+    const { standalone, dataDir } = buildStandalone({ withDriver: false, realDriver: true });
+    // Same assertions the copy ships; guards the fixture itself.
+    expect(existsSync(join(standalone, "src", "lib", "db", "driver.js"))).toBe(true);
+    expect(existsSync(join(standalone, "jsconfig.json"))).toBe(true);
+    const port = await pickPort();
+    const boot = bootChild(standalone, { PORT: String(port), DATA_DIR: dataDir, DATA_DIR_ALLOW_TEMP: "1", KHATAM_WORKERS: "2" });
+
+    try {
+      await waitFor(() => countReady(boot) >= 2);
+      const combined = boot.stdout() + boot.stderr();
+      expect(combined).not.toContain("is not on disk");
+
+      const pids = new Set();
+      const roles = new Set();
+      for (let i = 0; i < 40; i += 1) {
+        const body = await hit(port);
+        pids.add(body.pid);
+        roles.add(body.role);
+      }
+      expect(pids.has(boot.child.pid)).toBe(false);
+      expect(pids.size).toBeGreaterThanOrEqual(2);
+      expect(roles.has("leader")).toBe(true);
+      expect(roles.has("worker")).toBe(true);
+
+      // Real migrations ran in the primary only, not in the workers.
+      const dbPath = join(dataDir, "db", "data.sqlite");
+      expect(existsSync(dbPath)).toBe(true);
+      const applied = spawnSync("bun", ["-e",
+        `import { Database } from "bun:sqlite";` +
+        `const db = new Database(${JSON.stringify(dbPath)}, { readonly: true });` +
+        `console.log(db.query("SELECT COUNT(*) AS n FROM _khatam_migrations").get().n);` +
+        `db.close();`,
+      ], { encoding: "utf8" });
+      expect(applied.stderr).toBe("");
+      expect(Number(applied.stdout.trim())).toBeGreaterThan(0);
+
+      boot.child.kill("SIGTERM");
+      const { code } = await boot.closed;
+      expect(code).toBe(0);
+    } finally {
+      if (boot.child.exitCode === null) {
+        boot.child.kill("SIGKILL");
+        await boot.closed;
+      }
+    }
+  }, TEST_TIMEOUT);
+
+  it("real driver.js closure: KHATAM_WORKERS=2 with the closure absent still falls back to single-process", async () => {
+    // Fallback path stays intact: no src/lib/db in the project, so the copy ships none.
+    const { standalone, dataDir } = buildStandalone({ withDriver: false });
+    expect(existsSync(join(standalone, "src", "lib", "db", "driver.js"))).toBe(false);
+    const port = await pickPort();
+    const boot = bootChild(standalone, { PORT: String(port), DATA_DIR: dataDir, KHATAM_WORKERS: "2" });
+
+    try {
+      await waitFor(() => countReady(boot) >= 1);
+      expect(boot.stderr()).toContain("running single-process");
+      const body = await hit(port);
+      expect(body.pid).toBe(boot.child.pid);
+    } finally {
+      boot.child.kill("SIGKILL");
+      await boot.closed;
+    }
+  }, TEST_TIMEOUT);
+
   it("KHATAM_WORKERS=2: primary never serves, 2 workers (leader + worker), migrations once", async () => {
     const { standalone, dataDir } = buildStandalone({ withDriver: true });
     const port = await pickPort();
