@@ -367,6 +367,26 @@ describe("custom-server.js real child boot", () => {
     }
   }, TEST_TIMEOUT);
 
+  it("prints a compact [Cluster] trail: start line with resolved count, two fork lines with distinct pids, one leader", async () => {
+    const { standalone, dataDir } = buildStandalone({ withDriver: true });
+    const port = await pickPort();
+    const boot = bootChild(standalone, { PORT: String(port), DATA_DIR: dataDir, KHATAM_WORKERS: "2" });
+
+    try {
+      await waitFor(() => countReady(boot) >= 2);
+      const out = boot.stdout();
+      expect(out).toContain(`[Cluster] supervisor pid=${boot.child.pid} starting KHATAM_WORKERS=2 workers on port ${port}`);
+      const forks = [...out.matchAll(/^\[Cluster\] fork worker=(\d+) pid=(\d+) role=(leader|worker)$/gm)];
+      expect(forks.length).toBe(2);
+      expect(new Set(forks.map((m) => m[2])).size).toBe(2);
+      expect(forks.filter((m) => m[3] === "leader").length).toBe(1);
+      expect(forks.some((m) => Number(m[2]) === boot.child.pid)).toBe(false);
+    } finally {
+      boot.child.kill("SIGKILL");
+      await boot.closed;
+    }
+  }, TEST_TIMEOUT);
+
   it("KHATAM_WORKERS=2: primary never serves, 2 workers (leader + worker), migrations once", async () => {
     const { standalone, dataDir } = buildStandalone({ withDriver: true });
     const port = await pickPort();

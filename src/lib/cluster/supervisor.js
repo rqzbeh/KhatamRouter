@@ -104,6 +104,32 @@ export function routeIpcMessage(senderWorkerId, msg, activeWorkerIds = []) {
 }
 
 /**
+ * Compact single-line operator log for startSupervisor's event stream.
+ * fork/ready/drain go to console.log, crash/alert to console.error. No secrets, no env dump.
+ * The supervisor's default stays a no-op, so library callers and unit tests print nothing.
+ */
+export function createClusterLogger({ pid = process.pid, write } = {}) {
+  const emit = write ?? ((stream, text) => (stream === "error" ? console.error(text) : console.log(text)));
+  return (event) => {
+    if (!event || typeof event !== "object") return undefined;
+    switch (event.event) {
+      case "start":
+        return emit("log", `[Cluster] supervisor pid=${pid} starting KHATAM_WORKERS=${event.targetCount} workers on port ${event.port}`);
+      case "fork":
+        return emit("log", `[Cluster] fork worker=${event.workerId} pid=${event.pid} role=${event.role}`);
+      case "ready":
+        return emit("log", `[Cluster] worker=${event.workerId} pid=${event.pid} ready`);
+      case "crash":
+        return emit("error", `[Cluster] crash worker=${event.workerId} pid=${event.pid} code=${event.code} signal=${event.signal} uptimeMs=${event.uptimeMs}`);
+      case "drain":
+        return emit("log", `[Cluster] draining ${event.workerCount ?? event.targetCount} workers`);
+      default:
+        return undefined;
+    }
+  };
+}
+
+/**
  * Start the primary supervisor.
  */
 export async function startSupervisor(options = {}) {
@@ -123,6 +149,12 @@ export async function startSupervisor(options = {}) {
   if (targetCount <= 1) {
     return { mode: "single", targetCount: 1, bypassed: true };
   }
+
+  log({
+    event: "start",
+    targetCount,
+    port: env.PORT || env.DASHBOARD_PORT || 20128,
+  });
 
   if (typeof runMigrations === "function") {
     await runMigrations();
@@ -248,7 +280,7 @@ export async function startSupervisor(options = {}) {
   function shutdown() {
     if (isDraining) return;
     isDraining = true;
-    log({ event: "drain", targetCount });
+    log({ event: "drain", targetCount, workerCount: Object.keys(cluster.workers || {}).length });
     const workers = cluster.workers || {};
     for (const id in workers) {
       const w = workers[id];

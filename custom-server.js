@@ -450,7 +450,10 @@ async function startPrimary(count) {
     startNextServer();
     return;
   }
-  clusterModules.supervisor.startSupervisor({ workerScript: __filename }).catch((error) => {
+  clusterModules.supervisor.startSupervisor({
+    workerScript: __filename,
+    log: clusterModules.supervisor.createClusterLogger(),
+  }).catch((error) => {
     console.error(`[Cluster] Supervisor failed to start: ${error && error.message ? error.message : error}`);
     process.exit(1);
   });

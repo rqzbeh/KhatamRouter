@@ -6,7 +6,7 @@ import http from "node:http";
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { fileURLToPath } from "node:url";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   sizeWorkers,
   restartPolicy,
@@ -16,6 +16,7 @@ import {
   drainDeadlineMs,
   supervisorKillMs,
   startSupervisor,
+  createClusterLogger,
   CLUSTER_EXIT_EVENT,
   IPC_TYPES,
 } from "../../src/lib/cluster/supervisor.js";
@@ -437,4 +438,101 @@ describe("real primary and workers on a shared port", () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   }, 60000);
+});
+
+describe("compact operator log lines", () => {
+  const captured = () => {
+    const lines = [];
+    return { lines, write: (stream, text) => lines.push({ stream, text }) };
+  };
+
+  it("start line carries the resolved worker count; fork, ready, crash and drain lines follow the fixed format", async () => {
+    const c = fakeCluster();
+    const clock = fakeClock();
+    const cap = captured();
+    const sup = await startSupervisor({
+      cluster: c,
+      nproc: 8,
+      env: { KHATAM_WORKERS: "3", PORT: "31500" },
+      workerScript: "/unused/worker.js",
+      runMigrations: async () => {},
+      now: clock.now,
+      schedule: clock.schedule,
+      signals: false,
+      log: createClusterLogger({ pid: 4242, write: cap.write }),
+    });
+
+    const starts = cap.lines.filter((l) => l.text.includes("starting KHATAM_WORKERS"));
+    expect(starts).toEqual([
+      { stream: "log", text: "[Cluster] supervisor pid=4242 starting KHATAM_WORKERS=3 workers on port 31500" },
+    ]);
+
+    const forks = cap.lines.filter((l) => l.text.startsWith("[Cluster] fork "));
+    expect(forks.map((l) => l.text)).toEqual([
+      "[Cluster] fork worker=1 pid=40001 role=leader",
+      "[Cluster] fork worker=2 pid=40002 role=worker",
+      "[Cluster] fork worker=3 pid=40003 role=worker",
+    ]);
+    expect(forks.every((l) => l.stream === "log")).toBe(true);
+
+    c.emit("message", c.workers[1], { type: "ready" });
+    expect(cap.lines.at(-1)).toEqual({ stream: "log", text: "[Cluster] worker=1 pid=40001 ready" });
+
+    clock.t = 100;
+    c.crash(2);
+    expect(cap.lines.at(-1)).toEqual({
+      stream: "error",
+      text: "[Cluster] crash worker=2 pid=40002 code=1 signal=null uptimeMs=100",
+    });
+
+    sup.shutdown();
+    expect(cap.lines.at(-1)).toEqual({ stream: "log", text: "[Cluster] draining 2 workers" });
+  });
+
+  it("emits exactly one start line and one drain line per run", async () => {
+    const c = fakeCluster();
+    const cap = captured();
+    const sup = await startSupervisor({
+      cluster: c,
+      nproc: 8,
+      env: { KHATAM_WORKERS: "2", PORT: "31501" },
+      workerScript: "/unused/worker.js",
+      runMigrations: async () => {},
+      now: fakeClock().now,
+      schedule: fakeClock().schedule,
+      signals: false,
+      log: createClusterLogger({ pid: 7, write: cap.write }),
+    });
+    sup.shutdown();
+    const count = (needle) => cap.lines.filter((l) => l.text.includes(needle)).length;
+    expect(count("starting KHATAM_WORKERS=2 workers")).toBe(1);
+    expect(count("[Cluster] draining")).toBe(1);
+    expect(count("[Cluster] fork ")).toBe(2);
+  });
+
+  it("default logger is silent: library callers without a log option print no [Cluster] output", async () => {
+    const spyLog = vi.spyOn(console, "log").mockImplementation(() => {});
+    const spyErr = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const c = fakeCluster();
+      const sup = await startSupervisor({
+        cluster: c,
+        nproc: 8,
+        env: { KHATAM_WORKERS: "2" },
+        workerScript: "/unused/worker.js",
+        runMigrations: async () => {},
+        now: fakeClock().now,
+        schedule: fakeClock().schedule,
+        signals: false,
+      });
+      c.emit("message", c.workers[1], { type: "ready" });
+      c.crash(2);
+      sup.shutdown();
+      const all = [...spyLog.mock.calls, ...spyErr.mock.calls].map((args) => String(args[0]));
+      expect(all.filter((m) => m.startsWith("[Cluster]"))).toEqual([]);
+    } finally {
+      spyLog.mockRestore();
+      spyErr.mockRestore();
+    }
+  });
 });
