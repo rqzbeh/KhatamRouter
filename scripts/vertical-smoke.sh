@@ -168,13 +168,22 @@ echo "primary=$GW_PID workers=[$WORKERS] roles: leader=$LEADERS worker=$WORKER_R
 check "4 worker processes under primary" $([ "$NW" -eq 4 ] && echo 0 || echo 1)
 check "exactly one leader and three followers" $([ "$LEADERS" -eq 1 ] && [ "$WORKER_ROLES" -eq 3 ] && echo 0 || echo 1)
 
-"${NET_ENV[@]}" bun "$TMP_DIR/hold.mjs" "$PORT_A" 60 5000 >/dev/null 2>&1 &
+"${NET_ENV[@]}" bun "$TMP_DIR/hold.mjs" "$PORT_A" 60 10000 >/dev/null 2>&1 &
 HOLD_PID=$!
-for i in $(seq 1 50); do
-  [ "$(ss -Htn state established "( sport = :$PORT_A )" | wc -l)" -ge 60 ] && break
+# Wait for 60 sockets that carry an owner pid, capped at 8 s (below the 10 s hold). A socket still in the
+# accept queue has no pid in ss -p; counting established sockets alone raced that handoff (seen: 60 established, 59 owned).
+for i in $(seq 1 40); do
+  [ "$(ss -Htnp state established "( sport = :$PORT_A )" | grep -c 'pid=')" -ge 60 ] && break
   sleep 0.2
 done
-SERVED="$(ss -Htnp state established "( sport = :$PORT_A )" | grep -o 'pid=[0-9]*' | cut -d= -f2 | sort -u | tr '\n' ' ')"
+# Union owners over repeated samples while the hold is alive, so one racing snapshot cannot hide a worker.
+SERVED_RAW=""
+for i in $(seq 1 10); do
+  kill -0 "$HOLD_PID" 2>/dev/null || break
+  SERVED_RAW="$SERVED_RAW $(ss -Htnp state established "( sport = :$PORT_A )" | grep -o 'pid=[0-9]*' | cut -d= -f2)"
+  sleep 0.3
+done
+SERVED="$(echo $SERVED_RAW | tr ' ' '\n' | grep -E '^[0-9]+$' | sort -un | tr '\n' ' ')"
 DISTINCT_PIDS=0
 for p in $SERVED; do
   contains "$WORKERS" "$p" && DISTINCT_PIDS=$((DISTINCT_PIDS + 1))
