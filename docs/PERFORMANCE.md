@@ -138,7 +138,7 @@ When routing settings, aliases, combos, or nodes change:
 
 ### 4.1 Master Performance Ladder Table
 
-Benchmarked on an 8-logical-CPU host (Linux 6.18 WSL2, AMD Ryzen 7 4800H, 7943 MB RAM) using `scripts/perf-ladder.sh` (concurrency 32, 1,000 requests, 100 warmup, 5 runs) against a zero-latency mock upstream:
+Benchmarked on an 8-logical-CPU host (Linux 6.18 WSL2, AMD Ryzen 7 4800H, roughly 8 GB RAM) using `scripts/perf-ladder.sh` (concurrency 32, 1,000 requests, 100 warmup, 5 runs) against a zero-latency mock upstream:
 
 | Tier | Workers | p50 (ms) | p95 (ms) | p99 (ms) | Throughput (req/s) | Speedup | Scaling Efficiency | Driver-Sampled Peak RSS (MB) | Mode | Errors |
 |---|---|---|---|---|---|---|---|---|---|---|
