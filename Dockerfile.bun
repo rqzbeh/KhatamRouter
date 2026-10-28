@@ -5,7 +5,7 @@
 # (tests/unit/wave75-docker-compose.test.js) fails if the two ever diverge.
 #
 # Pinned to oven/bun:1.4.3-slim per Constitution Principle II & Wave 1 spec.
-FROM oven/bun:1.4.3-slim AS base
+FROM oven/bun:1.4.4-slim AS base
 WORKDIR /app
 
 RUN apt-get update \
@@ -60,7 +60,7 @@ ENV DATA_DIR_ALLOW_TEMP=1
 RUN bun run build
 
 # ── Runner stage (100% Bun Native Production Runtime) ───────────────────────
-FROM oven/bun:1.4.3-slim AS runner
+FROM oven/bun:1.4.4-slim AS runner
 
 LABEL org.opencontainers.image.title="khatamrouter" \
   org.opencontainers.image.description="KhatamRouter — dual-runtime AI gateway & control plane (Bun Native)" \
