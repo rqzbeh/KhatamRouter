@@ -25,7 +25,16 @@ async function openIntegrityDatabase(file) {
     throw new Error("[DB] KhatamRouter requires the Bun runtime (bun:sqlite). Please run with 'bun'.");
   }
   const { Database } = await import("bun:sqlite");
-  return new Database(file, { readonly: true });
+  const db = new Database(file, { readonly: true });
+  // Default busy timeout is 0: a concurrent WAL recovery fails the check instantly with
+  // SQLITE_BUSY_RECOVERY. Set it before any other statement on this connection.
+  try {
+    db.exec("PRAGMA busy_timeout = 5000;");
+  } catch (error) {
+    try { db.close(); } catch {}
+    throw error;
+  }
+  return db;
 }
 
 /**
@@ -80,6 +89,12 @@ async function initAdapter() {
 
   // During Next.js production build, skip running migrations against a real file to keep static prerendering safe without disk mutation or worker races
   if (process.env.NEXT_PHASE === "phase-production-build") {
+    return adapter;
+  }
+
+  // In multi-worker cluster mode, the Primary process runs migrations once before forking workers.
+  // Workers receive KHATAM_MIGRATIONS_DONE=1 and skip running redundant migrations or backups.
+  if (process.env.KHATAM_MIGRATIONS_DONE === "1") {
     return adapter;
   }
 

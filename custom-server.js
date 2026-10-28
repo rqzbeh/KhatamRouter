@@ -1,4 +1,6 @@
 const http = require("http");
+const os = require("os");
+const cluster = require("cluster");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
@@ -34,7 +36,120 @@ const DASHBOARD_PORT = PORT;
 process.env.PORT = String(PORT);
 process.env.DASHBOARD_PORT = String(PORT);
 
+// Lifecycle owns SIGINT/SIGTERM. Stops Next's start-server cleanup from calling process.exit(143)
+// before the worker drain (setupWorkerLifecycle) finishes. Child processes inherit it.
+process.env.NEXT_MANUAL_SIG_HANDLE = "true";
+
 const origCreate = http.createServer.bind(http);
+
+// ── Vertical scale (KHATAM_WORKERS) ─────────────────────────────────────────
+// Missing src/lib/cluster (published CLI standalone) means single-process only.
+const CLUSTER_DIR = path.join(__dirname, "src", "lib", "cluster");
+const clusterModules = fs.existsSync(path.join(CLUSTER_DIR, "supervisor.js"))
+  ? {
+      supervisor: require(path.join(CLUSTER_DIR, "supervisor.js")),
+      worker: require(path.join(CLUSTER_DIR, "worker.js")),
+    }
+  : null;
+const WORKER_COUNT = clusterModules ? clusterModules.supervisor.sizeWorkers(os.cpus().length, process.env) : 1;
+
+const DEFAULT_DRAIN_TIMEOUT_MS = 30000;
+
+function getDrainTimeoutMs(env = process.env) {
+  if (clusterModules) return clusterModules.supervisor.drainDeadlineMs(env);
+  const raw = env.KHATAM_DRAIN_TIMEOUT_MS;
+  if (raw !== undefined && raw !== null && String(raw).trim() !== "") {
+    const parsed = Number.parseInt(String(raw).trim(), 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return DEFAULT_DRAIN_TIMEOUT_MS;
+}
+
+// Set when the primary could not run migrations and serves single-process instead. It then
+// owns the server, so the multi-worker primary guard below must not skip the drain setup.
+let primaryFellBackToSingleProcess = false;
+
+function isMultiWorkerPrimary() {
+  if (!cluster.isPrimary || !clusterModules || primaryFellBackToSingleProcess) return false;
+  return clusterModules.supervisor.sizeWorkers(os.cpus().length, process.env) > 1;
+}
+
+// Standalone fallback: when src/lib/cluster is missing from disk, this provides the
+// same in-flight tracking, idle close, deadline and second-signal force-exit contract.
+let standaloneInFlight = 0;
+function setupSingleProcessFallback(server, { drainTimeoutMs = getDrainTimeoutMs(), proc = process, exit = (c) => proc.exit(c) } = {}) {
+  const sockets = new Set();
+  let draining = false;
+  let deadlineTimer = null;
+
+  server.on("connection", (socket) => {
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
+  });
+
+  server.on("request", (req, res) => {
+    standaloneInFlight += 1;
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      standaloneInFlight -= 1;
+      if (draining && standaloneInFlight === 0) finish();
+    };
+    res.once("finish", done);
+    res.once("close", done);
+  });
+
+  function finish() {
+    if (deadlineTimer) clearTimeout(deadlineTimer);
+    exit(0);
+  }
+
+  function beginDrain() {
+    if (draining) return;
+    draining = true;
+    try {
+      server.close(() => {
+        if (standaloneInFlight === 0) finish();
+      });
+    } catch {
+      /* ignore if not listening */
+    }
+    if (typeof server.closeIdleConnections === "function") {
+      try { server.closeIdleConnections(); } catch { /* ignore */ }
+    }
+    if (standaloneInFlight === 0) {
+      finish();
+    } else if (!deadlineTimer) {
+      deadlineTimer = setTimeout(() => {
+        for (const s of sockets) {
+          try { s.destroy(); } catch { /* ignore */ }
+        }
+        finish();
+      }, drainTimeoutMs);
+      if (typeof deadlineTimer?.unref === "function") deadlineTimer.unref();
+    }
+  }
+
+  function onSignal(sig) {
+    if (draining) {
+      exit(sig === "SIGINT" ? 130 : 143);
+      return;
+    }
+    beginDrain();
+  }
+
+  proc.on("SIGTERM", () => onSignal("SIGTERM"));
+  proc.on("SIGINT", () => onSignal("SIGINT"));
+
+  return { beginDrain, isDraining: () => draining };
+}
+
+// Worker 1 (or unset, single-process) owns the background daemons and token refresh.
+function isLeaderRole() {
+  const role = process.env.KHATAM_WORKER_ROLE;
+  return !role || role === "leader";
+}
 
 // Per-process secret proving x-9r-real-ip was stamped below rather than sent by the client.
 // A bare `next start` / `next dev` never loads this file, so it cannot produce a matching
@@ -148,8 +263,31 @@ http.createServer = (...args) => {
     return handler(req, res);
   };
   const server = origCreate(...rest, wrapped);
+  // Pre-listen EADDRINUSE: exit 1 with a stable message. Any other error keeps the default
+  // uncaught-throw behaviour when nothing else listens for it.
+  server.prependListener("error", (err) => {
+    if (err && err.code === "EADDRINUSE") {
+      if (cluster.isWorker) {
+        // Report to the supervisor, which stops respawning and exits 1 with the log line.
+        if (typeof process.send === "function") {
+          try { process.send({ type: "address_in_use", port: PORT }); } catch { /* ignore */ }
+        }
+        process.exit(98);
+      }
+      console.error(`[Server] Port ${PORT} already in use`);
+      process.exit(1);
+    }
+    if (server.listenerCount("error") <= 1) throw err;
+  });
+  // Multi-worker primary never creates a server; its supervisor owns SIGTERM/SIGINT.
+  // Workers and single-process both get drain; the standalone fallback covers missing cluster modules.
+  if (!isMultiWorkerPrimary()) {
+    const drainTimeoutMs = getDrainTimeoutMs();
+    if (clusterModules) clusterModules.worker.setupWorkerLifecycle(server, { drainTimeoutMs });
+    else setupSingleProcessFallback(server, { drainTimeoutMs });
+  }
   server.once("listening", () => {
-    startBackgroundTokenRefreshFromCustomServer();
+    if (isLeaderRole()) startBackgroundTokenRefreshFromCustomServer();
   });
   const origEmit = server.emit;
 
@@ -269,7 +407,9 @@ http.createServer = (...args) => {
   return server;
 };
 
-if (require.main === module) {
+// Next's standalone server.js, or `next start` from a repo checkout. Shared by the
+// single-process path and every cluster worker so all of them run the same request stack.
+function startNextServer() {
   const standalone = path.join(__dirname, "server.js");
   if (fs.existsSync(standalone)) {
     require(standalone);
@@ -282,6 +422,83 @@ if (require.main === module) {
   }
 }
 
+// Migrations run once in the primary, before any fork. Workers get KHATAM_MIGRATIONS_DONE=1
+// and never issue DDL against the shared SQLite file. Returns false if the driver is not on disk.
+async function runMigrationsOnce() {
+  const driverPath = path.join(__dirname, "src", "lib", "db", "driver.js");
+  if (!fs.existsSync(driverPath)) return false;
+  const { getAdapter } = await import(pathToFileURL(driverPath).href);
+  const adapter = await getAdapter();
+  // Close so the primary holds no DB handle and does not run the WAL checkpoint timer.
+  try { adapter.close?.(); } catch { /* ignore */ }
+  return true;
+}
+
+// Secrets are generated once here, before any fork, so N cold-booting workers cannot each mint
+// their own. Forked workers inherit the resolved values through process.env. Loaded like
+// runMigrationsOnce: a module missing from the standalone copy is skipped, not an error.
+async function resolveRuntimeSecretsOnce() {
+  const authPath = path.join(__dirname, "src", "lib", "auth", "dashboardSession.js");
+  const machinePath = path.join(__dirname, "src", "shared", "utils", "machineId.js");
+  if (fs.existsSync(authPath) && !process.env.JWT_SECRET) {
+    const { loadJwtSecret } = await import(pathToFileURL(authPath).href);
+    process.env.JWT_SECRET = loadJwtSecret();
+  }
+  if (fs.existsSync(machinePath)) {
+    const { loadRawMachineId, loadCliSecret } = await import(pathToFileURL(machinePath).href);
+    loadRawMachineId();
+    loadCliSecret();
+  }
+}
+
+async function startPrimary(count) {
+  let migrated;
+  try {
+    migrated = await runMigrationsOnce();
+  } catch (error) {
+    // Never fork workers onto a schema that failed to migrate.
+    console.error(`[Cluster] Migrations failed, not starting workers: ${error && error.message ? error.message : error}`);
+    process.exit(1);
+  }
+  if (!migrated) {
+    // Forking with KHATAM_MIGRATIONS_DONE=1 without migrating would leave the schema absent.
+    console.error(`[Cluster] KHATAM_WORKERS=${count} requested, but src/lib/db/driver.js is not on disk so migrations cannot run in the primary; running single-process`);
+    primaryFellBackToSingleProcess = true;
+    startNextServer();
+    return;
+  }
+  try {
+    await resolveRuntimeSecretsOnce();
+  } catch (error) {
+    // Fail closed: a worker that minted its own secret would split sessions across the pool.
+    console.error(`[Cluster] Runtime secret resolution failed, not starting workers: ${error && error.message ? error.message : error}`);
+    process.exit(1);
+  }
+  if (!process.env.REDIS_URL) {
+    console.warn("[Cluster] REDIS_URL is not set: login lockout and rate limits are per worker (limits are effectively multiplied by the worker count)");
+  }
+  clusterModules.supervisor.startSupervisor({
+    workerScript: __filename,
+    log: clusterModules.supervisor.createClusterLogger(),
+  }).catch((error) => {
+    console.error(`[Cluster] Supervisor failed to start: ${error && error.message ? error.message : error}`);
+    process.exit(1);
+  });
+}
+
+if (require.main === module) {
+  if (cluster.isPrimary && clusterModules && WORKER_COUNT > 1) {
+    // Primary never calls listen(); it only migrates, forks and brokers IPC.
+    startPrimary(WORKER_COUNT);
+  } else {
+    if (cluster.isPrimary && !clusterModules && (process.env.KHATAM_WORKERS || process.env.WEB_CONCURRENCY)) {
+      console.warn("[Cluster] src/lib/cluster modules are missing from disk; running single-process");
+    }
+    // Single-process (KHATAM_WORKERS=1, or 1 core) and every cluster worker.
+    startNextServer();
+  }
+}
+
 module.exports = {
   PORT,
   DASHBOARD_PORT,
@@ -289,4 +506,5 @@ module.exports = {
   MAX_H2C_BODY_BYTES,
   parseChunkedBody,
   startBackgroundTokenRefreshFromCustomServer,
+  resolveRuntimeSecretsOnce,
 };

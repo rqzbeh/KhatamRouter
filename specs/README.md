@@ -12,8 +12,8 @@ This directory contains Spec-Kit specifications, implementation plans, and tasks
 | [006-model-discovery-capabilities](006-model-discovery-capabilities/) | Wave 6 — Live Model Discovery and Capability Resolution | Merged (PR #32) | `feat/wave6-model-discovery` |
 | [007-vansrouter-parity](007-vansrouter-parity/) | Wave 7 — VansRouter Provider Parity | Merged (PR #61) | `wave7-vansrouter-parity` |
 | [0075-bun-only-redis-default](0075-bun-only-redis-default/) | Wave 7.5 — Bun-Only Runtime and Redis by Default | Merged (PR #63) | `spec/0075-bun-only-redis-default` |
-| [008-bun-perf-scale](008-bun-perf-scale/) | Wave 8 — Bun Hot-Path Profile, Multi-Process Scale, Ladder Re-Run | Planned | `spec/008-bun-perf-scale` |
+| [008-bun-perf-scale](008-bun-perf-scale/) | Wave 8 — Bun Hot-Path Slim and Vertical Scale (multi-core / multi-process on one host via `node:cluster`; re-lands hot-path perf from reverted 6768fb82; horizontal replicas/nginx/TRUSTED_PROXY_CIDRS explicitly out of scope) | Planned (re-specified for vertical scaling) | `spec/008-vertical-scale` |
 | [009-upstream-port](009-upstream-port/) | Wave 9 — Upstream Port (VansRouter 0.91.61→0.91.81, 9router 0.5.104→0.5.109) | Merged (PR #65) | `spec/009-upstream-port` |
 | [010-dashboard-tooling](010-dashboard-tooling/) | Wave 8 Dashboard Tooling & Key Quota Management | Merged (PR #72) | `master` |
 | [011-branding-update-source](011-branding-update-source/) | KhatamRouter Branding & Release Isolation | In progress | `spec/011-branding-update-source` |
-| [012-opencode-wreq-bun](012-opencode-wreq-bun/) | OpenCode Free TLS Client (wreq-js) under Bun | In progress | `port/opencode-bun-native` |
+| [012-opencode-wreq-bun](012-opencode-wreq-bun/) | OpenCode Free TLS Client (wreq-js) under Bun | Merged (PR #78) | `port/opencode-bun-native` |

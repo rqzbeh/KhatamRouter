@@ -84,20 +84,34 @@ export async function createBunSqliteAdapter(filePath) {
     return stmt;
   }
 
-  const checkpointTimer = setInterval(() => {
-    try { db.exec("PRAGMA wal_checkpoint(TRUNCATE)"); } catch {}
-  }, CHECKPOINT_INTERVAL_MS);
-  if (typeof checkpointTimer.unref === "function") checkpointTimer.unref();
+  // Cluster followers (KHATAM_WORKER_ROLE=worker) skip the periodic checkpoint. The leader, or an
+  // unset/empty role (single-process), owns it. Close-time checkpoint in gracefulClose() runs everywhere.
+  const workerRole = process.env.KHATAM_WORKER_ROLE;
+  let checkpointTimer = null;
+  if (!workerRole || workerRole === "leader") {
+    checkpointTimer = setInterval(() => {
+      try { db.exec("PRAGMA wal_checkpoint(TRUNCATE)"); } catch {}
+    }, CHECKPOINT_INTERVAL_MS);
+    if (typeof checkpointTimer.unref === "function") checkpointTimer.unref();
+  }
 
+  // The adapter never calls process.exit on a signal. A SIGTERM-driven exit here stopped the cluster
+  // primary before its supervisor drain ran; Bun's cluster/child 'disconnect' handler then
+  // process.exit(0)'d every worker mid-stream. Signal ownership stays with the app and supervisor.
   function gracefulClose() {
+    if (checkpointTimer) {
+      clearInterval(checkpointTimer);
+      checkpointTimer = null;
+    }
+    process.off("beforeExit", onShutdown);
+    process.off("exit", onShutdown);
     try { db.exec("PRAGMA wal_checkpoint(TRUNCATE)"); } catch {}
     try { stmtCache.clear(); } catch {}
     try { db.close(); } catch {}
   }
   const onShutdown = () => gracefulClose();
   process.once("beforeExit", onShutdown);
-  process.once("SIGINT", () => { onShutdown(); process.exit(0); });
-  process.once("SIGTERM", () => { onShutdown(); process.exit(0); });
+  process.once("exit", onShutdown);
 
   return {
     driver: "bun:sqlite",
@@ -159,7 +173,6 @@ export async function createBunSqliteAdapter(filePath) {
       try { db.exec(`PRAGMA wal_checkpoint(${mode})`); } catch {}
     },
     close() {
-      clearInterval(checkpointTimer);
       gracefulClose();
     },
   };

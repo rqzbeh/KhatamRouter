@@ -1,54 +1,114 @@
-# Quickstart: validate 008-bun-perf-scale
+# Quickstart: Validate Wave 8 — Bun Hot-Path Slim and Vertical Scale
 
-Prereqs: Bun 1.4.3, `bun install` at the root, and `cd tests && bun install`. Docker steps are run by a subagent, never the main agent, and never with `prune`.
+**Prerequisites**: Native Bun v1.4.3+, dependencies installed (`bun install && cd tests && bun install`).  
+**Safety Invariant**: All benchmark commands automatically isolate databases using temporary `DATA_DIR` scratchpads. Production `~/.9router/` is never modified. Live Docker commands are executed exclusively by delegated container subagents (never the main agent, no prune commands).
 
-## 1. Baseline (before any change)
+---
+
+## 1. Hot-Path Baseline Measurement (Before Any Code Change)
 
 ```bash
 bun scripts/perf-l1-harness.mjs --label baseline --out /tmp/l1-baseline.json
-# expect: PERF_L1_OK baseline
+# Expect output: PERF_L1_OK baseline
 ```
 
-Read `db_queries_per_req` and `phases_ms`. If the hotspot ranking differs from `research-profile.md`, re-rank the slim list first (research D3).
+Inspect output telemetry:
+- Verify `phases_ms` breakdown across `auth_acl`, `model_info`, `translate`, `dispatch_glue`.
+- Verify `db_queries_per_req` baseline is recorded (reference target: ~15.2 queries/req on this tree).
 
-## 2. Regression guard (run before AND after every slimming change)
+---
+
+## 2. Regression Guard (Run Before and After Every Code Change)
 
 ```bash
-bun tests/__baseline__/verify-alias.mjs && bun tests/__baseline__/verify-providers.mjs \
+# Baseline snapshot checks
+bun tests/__baseline__/verify-alias.mjs \
+  && bun tests/__baseline__/verify-providers.mjs \
   && bun tests/__baseline__/verify-oauth-urls.mjs
-cd tests && bun x vitest run translator/golden-request.test.js \
-  translator/golden-translator-concerns.test.js translator/golden-url-header.test.js \
+
+# Golden translator and unit regression suite
+cd tests && bun x vitest run \
+  translator/golden-request.test.js \
+  translator/golden-translator-concerns.test.js \
+  translator/golden-url-header.test.js \
   translator/golden-response-stream.test.js \
-  unit/capabilities.test.js unit/key-access.test.js
+  unit/capabilities.test.js \
+  unit/key-access.test.js \
+  unit/translator-request-normalization.test.js \
+  unit/translator-helpers-edge.test.js
 ```
 
-## 3. After slimming
+---
+
+## 3. After Hot-Path Slimming (Re-landed Optimizations)
 
 ```bash
 bun scripts/perf-l1-harness.mjs --label after-slim --out /tmp/l1-after.json
-# expect: PERF_L1_OK after-slim; db_queries_per_req lower; p50 down by the D7 threshold or an honest miss
+# Expect output: PERF_L1_OK after-slim
 ```
 
-## 4. Trusted proxy
+Verify:
+- `db_queries_per_req` drops to $\le 11.0$ (reference historical target: 15.2 down to ~10.8, -29% reduction).
+- p95 latency drops by $\ge 25\%$ (reference historical target: ~48% reduction).
+- p50 latency reported honestly against Research D7 target (reference historical target: -24% to -29% reduction).
+
+---
+
+## 4. Run Multi-Worker Standalone Server
+
+Start KhatamRouter on this host with 4 vertical worker processes sharing port 20128:
 
 ```bash
-cd tests && bun x vitest run unit/trusted-proxy.test.js   # spoof negative controls + unset == master
+# Automatic core sizing: Math.max(1, nproc - 2)
+KHATAM_WORKERS=4 PORT=20128 bun run start:bun
 ```
 
-## 5. Multi-replica (container subagent only)
+Verify:
+- Primary process runs migrations once, then outputs: `[Cluster] Supervisor running on PID <pid>. Forking 4 workers on port 20128...`
+- Worker 1 outputs: `[Worker 1] Leader role active (KHATAM_WORKER_ROLE=leader). Background token refresh + startup daemons registered.`
+- Sibling workers output: `[Worker N] Ready (KHATAM_WORKER_ROLE=worker). Skipping leader-only background refresh + startup daemons.`
+- Worker logs confirm `KHATAM_MIGRATIONS_DONE=1` observed (migration step skipped in every worker).
+
+---
+
+## 5. Vertical Smoke Validation (Host-Only)
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.scale.yml config   # valid
-# subagent: up --scale 9router=2, then:
-#  - trip a breaker on replica A, observe replica B gate that provider
-#  - two concurrent refreshes of one token produce exactly one upstream call
-#  - stop redis, keep sending traffic: no request-path throw
+# Validates port sharing, graceful stream drain, crash restart, and IPC invalidation
+scripts/vertical-smoke.sh
 ```
 
-## 6. Ladder
+Distribution reality (Bun 1.4.3): each worker binds its own `SO_REUSEPORT` socket, so the kernel hashes new TCP connections by 4-tuple. With `Connection: close` and enough requests the load spreads; the smoke oracle only requires **>= 2 distinct worker PIDs** (never exact per-worker evenness). `cluster.schedulingPolicy` is ignored by Bun.
+
+---
+
+## 6. Single-Container Multi-Worker Verification (Delegated Subagent Only)
 
 ```bash
-scripts/perf-ladder.sh 1   # baseline row (stack already running)
-scripts/perf-ladder.sh 2   # 2-replica row
-# fill specs/008-bun-perf-scale/ladder-results.md; UNMEASURED needs a cause
+# Verify the Dockerfile.bun image boots cleanly with multi-worker support inside one container
+docker run --rm -d -p 20128:20128 -e KHATAM_WORKERS=2 --name kr-vertical-test khatamrouter:local
+curl -f http://localhost:20128/api/health
+docker stop kr-vertical-test
 ```
+
+---
+
+## 7. Vertical Ladder Benchmark Re-Run
+
+Drive loopback load across ascending worker counts on THIS host:
+
+```bash
+# 1-worker baseline
+scripts/perf-ladder.sh 1 --url http://127.0.0.1:20128 --concurrency 10
+
+# 2-worker scaling
+scripts/perf-ladder.sh 2 --url http://127.0.0.1:20128 --concurrency 20
+
+# 4-worker scaling
+scripts/perf-ladder.sh 4 --url http://127.0.0.1:20128 --concurrency 40
+
+# 6-worker host capacity
+scripts/perf-ladder.sh 6 --url http://127.0.0.1:20128 --concurrency 60
+```
+
+Record results in `specs/008-bun-perf-scale/ladder-results.md`.

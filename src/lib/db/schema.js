@@ -5,14 +5,15 @@
 // to bump only skips that backup — it does NOT break the additive auto-sync.
 export const SCHEMA_VERSION = 5;
 
+// busy_timeout comes first: journal_mode = WAL needs locks that another opener may hold.
 export const PRAGMA_SQL = `
+PRAGMA busy_timeout = 5000;
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
 PRAGMA temp_store = MEMORY;
 PRAGMA mmap_size = 30000000;
 PRAGMA cache_size = -64000;
 PRAGMA foreign_keys = ON;
-PRAGMA busy_timeout = 5000;
 `;
 
 // Compatibility views for snake_case table access

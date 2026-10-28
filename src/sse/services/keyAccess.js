@@ -70,16 +70,10 @@ export function extractClientApiKey(request) {
 }
 
 /**
- * Access context for the request's key, or null when the request is
- * unrestricted (no key, unknown key, or a key whose access is unrestricted).
- * Keys are only authenticated elsewhere (middleware / requireApiKey); this only
- * decides what an identified key may call.
+ * Build access context from an API key record, or null when the key is
+ * unrestricted or record is null/falsy. Pure function without I/O.
  */
-export async function getKeyAccessContext(request) {
-  if (await isTrustedInternalRequest(request)) return null;
-  const apiKey = extractClientApiKey(request);
-  if (!apiKey) return null;
-  const record = await getApiKeyByKey(apiKey);
+export function keyAccessContextFromRecord(record) {
   if (!record) return null;
 
   const hasNewFields =
@@ -113,6 +107,20 @@ export async function getKeyAccessContext(request) {
     allow: record.access?.allow || [],
     _sets: null,
   };
+}
+
+/**
+ * Access context for the request's key, or null when the request is
+ * unrestricted (no key, unknown key, or a key whose access is unrestricted).
+ * Keys are only authenticated elsewhere (middleware / requireApiKey); this only
+ * decides what an identified key may call.
+ */
+export async function getKeyAccessContext(request) {
+  if (await isTrustedInternalRequest(request)) return null;
+  const apiKey = extractClientApiKey(request);
+  if (!apiKey) return null;
+  const record = await getApiKeyByKey(apiKey);
+  return keyAccessContextFromRecord(record);
 }
 
 // Resolve the allow list once per request: combo names, resolved model ids,

@@ -54,15 +54,34 @@ export async function initializeApp() {
     // Register cleanup + exit-respawn callback immediately so signals and
     // unexpected cloudflared exits are handled even during the deferred window.
     if (!g.signalHandlersRegistered) {
-      const cleanup = () => {
+      // Signal ownership lives in custom-server.js (NEXT_MANUAL_SIG_HANDLE) or the cluster worker
+      // lifecycle (KHATAM_WORKER_ROLE). Only a bare next start/dev has no owner and exits here.
+      const lifecycleOwned = !!process.env.KHATAM_WORKER_ROLE || process.env.NEXT_MANUAL_SIG_HANDLE === "true";
+      const doCleanup = () => {
         try { removeAllDNSEntriesSync(); } catch { /* best effort */ }
         try { killAllBridges(); } catch { /* best effort */ }
-        killCloudflared();
-        process.exit();
+        try { killCloudflared(); } catch { /* best effort */ }
       };
-      process.on("SIGINT", cleanup);
-      process.on("SIGTERM", cleanup);
-      process.on("exit", () => { try { removeAllDNSEntriesSync(); } catch { /* ignore */ } });
+      const onSignal = () => {
+        if (!lifecycleOwned) {
+          doCleanup();
+          process.exit();
+        }
+      };
+      process.on("SIGINT", onSignal);
+      process.on("SIGTERM", onSignal);
+      process.on("exit", () => {
+        // Followers share the host with the leader: DNS and the cloudflared pid file are host-wide.
+        // A follower exit only reaps its own stdio bridges.
+        if (process.env.KHATAM_WORKER_ROLE === "worker") {
+          try { killAllBridges(); } catch { /* ignore */ }
+          return;
+        }
+        try { removeAllDNSEntriesSync(); } catch { /* ignore */ }
+        if (lifecycleOwned) {
+          doCleanup();
+        }
+      });
       g.signalHandlersRegistered = true;
     }
 
@@ -79,9 +98,18 @@ export async function initializeApp() {
   }
 }
 
+// Wave 8: in multi-worker mode only the leader (Worker 1) runs daemons. Followers
+// (KHATAM_WORKER_ROLE=worker) skip them; unset = single-process mode = run.
+function isLeaderRole() {
+  const role = process.env.KHATAM_WORKER_ROLE;
+  return role === undefined || role === "" || role === "leader";
+}
+
 async function runHeavyStartup() {
-  await cleanupProviderConnections();
   const settings = await getSettings();
+  // ponytail: followers only warm settings; cleanup and daemons stay leader-only. Upgrade if followers need more per-process setup.
+  if (!isLeaderRole()) return;
+  await cleanupProviderConnections();
 
   // Auto-resume tunnel (once per process)
   if (settings.tunnelEnabled && !g.tunnelAutoResumed) {
