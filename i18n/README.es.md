@@ -1355,7 +1355,7 @@ Notas:
 
 ## 🛠️ Pila tecnológica
 
-- **Runtime**: Bun v1.4.3+ (Node.js ya no es compatible)
+- **Runtime**: Bun v1.4.4+ (Node.js ya no es compatible)
 - **Framework**: Next.js 16
 - **UI**: React 19 + Tailwind CSS 4
 - **Base de datos**: SQLite en modo WAL (exclusivamente vía `bun:sqlite`)

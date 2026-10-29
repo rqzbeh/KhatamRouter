@@ -117,7 +117,7 @@ During the Wave 9 upstream audit, 83 commits from VansRouter and 6 commits from 
 
 ### VansRouter Skipped Commits (83 Commits)
 1. **Release Chores & Version Bumps (32 commits)**: Version tag bumps (`v0.91.62` through `v0.91.81`), package version adjustments, and automated release pipeline triggers.
-2. **pnpm & Containerd Tooling (18 commits)**: Upstream pnpm lockfile updates, pnpm-specific script hooks, and containerd integration harnesses that conflict with KhatamRouter's strict Bun v1.4.3+ and Dockerfile.bun runtime architecture.
+2. **pnpm & Containerd Tooling (18 commits)**: Upstream pnpm lockfile updates, pnpm-specific script hooks, and containerd integration harnesses that conflict with KhatamRouter's strict Bun v1.4.4+ and Dockerfile.bun runtime architecture.
 3. **Pre-Ported Parity (21 commits)**: Capabilities already ported in Wave 7 (VansRouter Parity: 30 new provider registries, specialized executors `agentrouter`/`qwen`/`zcode`/`freebuff`/`muse-spark-web`, LoopGuard, Ponytail prompts, and `listFreeTiers()` catalog derivation).
 4. **Desktop & Packaging Specifics (8 commits)**: Electron/Tauri packaging scripts, tray-menu customizations, and Windows/macOS installer configurations specific to VansRouter distribution.
 5. **Internal Docs & Notes (4 commits)**: Upstream-specific documentation, internal contributor notes, and untracked translation snippets.
