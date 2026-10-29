@@ -74,11 +74,7 @@ export function resolveDefaultDocFiles(rootDir) {
   const docsDir = path.join(rootDir, "docs");
   for (const f of findMarkdownFiles(docsDir, ["images"])) push(f);
 
-  // 4. gitbook/**/*.md (if any)
-  const gitbookDir = path.join(rootDir, "gitbook");
-  for (const f of findMarkdownFiles(gitbookDir)) push(f);
-
-  // 5. cli/**/*.md — the CLI package's own docs (cli/README.md ships to npm)
+  // 4. cli/**/*.md — the CLI package's own docs (cli/README.md ships to npm)
   //    also instruct users how to pull and run the container.
   const cliDir = path.join(rootDir, "cli");
   for (const f of findMarkdownFiles(cliDir, ["node_modules"])) {

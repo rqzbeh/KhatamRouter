@@ -48,7 +48,6 @@
     ".source",
     ".tmp",
     ".claude",
-    "gitbook",
     "cli",
     "tests",
     "open-sse/node_modules"

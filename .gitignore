@@ -70,7 +70,6 @@ deploy*.sh
 ecosystem.config.*
 
 scripts/agSniffer/*
-gitbooks/*
 
 # Refactor backup reference (do not bundle/lint)
 open-sse.old/
