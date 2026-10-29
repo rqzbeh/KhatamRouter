@@ -7,6 +7,10 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "ci"
+    groups:
+      actions:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   # Root has a committed bun.lock, so it uses the bun ecosystem.
   - package-ecosystem: "bun"
@@ -16,6 +20,10 @@ updates:
     open-pull-requests-limit: 10
     commit-message:
       prefix: "deps"
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
     ignore:
       # Major upgrades of the framework/runtime need a coordinated migration.
       - dependency-name: "next"
