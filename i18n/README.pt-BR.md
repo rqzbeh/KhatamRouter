@@ -1436,7 +1436,7 @@ Notas:
 
 ## 🛠️ Pilha de tecnologia
 
-- **Tempo de execução**: Bun v1.4.3+ (Node.js não é mais suportado)
+- **Tempo de execução**: Bun v1.4.4+ (Node.js não é mais suportado)
 - **Estrutura**: Next.js 16
 - **IU**: React 19 + Tailwind CSS 4
 - **Banco de dados**: SQLite em modo WAL (exclusivamente via `bun:sqlite`)

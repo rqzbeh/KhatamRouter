@@ -137,11 +137,12 @@ describe("Wave 7.5: Docker Compose Bun & Redis Configuration (US2 / FR-008..FR-0
       expect(fs.existsSync(dockerfileBunPath)).toBe(true);
     });
 
-    it("both Dockerfile and Dockerfile.bun use oven/bun:1.4.3-slim", () => {
+    it("both Dockerfile and Dockerfile.bun use oven/bun:<.bun-version>-slim", () => {
+      const version = fs.readFileSync(path.join(REPO_ROOT, ".bun-version"), "utf8").trim();
       const df = fs.readFileSync(dockerfilePath, "utf8");
       const dfBun = fs.readFileSync(dockerfileBunPath, "utf8");
-      expect(df).toContain("oven/bun:1.4.3-slim");
-      expect(dfBun).toContain("oven/bun:1.4.3-slim");
+      expect(df).toContain(`oven/bun:${version}-slim`);
+      expect(dfBun).toContain(`oven/bun:${version}-slim`);
     });
 
     it("Dockerfile and Dockerfile.bun are byte-for-byte aligned", () => {
