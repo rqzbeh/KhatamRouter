@@ -5,6 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
+const BUN_VERSION = fs.readFileSync(path.join(__dirname, "../../.bun-version"), "utf8").trim();
+
 let tempDir;
 const originalDataDir = process.env.DATA_DIR;
 
@@ -57,7 +59,7 @@ describe("Driver fallback chain removal — Bun-only contract", () => {
   it("picks bun:sqlite when Bun runtime is present", async () => {
     if (!process.versions.bun) {
       // Mock bun environment & adapter to assert the Bun-only resolution contract
-      process.versions.bun = "1.4.3";
+      process.versions.bun = BUN_VERSION;
       vi.doMock("@/lib/db/adapters/bunSqliteAdapter.js", () => ({
         createBunSqliteAdapter: async () => ({
           driver: "bun:sqlite",
@@ -78,7 +80,7 @@ describe("Driver fallback chain removal — Bun-only contract", () => {
       const db = await getAdapter();
       expect(db.driver).toBe("bun:sqlite");
     } finally {
-      if (process.versions.bun === "1.4.3") delete process.versions.bun;
+      if (process.versions.bun === BUN_VERSION) delete process.versions.bun;
     }
   });
 });

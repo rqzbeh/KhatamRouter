@@ -9,7 +9,7 @@
 ### 前提条件
 
 - Ubuntu 20.04+ または同様のLinuxディストリビューション
-- Bun 1.4.3+ (https://bun.sh)
+- Bun 1.4.4+ (https://bun.sh)
 - Git
 - rootまたはsudoアクセス
 

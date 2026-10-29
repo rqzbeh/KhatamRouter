@@ -30,7 +30,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.3
+          bun-version-file: .bun-version
 
       - name: Install dependencies (root)
         run: |
@@ -61,7 +61,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.3
+          bun-version-file: .bun-version
 
       - name: Install dependencies (root)
         run: |
@@ -108,7 +108,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.3
+          bun-version-file: .bun-version
 
       - name: Install dependencies (root)
         run: |
@@ -132,7 +132,8 @@ jobs:
             unit/db-migration-chain.test.js \
             unit/custom-server-peer-headers.test.js \
             unit/custom-server-h2c.test.js \
-            unit/bun-only-guard.test.js
+            unit/bun-only-guard.test.js \
+            unit/bun-version-consistency.test.js
 
   unit-wave:
     name: Verify / Unit (waves)
@@ -148,7 +149,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.3
+          bun-version-file: .bun-version
 
       - name: Install dependencies (root)
         run: |
@@ -233,6 +234,7 @@ jobs:
             echo "   - \`unit/custom-server-peer-headers.test.js\`"
             echo "   - \`unit/custom-server-h2c.test.js\`"
             echo "   - \`unit/bun-only-guard.test.js\`"
+            echo "   - \`unit/bun-version-consistency.test.js\`"
             echo "4. **Unit (waves)** (\`unit-wave\`):"
             echo "   - \`unit/wave1-bun-ts-redis-sqlite.test.js\`"
             echo "   - \`unit/wave2-migrations.test.js\`"

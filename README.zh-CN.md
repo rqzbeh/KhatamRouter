@@ -104,7 +104,7 @@ Claude Code/Codex/OpenClaw/Cursor/Cline 设置：
 
 **替代方案：从源码运行（严格要求 Bun）：**
 
-本仓库严格要求 **Bun v1.4.3+** 运行时（不再支持 Node.js），基于原生 `bun:sqlite` WAL 模式引擎。
+本仓库严格要求 **Bun v1.4.4+** 运行时（不再支持 Node.js），基于原生 `bun:sqlite` WAL 模式引擎。
 
 ```bash
 cp .env.example .env
@@ -1237,7 +1237,7 @@ docker stop 9router && docker rm 9router
 
 ## 🛠️ 技术栈
 
-- **运行时**：严格要求 Bun v1.4.3+（不再支持 Node.js）
+- **运行时**：严格要求 Bun v1.4.4+（不再支持 Node.js）
 - **框架**：Next.js 16（Webpack 打包）
 - **UI**：React 19 + Tailwind CSS 4
 - **数据库**：SQLite WAL 模式（严格基于 `bun:sqlite`）

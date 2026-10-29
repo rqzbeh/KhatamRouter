@@ -1,7 +1,7 @@
 # KhatamRouter Performance & Vertical Scaling Guide
 
 > **Status**: Implemented on branch `wave8/vertical-scale`, pending merge.  
-> **Target Runtime**: Bun 1.4.3 on Linux x86_64 / arm64.  
+> **Target Runtime**: Bun 1.4.4 on Linux x86_64 / arm64.  
 > **Scope**: Strictly **vertical scaling on a single Bun host** (multi-core / multi-process via Bun `node:cluster`). Horizontal multi-replica container overlays and Nginx reverse proxies were formally reverted in PR #77 and are **not** part of KhatamRouter architecture.
 
 ---
@@ -12,7 +12,7 @@ KhatamRouter is an OpenAI-compatible AI routing gateway (`/v1/*`) and Next.js co
 
 Wave 8 delivers:
 1. **Hot-Path In-Process Slimming (US1)**: Re-landed process-level TTL caches, bounded LRU combo caching, module-load `Map` indexing for model lookups, regex memoization, request-scoped key context reuse, and SQLite `db.immediate(...)` (`BEGIN IMMEDIATE`) transaction write serialization. Database queries dropped by **29.08%** (15.20 → 10.78 queries/req), and tail latency (p95) dropped by **47.96%** (4.93 ms → 2.56 ms). Median latency (p50) improved by **25.67%** (1.35 ms → 1.00 ms), which **misses** the Research D7 target of $\ge 35\%$ reduction. The cause of the remaining p50 time is not profiled.
-2. **Multi-Process Vertical Cluster Runtime (US2)**: Utilizes all available host CPU cores via Bun 1.4.3 native `node:cluster` kernel port sharing. A primary supervisor manages $N$ worker processes that each bind their own `SO_REUSEPORT` socket on port 20128. Includes the canonical host-sizing formula `Math.max(1, nproc - 2)` (configurable via `KHATAM_WORKERS`), one-time supervisor startup migrations (`KHATAM_MIGRATIONS_DONE=1`), single-leader daemons (`KHATAM_WORKER_ROLE === "leader"`), IPC cache invalidation without Redis / Redis Pub/Sub with it, graceful connection drain on `SIGTERM` (30s timeout), and crash backoff. Forwarding headers (`X-Forwarded-For`) remain strictly trusted from loopback addresses only; no `TRUSTED_PROXY_CIDRS` exists.
+2. **Multi-Process Vertical Cluster Runtime (US2)**: Utilizes all available host CPU cores via Bun 1.4.4 native `node:cluster` kernel port sharing. A primary supervisor manages $N$ worker processes that each bind their own `SO_REUSEPORT` socket on port 20128. Includes the canonical host-sizing formula `Math.max(1, nproc - 2)` (configurable via `KHATAM_WORKERS`), one-time supervisor startup migrations (`KHATAM_MIGRATIONS_DONE=1`), single-leader daemons (`KHATAM_WORKER_ROLE === "leader"`), IPC cache invalidation without Redis / Redis Pub/Sub with it, graceful connection drain on `SIGTERM` (30s timeout), and crash backoff. Forwarding headers (`X-Forwarded-For`) remain strictly trusted from loopback addresses only; no `TRUSTED_PROXY_CIDRS` exists.
 3. **Vertical Performance Ladder (US3)**: On an 8-logical-CPU WSL2 host with an in-process zero-latency mock upstream, throughput scaled from **238.3 req/s** (1 worker, 100% efficiency) to **361.3 req/s** (2 workers, 75.8% efficiency), **453.7 req/s** (4 workers, 47.6% efficiency), and **494.6 req/s** (6 workers, 34.6% efficiency). Throughput flattens beyond 2 workers; scaling is **not linear**.
 
 ---
@@ -97,7 +97,7 @@ KhatamRouter scales vertically on a single host by running multiple operating sy
 
 ### 3.2 Bun `SO_REUSEPORT` Reality (Not Round-Robin)
 
-1. **Kernel Port Sharing**: Under Bun 1.4.3, `node:cluster` intercepts `server.listen()` in worker processes. Each worker process binds its **own `SO_REUSEPORT` socket** to the configured port (`PORT`, default `20128`).
+1. **Kernel Port Sharing**: Under Bun 1.4.4, `node:cluster` intercepts `server.listen()` in worker processes. Each worker process binds its **own `SO_REUSEPORT` socket** to the configured port (`PORT`, default `20128`).
 2. **No Master Socket Passing**: Bun does **not** implement Node's master socket passing and does **not** implement `SCHED_RR` connection handoff. `cluster.schedulingPolicy` is ignored by Bun at runtime.
 3. **4-Tuple Kernel Hashing**: The Linux kernel distributes incoming TCP connections across listening workers using a hash over `(src_ip, src_port, dst_ip, dst_port)`. Distribution is balanced over many independent connections, but is **not guaranteed round-robin**. Keep-alive connections remain with the worker that accepted the TCP socket.
 4. **Primary Does Not Listen**: The primary supervisor never opens a listening socket; it manages process lifecycles and routes IPC messages.

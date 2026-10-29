@@ -8,7 +8,7 @@
 
 ### 系统要求
 
-- **Bun**:版本 1.4.3 或更高(https://bun.sh)
+- **Bun**:版本 1.4.4 或更高(https://bun.sh)
 - **OS**:macOS、Linux、Windows(推荐 WSL)
 - **磁盘空间**:安装约需 200MB
 

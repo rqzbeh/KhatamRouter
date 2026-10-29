@@ -221,7 +221,7 @@ docker run --rm -p 20128:20128 \
   khatamrouter
 ```
 
-Source builds use `Dockerfile.bun`, the same file CI publishes from. It pins `oven/bun:1.4.3-slim` and installs from the official Debian and npm registries.
+Source builds use `Dockerfile.bun`, the same file CI publishes from. It pins `oven/bun:1.4.4-slim` and installs from the official Debian and npm registries.
 
 ## Publish (automatic via CI)
 

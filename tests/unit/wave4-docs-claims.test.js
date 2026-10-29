@@ -423,7 +423,7 @@ describe("Wave 4: Docs claims verifier (scripts/verify-docs-claims.mjs)", () => 
     const fixtureDir = createTempFixture({
       "open-sse/rtk/constants.js": `export const RAW_CAP = 10 * 1024 * 1024; // 10 MiB\n`,
       "custom-server.js": `const MAX_H2C_BODY_BYTES = 64 * 1024 * 1024;\nconst ENDPOINT_PORT = 20129;\n`,
-      "Dockerfile.bun": `FROM oven/bun:1.4.3-slim\n`,
+      "Dockerfile.bun": `FROM oven/bun:1.4.4-slim\n`,
       ".env.example": `DATA_DIR=/app/data\nPORT=20128\n`,
       "README.md": `# Overview\n\n| Variable | Default |\n| --- | --- |\n| \`DATA_DIR\` | \`/app/data\` |\n\n| Feature | Status | Notes |\n| --- | :---: | --- |\n| **Native Runtime** | 🟢 Shipped | Built with \`Dockerfile.bun\` |\n`,
       "ROADMAP.md": `# Roadmap\n\n- Token saver with a 10 MiB ceiling in \`open-sse/rtk/constants.js\`.\n- Chunked stream 64 MiB ceiling in \`custom-server.js\`.\n\nNotice: port 20129 is reserved.\n`,

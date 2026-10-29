@@ -8,7 +8,7 @@ Hướng dẫn cài đặt chi tiết cho 9Router với mẹo troubleshooting.
 
 ### Yêu cầu hệ thống
 
-- **Bun**: Phiên bản 1.4.3 trở lên (https://bun.sh)
+- **Bun**: Phiên bản 1.4.4 trở lên (https://bun.sh)
 - **OS**: macOS, Linux, Windows (khuyên dùng WSL)
 - **Dung lượng**: ~200MB để cài đặt
 
@@ -16,7 +16,7 @@ Hướng dẫn cài đặt chi tiết cho 9Router với mẹo troubleshooting.
 
 ```bash
 bun --version
-# Should show 1.4.3 or higher
+# Should show 1.4.4 or higher
 
 ```
 
