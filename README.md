@@ -9,15 +9,15 @@ For implementation status and milestones, see [ROADMAP.md](./ROADMAP.md). For re
 KhatamRouter is initialized from decolua/9router and adapts provider definitions and stateless executors from Vanszs/VansRouter. The differences below are from this repository's code.
 
 - **Bun-only runtime**: Runs strictly on Bun. The Node fallback drivers (`better-sqlite3`, `node:sqlite`, `sql.js`) are removed, and startup throws outside Bun (`src/lib/db/driver.js:24-25`). Upstream 9router keeps a multi-driver fallback chain (`src/lib/db/adapters/betterSqliteAdapter.js` exists upstream). VansRouter declares `engines.node` and uses pnpm.
-- **Native SQLite with WAL**: Persistence uses `bun:sqlite` with `journal_mode = WAL` and `busy_timeout = 5000` (`src/lib/db/adapters/bunSqliteAdapter.js:11-12`).
+- **Bun-native SQLite**: Persistence uses `bun:sqlite` exclusively (`src/lib/db/adapters/bunSqliteAdapter.js`), replacing the multi-driver Node fallback used by upstream.
 - **Multi-process vertical scaling**: A `node:cluster` supervisor runs one worker per core, sized by `KHATAM_WORKERS` (default `max(1, nproc - 2)`, `src/lib/cluster/supervisor.js:20-33`). Neither 9router nor VansRouter uses `node:cluster`.
 - **Optional Redis**: Redis provides pub/sub events (`src/lib/redis/events.js`) and the login limiter's shared state (`src/lib/auth/loginLimiter.js`). Without `REDIS_URL`, the gateway uses SQLite and per-process state. Upstream has no Redis code. VansRouter keeps rotation and failure state in in-process `Map`s (`open-sse/services/combo.js:141`).
 - **Hot-path caches**: Alias, combo, and node lookups use 5-second in-memory caches with invalidation on writes (`src/lib/db/repos/aliasRepo.js:14`, `src/lib/db/repos/combosRepo.js:10`, `src/lib/db/repos/nodesRepo.js:10`). Neither upstream project has these constants.
 - **Atomic shared secrets**: The session secret and machine ID are published with a temp file and hard link, so only one worker's value wins (`src/shared/utils/secretFile.js:9-26`). Used by `src/lib/auth/dashboardSession.js:22` and `src/shared/utils/machineId.js:31`.
-- **Request ingestion hardening**: `custom-server.js` rejects requests that combine `Content-Length` and `Transfer-Encoding` (`custom-server.js:310`) and caps chunked bodies at 64 MiB (`custom-server.js:164`).
+- **Request ingestion hardening** (adapted from VansRouter): `custom-server.js` rejects requests that combine `Content-Length` and `Transfer-Encoding` and caps chunked bodies at 64 MiB.
 - **Opt-in capability guard**: Image requests can be refused when no combo target confirms vision support, enabled with `KHATAM_MODEL_CAPABILITY_GUARD=1` (`src/domain/requestCapabilities.js:16`, `open-sse/services/combo.js:525`).
 - **Per-key quotas and cost ledger**: Per-key spend caps and a `request_cost_ledger` table (`src/domain/keyQuota.js`, `src/lib/db/keyQuota.js`). Not present in upstream or VansRouter.
-- **Stateless executors and LoopGuard**: Executors for AgentRouter, Qwen, ZCode, Freebuff, and MuseSparkWeb (`open-sse/executors/`), plus opt-in sliding-window loop detection (`open-sse/utils/loopGuard.js`, off by default via `loopGuardEnabled`, `src/lib/db/repos/settingsRepo.js:71`). Adapted from VansRouter.
+- **Specialized executors and LoopGuard**: Executors for AgentRouter, Qwen, ZCode, Freebuff, and MuseSparkWeb (`open-sse/executors/`), plus opt-in sliding-window loop detection (`open-sse/utils/loopGuard.js`, off by default via `loopGuardEnabled`, `src/lib/db/repos/settingsRepo.js:71`). Adapted from VansRouter.
 - **Tests and claim checks**: Vitest suite run under Bun, plus `scripts/verify-docs-claims.mjs`, which checks docs against code.
 
 ## Quick Start
@@ -28,7 +28,7 @@ KhatamRouter is initialized from decolua/9router and adapts provider definitions
 docker compose up -d
 ```
 
-`docker-compose.yml` builds the image locally from `Dockerfile.bun`, starts Redis 8.2 alongside it, and publishes the gateway on port `20128`. The dashboard is at `http://localhost:20128/dashboard`. See [DOCKER.md](./DOCKER.md) for standalone containers and volumes.
+`docker-compose.yml` builds the image locally from `Dockerfile.bun`, starts Redis alongside it, and publishes the gateway on port `20128`. The dashboard is at `http://localhost:20128/dashboard`. See [DOCKER.md](./DOCKER.md) for standalone containers and volumes.
 
 ### From Source
 
@@ -47,13 +47,9 @@ PORT=20128 bun run start:bun
 
 ### CLI Package
 
-```bash
-bun add -g 9router   # or: bunx 9router
-```
+The `cli/` directory contains an independent CLI launcher. Build it locally with `cd cli && bun run build`, then run from `cli/app/`. Global install via a future KhatamRouter-specific package is planned.
 
-Bun fetches the `9router` package from the npm registry. That package is maintained upstream, so it is not built from this repository's `cli/` directory.
-
-Release notes and tagged releases are listed on [GitHub Releases](https://github.com/rqzbeh/KhatamRouter/releases) and in [CHANGELOG.md](./CHANGELOG.md).
+Release history is in [CHANGELOG.md](./CHANGELOG.md).
 
 ## Configuration
 
@@ -75,8 +71,8 @@ The full list is in [`.env.example`](./.env.example).
 
 ## Connecting Clients
 
-- **Base URL**: `http://localhost:20128/v1`
-- **Dashboard**: `http://localhost:20128/dashboard`
+- **Base URL**: `http://localhost:20128/v1` (production/start) or `http://localhost:20127/v1` (dev)
+- **Dashboard**: `http://localhost:20128/dashboard` (or port `20127` in dev mode)
 - **API keys**: Created on the dashboard's Endpoint page (`src/app/(dashboard)/dashboard/endpoint/`).
 
 ```bash
@@ -99,7 +95,7 @@ Any OpenAI-compatible client can use the base URL. Provider definitions live in 
 
 ## Credits and Lineage
 
-- **[decolua/9router](https://github.com/decolua/9router)**: KhatamRouter is initialized from 9router v0.5.104 and ports later upstream releases. The routing engine, dashboard, provider interfaces, and CLI originate there. MIT License.
+- **[decolua/9router](https://github.com/decolua/9router)**: KhatamRouter is initialized from 9router and ports later upstream releases. The routing engine, dashboard, provider interfaces, and CLI originate there. MIT License.
 - **[Vanszs/VansRouter](https://github.com/Vanszs/VansRouter)**: Provider definitions, stateless executors, LoopGuard, and free-tier discovery were adapted from VansRouter to this Bun-only, Redis-optional architecture. KhatamRouter does not share git history with VansRouter. MIT License.
 
 Both projects are MIT-licensed. The copyright notice is preserved in [LICENSE](./LICENSE): Copyright (c) 2024-2026 decolua and contributors.
