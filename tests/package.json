@@ -10,7 +10,7 @@
     "postinstall": "bun ./__baseline__/setup-bun-vitest.mjs"
   },
   "devDependencies": {
-    "vitest": "^4.1.12"
+    "vitest": "^5"
   },
   "engines": {
     "bun": ">=1.4.4"

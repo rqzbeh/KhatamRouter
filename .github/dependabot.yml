@@ -24,23 +24,32 @@ updates:
       minor-and-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
-    ignore:
-      # Major upgrades of the framework/runtime need a coordinated migration.
-      - dependency-name: "next"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "react"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "react-dom"
-        update-types: ["version-update:semver-major"]
 
-  # cli/ has no committed lockfile, so the bun ecosystem has nothing to scan. Stays npm.
-  - package-ecosystem: "npm"
+  # cli/ has a committed bun.lock, so it uses the bun ecosystem.
+  - package-ecosystem: "bun"
     directory: "/cli"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
     commit-message:
       prefix: "deps(cli)"
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # tests/ has a committed bun.lock, so it uses the bun ecosystem.
+  - package-ecosystem: "bun"
+    directory: "/tests"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(tests)"
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: "docker"
     directory: "/"
