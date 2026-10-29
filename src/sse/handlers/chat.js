@@ -23,6 +23,7 @@ import { detectFormatByEndpoint } from "open-sse/translator/formats.js";
 import { resolveSessionIdentity } from "open-sse/utils/sessionManager.js";
 import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
+import { isLeaseConnection } from "open-sse/services/minimaxCodeLease.js";
 import { getProjectIdForConnection } from "open-sse/services/projectId.js";
 import { stripModelContextMarker } from "open-sse/utils/modelMarkers.js";
 import {
@@ -511,11 +512,20 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       // Detect source format by endpoint + body
       sourceFormatOverride: request?.url ? detectFormatByEndpoint(new URL(request.url).pathname, body) : null,
       onCredentialsRefreshed: async (newCreds) => {
-        await updateProviderCredentials(credentials.connectionId, {
-          ...newCreds,
-          existingProviderSpecificData: credentials.providerSpecificData,
-          testStatus: "active"
-        });
+        const isLease = newCreds?.ephemeral || isLeaseConnection(credentials);
+        const credsToPersist = isLease
+          ? {
+              testStatus: "active",
+              authType: credentials.authType,
+              existingProviderSpecificData: credentials.providerSpecificData,
+              ephemeral: true,
+            }
+          : {
+              ...newCreds,
+              existingProviderSpecificData: credentials.providerSpecificData,
+              testStatus: "active",
+            };
+        await updateProviderCredentials(credentials.connectionId, credsToPersist);
       },
       onRequestSuccess: async () => {
         await clearAccountError(credentials.connectionId, credentials, model);

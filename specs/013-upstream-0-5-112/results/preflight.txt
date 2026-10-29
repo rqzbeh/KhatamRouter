@@ -1,0 +1,25 @@
+=== Bun Version ===
+1.4.3
+
+=== Git Status Summary ===
+ M .unlazy/013-upstream-0-5-112/GATES.md
+ M open-sse/executors/default.js
+ M open-sse/providers/registry/codebuddy-cn.js
+ M open-sse/providers/registry/codebuddy-intl.js
+ M open-sse/translator/formats/gemini.js
+ M specs/013-upstream-0-5-112/tasks.md
+ M src/shared/utils/bulkAdd.js
+ M tests/unit/bulk-add-names.test.js
+ M tests/unit/codex-gpt6-lite.test.js
+?? specs/013-upstream-0-5-112/results/
+?? tests/unit/codebuddy-channel-headers.test.js
+?? tests/unit/gemini-schema-array-items-predicate.test.js
+?? tests/unit/nonstream-sse-error.test.js
+?? tests/unit/qoder-frontier-models.test.js
+
+=== Baseline Verifier Outputs ===
+✅ Alias resolution byte-for-byte equal (132 tokens).
+✅ PROVIDERS byte-for-byte equal (126 providers).
+✅ OAuth URLs byte-for-byte equal.
+
+T001_PASS

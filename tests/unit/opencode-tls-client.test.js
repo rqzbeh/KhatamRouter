@@ -244,4 +244,67 @@ describe("opencodeTlsClient", () => {
       ).rejects.toThrow(/opencodeTlsFetch refused/);
     });
   });
+
+  describe("upstream v0.5.112 OpenCode & Docker parity invariants (e70ea24d, 3b7acf72)", () => {
+    it("proves wreq-js is in optionalDependencies and copied into standalone runner layout", async () => {
+      const fs = await import("node:fs");
+      const path = await import("node:path");
+      const rootDir = path.resolve(__dirname, "../..");
+      const pkgJson = JSON.parse(fs.readFileSync(path.join(rootDir, "package.json"), "utf8"));
+      expect(pkgJson.optionalDependencies).toHaveProperty("wreq-js");
+
+      const dockerfile = fs.readFileSync(path.join(rootDir, "Dockerfile"), "utf8");
+      expect(dockerfile).toContain("COPY --from=builder /app/node_modules/wreq-js ./node_modules/wreq-js");
+      expect(dockerfile).toContain("COPY --from=builder /app/node_modules/@wreq-js ./node_modules/@wreq-js");
+      expect(dockerfile).toContain("wreq-js runner smoke: OK");
+    });
+
+    it("proves zero lazyRuntime imports or references exist in open-sse or src", async () => {
+      const fs = await import("node:fs");
+      const path = await import("node:path");
+      const rootDir = path.resolve(__dirname, "../..");
+
+      function findFiles(dir, matchExts = [".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx"]) {
+        const results = [];
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            results.push(...findFiles(full, matchExts));
+          } else if (matchExts.some((ext) => entry.name.endsWith(ext))) {
+            results.push(full);
+          }
+        }
+        return results;
+      }
+
+      const targets = [
+        ...findFiles(path.join(rootDir, "open-sse")),
+        ...findFiles(path.join(rootDir, "src")),
+      ];
+      expect(targets.length).toBeGreaterThan(50);
+
+      for (const filePath of targets) {
+        const content = fs.readFileSync(filePath, "utf8");
+        expect(content).not.toMatch(/lazyRuntime/i);
+      }
+    });
+
+    it("proves Dockerfile and Dockerfile.bun carry no runtime package-manager install or /opt/lazy-runtime", async () => {
+      const fs = await import("node:fs");
+      const path = await import("node:path");
+      const rootDir = path.resolve(__dirname, "../..");
+
+      const dockerfile = fs.readFileSync(path.join(rootDir, "Dockerfile"), "utf8");
+      const dockerfileBun = fs.readFileSync(path.join(rootDir, "Dockerfile.bun"), "utf8");
+
+      expect(dockerfile).not.toMatch(/\/opt\/lazy-runtime/);
+      expect(dockerfile).not.toMatch(new RegExp("npm" + " install"));
+      expect(dockerfileBun).not.toMatch(/\/opt\/lazy-runtime/);
+      expect(dockerfileBun).not.toMatch(new RegExp("npm" + " install"));
+
+      // Byte-identical contract
+      expect(dockerfile).toBe(dockerfileBun);
+    });
+  });
 });

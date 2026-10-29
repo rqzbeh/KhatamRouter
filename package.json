@@ -1,6 +1,6 @@
 {
   "name": "9router-app",
-  "version": "0.5.111",
+  "version": "0.5.112",
   "description": "KhatamRouter web dashboard",
   "private": true,
   "packageManager": "bun@1.4.4",

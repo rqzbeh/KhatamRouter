@@ -111,3 +111,57 @@ describe("planBulkAdd: robustness", () => {
     expect(out[0].name).toBe("Key 1");
   });
 });
+
+describe("planBulkAdd: opaque LLM|id|secret tokens", () => {
+  it("treats LLM|id|secret as one opaque token, not name|key", () => {
+    const line = "LLM|1412752987604207|PYVRCdb9ZAnsZZk63RBlNQzApKk";
+    const out = planBulkAdd([line], []);
+    expect(out[0].name).toBe("LLM 1");
+    expect(out[0].apiKey).toBe(line);
+  });
+
+  it("treats lowercase llm|... as opaque too", () => {
+    const line = "llm|1412752987604207|PYVRCdb9ZAnsZZk63RBlNQzApKk";
+    const out = planBulkAdd([line], []);
+    expect(out[0].name).toBe("LLM 1");
+    expect(out[0].apiKey).toBe(line);
+  });
+
+  it("treats mixed-case Llm|... as opaque", () => {
+    const line = "Llm|abc-123|secret-xyz";
+    const out = planBulkAdd([line], []);
+    expect(out[0].name).toBe("LLM 1");
+    expect(out[0].apiKey).toBe(line);
+  });
+
+  it("preserves leading/trailing whitespace around LLM token", () => {
+    const raw = "   LLM|id123|secret456   ";
+    const out = planBulkAdd([raw], []);
+    expect(out[0].name).toBe("LLM 1");
+    expect(out[0].apiKey).toBe("LLM|id123|secret456");
+  });
+
+  it("gap-fills LLM 1..N against existing LLM names", () => {
+    const line1 = "LLM|id1|secret1";
+    const line2 = "LLM|id2|secret2";
+    const out = planBulkAdd([line1, line2], ["LLM 1", "LLM 3"]);
+    expect(out.map(o => o.name)).toEqual(["LLM 2", "LLM 4"]);
+    expect(out[0].apiKey).toBe(line1);
+    expect(out[1].apiKey).toBe(line2);
+  });
+
+  it("cloudflare mode still parses name|key|accountId", () => {
+    const out = planBulkAdd(["main|sk-key1|acc123"], [], { isCloudflareAi: true });
+    expect(out[0].name).toBe("main 1");
+    expect(out[0].apiKey).toBe("sk-key1");
+    expect(out[0].providerSpecificData).toEqual({ accountId: "acc123" });
+  });
+
+  it("cloudflare mode with LLM prefix does not treat as opaque single token", () => {
+    const out = planBulkAdd(["LLM|sk-key1|acc123"], [], { isCloudflareAi: true });
+    expect(out[0].name).toBe("LLM 1");
+    expect(out[0].apiKey).toBe("sk-key1");
+    expect(out[0].providerSpecificData).toEqual({ accountId: "acc123" });
+  });
+});
+

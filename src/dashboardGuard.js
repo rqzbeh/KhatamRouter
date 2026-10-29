@@ -52,6 +52,8 @@ const ALWAYS_PROTECTED = [
   "/api/oauth/cursor/auto-import",
   "/api/oauth/kiro/auto-import",
   "/api/oauth/zed/auto-import",
+  "/api/oauth/minimax-code/lease",
+  "/api/oauth/minimax-code-global/lease",
 ];
 
 // Require auth, but allow through if requireLogin is disabled
@@ -89,6 +91,8 @@ const LOCAL_ONLY_PATHS = [
   "/api/oauth/cursor/auto-import",
   "/api/oauth/kiro/auto-import",
   "/api/oauth/zed/auto-import",
+  "/api/oauth/minimax-code/lease",
+  "/api/oauth/minimax-code-global/lease",
   "/api/auth/reset-password",
   "/api/headroom/start",
   "/api/headroom/stop",
@@ -103,6 +107,7 @@ const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 function isLoopbackHostname(h) {
   if (!h) return false;
   let name = String(h).trim().toLowerCase();
+  if (name.endsWith(".")) name = name.slice(0, -1);
   if (name.startsWith("[")) {
     const end = name.indexOf("]");
     if (end === -1) return false;
@@ -110,13 +115,21 @@ function isLoopbackHostname(h) {
   } else if (name.indexOf(":") !== -1 && name.indexOf(":") === name.lastIndexOf(":")) {
     name = name.slice(0, name.indexOf(":"));
   }
-  if (name.startsWith("::ffff:")) name = name.slice(7);
-  return LOOPBACK_HOSTS.has(name);
+  if (name.startsWith("::ffff:")) {
+    name = name.slice(7);
+    if (name.includes(":")) name = name.split(":")[0];
+  }
+  if (LOOPBACK_HOSTS.has(name)) return true;
+  if (/^127(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/.test(name)) return true;
+  return false;
 }
 
 function isLoopbackPeer(request) {
   if (hasTrustedPeerHeaders(request)) {
     return isLoopbackHostname(request.headers.get("x-9r-real-ip"));
+  }
+  if (request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip")) {
+    return false;
   }
   // Bare `next dev` forks its server, so the wrapper never loads and no peer address
   // reaches us. Host is spoofable, so this stays confined to development.
@@ -130,6 +143,11 @@ export function isLocalRequest(request) {
   // Stamped by custom-server.js when forwarding headers exist: request came through
   // a reverse proxy, so the loopback socket is the proxy hop, not the end-user.
   if (request.headers.get("x-9r-via-proxy")) return false;
+  if (!hasTrustedPeerHeaders(request)) {
+    if (request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip")) {
+      return false;
+    }
+  }
   if (!isLoopbackPeer(request)) return false;
   const origin = request.headers.get("origin");
   if (origin) {
@@ -202,39 +220,69 @@ function isPublicApi(pathname) {
 // Shared with src/proxy.js — the mimo login branch must respect dashboard auth.
 export { isAuthenticated };
 
+function normalizePathname(raw) {
+  if (!raw) return "/";
+  let p = String(raw).split("?")[0].split("#")[0];
+  try {
+    p = decodeURIComponent(p);
+    try { p = decodeURIComponent(p); } catch {}
+  } catch {
+    try { p = decodeURI(p); } catch {}
+  }
+  p = p.toLowerCase().replace(/\/+/g, "/");
+  return p.length > 1 && p.endsWith("/") ? p.slice(0, -1) : p;
+}
+
+function pathMatches(candidate, prefix) {
+  if (!candidate || !prefix) return false;
+  if (candidate === prefix || candidate.startsWith(prefix)) return true;
+  const normPrefix = prefix.length > 1 && prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
+  return candidate === normPrefix || candidate.startsWith(normPrefix);
+}
+
 export const __test__ = {
   isLocalRequest,
+  isLoopbackHostname,
+  isLoopbackPeer,
   isPublicLlmApi,
   extractApiKey,
   canAccessPublicLlmApi,
   canAccessLocalOnlyRoute,
+  normalizePathname,
 };
 
 export async function proxy(request) {
-  const { pathname } = request.nextUrl;
+  const rawPath = request.nextUrl?.pathname || "";
+  const pathname = normalizePathname(rawPath);
+
+  const isMatching = (list) =>
+    list.some((p) => pathMatches(pathname, p) || pathMatches(rawPath, p));
 
   // Local-only gate for spawn-capable / host-secret routes.
-  if (LOCAL_ONLY_PATHS.some((p) => pathname.startsWith(p))) {
+  if (isMatching(LOCAL_ONLY_PATHS)) {
     if (!(await canAccessLocalOnlyRoute(request))) {
       return NextResponse.json({ error: "Local only: CLI token required" }, { status: 403 });
     }
   }
 
   // Always protected - require valid JWT or local CLI token (machineId-based)
-  if (ALWAYS_PROTECTED.some((p) => pathname.startsWith(p))) {
+  if (isMatching(ALWAYS_PROTECTED)) {
     if (await hasValidCliToken(request) || await hasValidToken(request))
       return NextResponse.next();
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (isPublicLlmApi(pathname)) {
+  // Allow decisions use the RAW path only: the decoded/lowercased form exists to widen
+  // the protected (deny) matches above, and must never turn an encoded path such as
+  // /api/auth/login%2f..%2fsettings into a public-prefix match.
+  if (isPublicLlmApi(rawPath)) {
     if (await canAccessPublicLlmApi(request)) return NextResponse.next();
     return NextResponse.json({ error: "API key required for remote API access" }, { status: 401 });
   }
 
   // Deny-by-default for /api/* — public allow-list bypasses, everything else requires auth.
-  if (pathname.startsWith("/api/")) {
-    if (isPublicApi(pathname)) return NextResponse.next();
+  if (pathname.startsWith("/api/") || pathname === "/api" || rawPath.startsWith("/api/")) {
+    if (isPublicApi(rawPath)) return NextResponse.next();
     if (await hasValidCliToken(request) || await isAuthenticated(request))
       return NextResponse.next();
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

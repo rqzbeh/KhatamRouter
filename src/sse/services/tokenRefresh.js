@@ -27,6 +27,7 @@ import {
   refreshProviderCredentials as _refreshProviderCredentials,
   shouldRefreshCredentials as _shouldRefreshCredentials,
 } from "open-sse/services/oauthCredentialManager.js";
+import { isLeaseConnection } from "open-sse/services/minimaxCodeLease.js";
 
 export const TOKEN_EXPIRY_BUFFER_MS = BUFFER_MS;
 
@@ -166,22 +167,36 @@ function _refreshProjectId(provider, connectionId, accessToken) {
  */
 export async function updateProviderCredentials(connectionId, newCredentials) {
   try {
+    let isLease = newCredentials?.ephemeral === true || isLeaseConnection(newCredentials);
+    if (!isLease && connectionId) {
+      try {
+        const conn = await getProviderConnectionById(connectionId);
+        if (isLeaseConnection(conn)) {
+          isLease = true;
+        }
+      } catch {
+        // fail-safe
+      }
+    }
+
     const updates = {};
 
-    if (newCredentials.accessToken)         updates.accessToken  = newCredentials.accessToken;
-    if (newCredentials.refreshToken)        updates.refreshToken = newCredentials.refreshToken;
-    if (newCredentials.apiKey)              updates.apiKey       = newCredentials.apiKey;
-    if (newCredentials.idToken)             updates.idToken = newCredentials.idToken;
-    if (newCredentials.lastRefreshAt)       updates.lastRefreshAt = newCredentials.lastRefreshAt;
-    if (newCredentials.expiresAt)           updates.expiresAt = newCredentials.expiresAt;
-    if (newCredentials.expiresIn) {
-      updates.expiresAt = toExpiresAt(newCredentials.expiresIn);
-      updates.expiresIn = newCredentials.expiresIn;
-    } else if (newCredentials.expiresAt) {
-      const expiresAt = normalizeExpiresAt(newCredentials.expiresAt);
-      if (expiresAt) {
-        updates.expiresAt = expiresAt;
-        updates.expiresIn = Math.max(1, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000));
+    if (!isLease) {
+      if (newCredentials.accessToken)         updates.accessToken  = newCredentials.accessToken;
+      if (newCredentials.refreshToken)        updates.refreshToken = newCredentials.refreshToken;
+      if (newCredentials.apiKey)              updates.apiKey       = newCredentials.apiKey;
+      if (newCredentials.idToken)             updates.idToken = newCredentials.idToken;
+      if (newCredentials.lastRefreshAt)       updates.lastRefreshAt = newCredentials.lastRefreshAt;
+      if (newCredentials.expiresAt)           updates.expiresAt = newCredentials.expiresAt;
+      if (newCredentials.expiresIn) {
+        updates.expiresAt = toExpiresAt(newCredentials.expiresIn);
+        updates.expiresIn = newCredentials.expiresIn;
+      } else if (newCredentials.expiresAt) {
+        const expiresAt = normalizeExpiresAt(newCredentials.expiresAt);
+        if (expiresAt) {
+          updates.expiresAt = expiresAt;
+          updates.expiresIn = Math.max(1, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000));
+        }
       }
     }
     if (newCredentials.providerSpecificData) {
@@ -198,6 +213,11 @@ export async function updateProviderCredentials(connectionId, newCredentials) {
       };
     }
     if (newCredentials.projectId)            updates.projectId = newCredentials.projectId;
+    if (newCredentials.testStatus)           updates.testStatus = newCredentials.testStatus;
+
+    if (Object.keys(updates).length === 0) {
+      return true;
+    }
 
     const result = await updateProviderConnection(connectionId, updates);
     log.info("TOKEN_REFRESH", "Credentials updated in localDb", {
