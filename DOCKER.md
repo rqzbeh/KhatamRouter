@@ -6,6 +6,14 @@ Run KhatamRouter in a container. Published image: [`ghcr.io/rqzbeh/khatamrouter`
 
 # 👤 For Users
 
+## Quick start: prebuilt image (nothing to build)
+
+```bash
+docker compose -f docker-compose-prod.yml up -d
+```
+
+`docker-compose-prod.yml` pulls `ghcr.io/rqzbeh/khatamrouter:edge`, the image CI publishes from every green `master`, and starts it with Redis and the Headroom sidecar. The dashboard is at `http://localhost:20128/dashboard`. Set `KHATAM_IMAGE` to pin a specific tag instead of `edge`. Put `JWT_SECRET`, `API_KEY_SECRET` and `INITIAL_PASSWORD` in a `.env` next to the file (see `.env.example`).
+
 ## Docker Compose (Recommended Default Stack)
 
 The repo provides a production-ready `docker-compose.yml` that boots KhatamRouter built via `Dockerfile.bun` with a local `redis:8.2-alpine` instance and the Headroom token compression sidecar:
