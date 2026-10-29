@@ -33,10 +33,10 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v5
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: 24
+          bun-version: 1.4.3
 
       - name: Configure GitHub Pages
         id: pages
@@ -45,10 +45,10 @@ jobs:
           enablement: true
 
       - name: Install deps
-        run: npm install --no-audit --no-fund
+        run: bun install
 
       - name: Build static export
-        run: npm run build
+        run: bun --bun run build
         env:
           NODE_ENV: production
           NEXT_PUBLIC_BASE_PATH: ${{ steps.pages.outputs.base_path }}

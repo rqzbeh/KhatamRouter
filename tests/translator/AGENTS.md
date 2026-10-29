@@ -36,11 +36,11 @@ Always pass `--config tests/vitest.config.js` (the alias config lives there; wit
 
 ```bash
 # no-cred (default, offline): translator-only files
-cd app && npx vitest run --config tests/vitest.config.js "tests/translator/"
-cd app && npx vitest run --config tests/vitest.config.js "tests/translator/bugs-openai-bridge.test.js"
+cd app && bun x vitest run --config tests/vitest.config.js "tests/translator/"
+cd app && bun x vitest run --config tests/vitest.config.js "tests/translator/bugs-openai-bridge.test.js"
 
 # real (calls live providers using credentials from the local DB)
-cd app && RUN_REAL=1 npx vitest run --config tests/vitest.config.js "tests/translator/real/"
+cd app && RUN_REAL=1 bun x vitest run --config tests/vitest.config.js "tests/translator/real/"
 ```
 No-cred tests make NO network calls and need NO creds. Real tests (`real/`, gated by `RUN_REAL=1`) read active connections from `~/.9router/db/data.sqlite`, send a tiny prompt per provider through `handleChatCore`, and assert valid SSE. Account/quota errors (401/402/403/429) are treated as credential issues and skipped, not failures.
 

@@ -11,9 +11,8 @@
     <img src="../public/providers/openclaw.png" alt="OpenClaw" width="80"/>
   </p>
   
-  [![npm](https://img.shields.io/npm/v/9router.svg)](https://www.npmjs.com/package/9router)
-  [![Downloads](https://img.shields.io/npm/dm/9router.svg)](https://www.npmjs.com/package/9router)
-  [![License](https://img.shields.io/npm/l/9router.svg)](https://github.com/decolua/9router/blob/main/LICENSE)
+  [![Release](https://img.shields.io/github/v/release/rqzbeh/KhatamRouter)](https://github.com/rqzbeh/KhatamRouter/releases)
+  [![License](https://img.shields.io/github/license/rqzbeh/KhatamRouter.svg)](https://github.com/rqzbeh/KhatamRouter/blob/master/LICENSE)
   
   [🚀 快速开始](#-quick-start) • [💡 特性](#-key-features) • [📖 设置](#-setup) • [🌐 网站](https://9router.com)
 </div>
@@ -71,7 +70,7 @@
 **1. 全局安装：**
 
 ```bash
-npm install -g 9router
+bun add -g 9router
 9router
 ```
 
@@ -98,15 +97,15 @@ Claude Code/Codex/Gemini CLI/OpenClaw/Cursor/Cline 设置:
 
 ```bash
 cp .env.example .env
-npm install
-PORT=20128 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run dev
+bun install
+PORT=20128 NEXT_PUBLIC_BASE_URL=http://localhost:20128 bun run dev:bun
 ```
 
 生产模式：
 
 ```bash
-npm run build
-PORT=20128 HOSTNAME=0.0.0.0 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run start
+bun run build:bun
+PORT=20128 HOSTNAME=0.0.0.0 NEXT_PUBLIC_BASE_URL=http://localhost:20128 bun run start:bun
 ```
 
 默认 URL：
@@ -948,8 +947,8 @@ Model: cc/claudeus-4-6
 # Clone and install
 git clone https://github.com/decolua/9router.git
 cd 9router
-npm install
-npm run build
+bun install
+bun run build:bun
 
 # Configure
 export JWT_SECRET="your-secure-secret-change-this"
@@ -964,11 +963,11 @@ export API_KEY_SECRET="endpoint-proxy-api-key-secret"
 export MACHINE_ID_SALT="endpoint-proxy-salt"
 
 # Start
-npm run start
+bun run start:bun
 
 # Or use PM2
-npm install -g pm2
-pm2 start npm --name 9router -- start
+bun add -g pm2
+pm2 start bun --name khatamrouter -- run start:bun
 pm2 save
 pm2 startup
 ```

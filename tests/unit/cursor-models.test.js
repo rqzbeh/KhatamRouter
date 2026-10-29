@@ -1,11 +1,17 @@
+import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// cursorModels.js calls http2.connect (agent.api5.cursor.sh is HTTP/2-only),
+// not global.fetch. Mock the module it actually imports so the tests are
+// deterministic and never touch the network.
+const h2 = vi.hoisted(() => ({ connect: vi.fn() }));
+vi.mock("http2", () => ({ default: { connect: h2.connect }, connect: h2.connect }));
+
 import {
   clearCursorModelCache,
   parseCursorUsableModels,
   resolveCursorModels,
 } from "../../open-sse/services/cursorModels.js";
-
-const originalFetch = global.fetch;
 
 function varint(value) {
   const bytes = [];
@@ -40,13 +46,29 @@ function model(id, name) {
   return field(1, concat(field(1, text(id)), field(4, text(name))));
 }
 
+// Fake HTTP/2 session that answers one request with the given status and body.
+function fakeH2Session({ status, body = new Uint8Array() }) {
+  const req = new EventEmitter();
+  req.end = () => {
+    queueMicrotask(() => {
+      req.emit("response", { ":status": status });
+      if (body.length) req.emit("data", Buffer.from(body));
+      req.emit("end");
+    });
+  };
+  const client = new EventEmitter();
+  client.request = vi.fn(() => req);
+  client.close = vi.fn();
+  return client;
+}
+
 describe("Cursor live model catalog", () => {
   beforeEach(() => {
     clearCursorModelCache();
+    h2.connect.mockReset();
   });
 
   afterEach(() => {
-    global.fetch = originalFetch;
     clearCursorModelCache();
   });
 
@@ -65,7 +87,8 @@ describe("Cursor live model catalog", () => {
 
   it("fetches the account-specific catalog and caches it", async () => {
     const payload = concat(model("claude-4.6-opus", "Claude 4.6 Opus"));
-    global.fetch = vi.fn().mockResolvedValue(new Response(payload, { status: 200 }));
+    const session = fakeH2Session({ status: 200, body: payload });
+    h2.connect.mockReturnValue(session);
     const credentials = {
       accessToken: "cursor-token",
       providerSpecificData: { machineId: "machine-id" },
@@ -78,22 +101,21 @@ describe("Cursor live model catalog", () => {
       models: [{ id: "claude-4.6-opus", name: "Claude 4.6 Opus" }],
     });
 
-    expect(global.fetch).toHaveBeenCalledTimes(1);
-    expect(global.fetch).toHaveBeenCalledWith(
-      "https://agent.api5.cursor.sh/agent.v1.AgentService/GetUsableModels",
+    expect(h2.connect).toHaveBeenCalledTimes(1);
+    expect(h2.connect).toHaveBeenCalledWith("https://agent.api5.cursor.sh");
+    expect(session.request).toHaveBeenCalledTimes(1);
+    expect(session.request).toHaveBeenCalledWith(
       expect.objectContaining({
-        method: "POST",
-        body: expect.any(Uint8Array),
-        headers: expect.objectContaining({
-          "content-type": "application/proto",
-          accept: "application/proto",
-        }),
+        ":method": "POST",
+        ":path": "/agent.v1.AgentService/GetUsableModels",
+        "content-type": "application/proto",
+        accept: "application/proto",
       }),
     );
   });
 
   it("fails open when the Cursor catalog request fails", async () => {
-    global.fetch = vi.fn().mockResolvedValue(new Response("no", { status: 403 }));
+    h2.connect.mockReturnValue(fakeH2Session({ status: 403, body: text("no") }));
 
     await expect(resolveCursorModels({
       accessToken: "cursor-token",

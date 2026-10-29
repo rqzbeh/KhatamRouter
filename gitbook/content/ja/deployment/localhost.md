@@ -9,12 +9,11 @@
 npm経由で9Routerをグローバルインストール:
 
 ```bash
-npm install -g 9router
+bun add -g 9router
 ```
 
 **要件:**
-- Node.js 20以上
-- npm 9以上
+- Bun 1.4.3+ (https://bun.sh)
 
 ---
 
@@ -81,13 +80,13 @@ APIポート(20128)とダッシュボードポート(3000)はアプリケーシ�
 最新バージョンに更新:
 
 ```bash
-npm update -g 9router
+bun update -g 9router
 ```
 
 現在のバージョンを確認:
 
 ```bash
-npm list -g 9router
+9router --version
 ```
 
 ---
@@ -113,12 +112,10 @@ kill -9 <PID>
 
 ```bash
 # sudoを使用 (非推奨)
-sudo npm install -g 9router
+bun add -g 9router
 
 # またはnpm権限を修正 (推奨)
-mkdir ~/.npm-global
-npm config set prefix '~/.npm-global'
-echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.bashrc
+echo 'export PATH=~/.bun/bin:$PATH' >> ~/.bashrc
 source ~/.bashrc
 ```
 

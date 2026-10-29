@@ -7,7 +7,7 @@
  *  3. Cross-account cache share? (call A warmup → B same prompt/session, check hit)
  *
  * Reads real OAuth refreshToken from ~/.9router/db.json.
- * Enable with: AG_CACHE_TEST=1 npm test
+ * Enable with: AG_CACHE_TEST=1 bun run test
  */
 
 import { describe, it, expect } from "vitest";

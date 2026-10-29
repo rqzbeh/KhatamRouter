@@ -16,7 +16,7 @@ const FEATURES = [
   { 
     icon: "bolt", 
     title: "Easy Setup", 
-    desc: "Get up and running in minutes with npx command.", 
+    desc: "Get up and running in minutes with bunx command.", 
     colors: {
       border: "hover:border-orange-500/50",
       bg: "hover:bg-orange-500/5",

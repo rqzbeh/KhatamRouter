@@ -7,10 +7,9 @@
   
   **Connectez tous vos outils de codage IA (Claude Code, Cursor, Antigravity, Copilot, Codex, Gemini, OpenCode, Cline, OpenClaw...) à plus de 40 fournisseurs d'IA et plus de 100 modèles.**
   
-  [![npm](https://img.shields.io/npm/v/9router.svg)](https://www.npmjs.com/package/9router)
-  [![Downloads](https://img.shields.io/npm/dm/9router.svg)](https://www.npmjs.com/package/9router)
+  [![Release](https://img.shields.io/github/v/release/rqzbeh/KhatamRouter)](https://github.com/rqzbeh/KhatamRouter/releases)
   [![GHCR](https://img.shields.io/badge/GHCR-ghcr.io%2Frqzbeh%2Fkhatamrouter-blue?logo=github)](https://github.com/rqzbeh/KhatamRouter/pkgs/container/khatamrouter)
-  [![License](https://img.shields.io/npm/l/9router.svg)](https://github.com/decolua/9router/blob/main/LICENSE)
+  [![License](https://img.shields.io/github/license/rqzbeh/KhatamRouter.svg)](https://github.com/rqzbeh/KhatamRouter/blob/master/LICENSE)
 
 <a href="https://trendshift.io/repositories/22628" target="_blank"><img src="https://trendshift.io/api/badge/repositories/22628" alt="decolua%2F9router | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 
@@ -75,7 +74,7 @@ Result: Never stop coding, minimal cost + 20-40% token savings via RTK
 **1. Installez globalement :**
 
 ```bash
-npm install -g 9router
+bun add -g 9router
 9router
 ```
 
@@ -102,15 +101,15 @@ Le paquet de ce dépôt est privé (`9router-app`), donc l'exécution depuis le 
 
 ```bash
 cp .env.example .env
-npm install
-PORT=20128 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run dev
+bun install
+PORT=20128 NEXT_PUBLIC_BASE_URL=http://localhost:20128 bun run dev:bun
 ```
 
 Mode production :
 
 ```bash
-npm run build
-PORT=20128 HOSTNAME=0.0.0.0 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run start
+bun run build:bun
+PORT=20128 HOSTNAME=0.0.0.0 NEXT_PUBLIC_BASE_URL=http://localhost:20128 bun run start:bun
 ```
 
 URL par défaut :
@@ -1128,8 +1127,8 @@ Model : cc/claude-opus-4-7
 # Clonez et installez
 git clone https://github.com/decolua/9router.git
 cd 9router
-npm install
-npm run build
+bun install
+bun run build:bun
 
 # Configuration
 export JWT_SECRET="votre-secret-sécurisé-changez-le"
@@ -1144,11 +1143,11 @@ export API_KEY_SECRET="endpoint-proxy-api-key-secret"
 export MACHINE_ID_SALT="endpoint-proxy-salt"
 
 # Démarrage
-npm run start
+bun run start:bun
 
 # Ou utilisez PM2
-npm install -g pm2
-pm2 start npm --name 9router -- start
+bun add -g pm2
+pm2 start bun --name khatamrouter -- run start:bun
 pm2 save
 pm2 startup
 ```

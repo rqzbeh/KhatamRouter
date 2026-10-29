@@ -6,15 +6,14 @@ Run 9Router on your local machine for development and personal use.
 
 ## 📦 Installation
 
-Install 9Router globally via npm:
+Install 9Router globally via Bun:
 
 ```bash
-npm install -g 9router
+bun add -g 9router
 ```
 
 **Requirements:**
-- Node.js 20 or higher
-- npm 9 or higher
+- Bun 1.4.3+ (https://bun.sh)
 
 ---
 
@@ -81,13 +80,13 @@ All your configurations, API keys, and combos are preserved in the data director
 Update to the latest version:
 
 ```bash
-npm update -g 9router
+bun update -g 9router
 ```
 
 Check your current version:
 
 ```bash
-npm list -g 9router
+9router --version
 ```
 
 ---
@@ -113,12 +112,10 @@ If you encounter permission errors during installation:
 
 ```bash
 # Use sudo (not recommended)
-sudo npm install -g 9router
+bun add -g 9router
 
-# Or fix npm permissions (recommended)
-mkdir ~/.npm-global
-npm config set prefix '~/.npm-global'
-echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.bashrc
+# Ensure ~/.bun/bin is in PATH
+echo 'export PATH=~/.bun/bin:$PATH' >> ~/.bashrc
 source ~/.bashrc
 ```
 

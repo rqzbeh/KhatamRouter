@@ -21,7 +21,6 @@ tests/unit/combo-autoswitch.test.js :: detectRequiredCapabilities web_search too
 tests/unit/combo-autoswitch.test.js :: reorderByCapabilities keeps order when no model matches
 tests/unit/combo-caps-resolver.test.js :: aggregateComboCapabilities: resolveCaps override falls back to the pattern default without a resolver
 tests/unit/commandcode-to-openai.test.js :: commandcode-to-openai — error event stringifies object errors so client sees readable message
-tests/unit/cursor-models.test.js :: Cursor live model catalog fetches the account-specific catalog and caches it
 tests/unit/db-concurrent.test.js :: DB Concurrency — atomic safety 100 parallel saveRequestUsage → no count loss
 tests/unit/db-concurrent.test.js :: DB Concurrency — atomic safety daily summary aggregates correctly under parallel writes
 tests/unit/db-concurrent.test.js :: DB Concurrency — atomic safety mixed concurrent: usage + details + connections + aliases

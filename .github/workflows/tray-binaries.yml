@@ -40,9 +40,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 22
+          bun-version: 1.4.3
 
       - uses: actions/setup-go@v5
         with:
@@ -61,7 +61,7 @@ jobs:
           } | tee sdk-provenance.txt
 
       - name: Build
-        run: node cli/scripts/buildTrayArm64.js
+        run: bun cli/scripts/buildTrayArm64.js
 
       - name: Compare against pinned checksum
         id: sha
@@ -69,7 +69,7 @@ jobs:
           BUILT=$(shasum -a 256 cli/.tray-build/tray_darwin_arm64 | cut -d' ' -f1)
           # Whitespace-tolerant, and a missing constant must fail loudly: a null
           # match would otherwise surface as an opaque TypeError from [1].
-          PINNED=$(node -e '
+          PINNED=$(bun -e '
             const m = require("fs").readFileSync("cli/hooks/trayRuntime.js", "utf8")
               .match(/ARM64_TRAY_SHA256\s*=\s*"([0-9a-f]{64})"/);
             if (!m) { console.error("::error::ARM64_TRAY_SHA256 not found in cli/hooks/trayRuntime.js"); process.exit(1); }
@@ -133,7 +133,7 @@ jobs:
           # Clients fetch from the hardcoded ARM64_TRAY_URL, so publishing from a
           # different repo would gate an asset stream nobody downloads and silently
           # decouple the sha pin from the bytes Apple Silicon users execute.
-          URL_REPO=$(node -e '
+          URL_REPO=$(bun -e '
             const m = require("fs").readFileSync("cli/hooks/trayRuntime.js", "utf8")
               .match(/"https:\/\/github\.com\/([^\/"]+\/[^\/"]+)\/releases\/download\/tray-binaries\/tray_darwin_arm64"/);
             if (!m) { console.error("::error::ARM64_TRAY_URL not found in cli/hooks/trayRuntime.js"); process.exit(1); }

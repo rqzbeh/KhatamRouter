@@ -6,15 +6,14 @@ Chạy 9Router trên máy cá nhân để phát triển và dùng cá nhân.
 
 ## 📦 Cài đặt
 
-Cài đặt 9Router toàn cục qua npm:
+Cài đặt 9Router toàn cục qua Bun:
 
 ```bash
-npm install -g 9router
+bun add -g 9router
 ```
 
 **Yêu cầu:**
-- Node.js 20 trở lên
-- npm 9 trở lên
+- Bun 1.4.3+ (https://bun.sh)
 
 ---
 
@@ -81,13 +80,13 @@ Mọi cấu hình, API keys và combos được giữ lại trong thư mục dat
 Cập nhật phiên bản mới nhất:
 
 ```bash
-npm update -g 9router
+bun update -g 9router
 ```
 
 Kiểm tra version hiện tại:
 
 ```bash
-npm list -g 9router
+9router --version
 ```
 
 ---
@@ -113,12 +112,10 @@ Nếu gặp lỗi permission khi cài đặt:
 
 ```bash
 # Use sudo (not recommended)
-sudo npm install -g 9router
+bun add -g 9router
 
-# Or fix npm permissions (recommended)
-mkdir ~/.npm-global
-npm config set prefix '~/.npm-global'
-echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.bashrc
+# Ensure ~/.bun/bin is in PATH
+echo 'export PATH=~/.bun/bin:$PATH' >> ~/.bashrc
 source ~/.bashrc
 ```
 

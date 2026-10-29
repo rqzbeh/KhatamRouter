@@ -35,11 +35,14 @@
     "**/*.jsx",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
-    ".next/dev/dev/types/**/*.ts"
+    ".next/dev/dev/types/**/*.ts",
+    ".next-cli-build/types/**/*.ts",
+    ".next-cli-build/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
     ".next",
+    ".next-cli-build",
     "dist",
     "coverage",
     ".source",

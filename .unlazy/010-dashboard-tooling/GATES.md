@@ -29,7 +29,7 @@ Scope: Plain JavaScript limits modals, key quota tabs and spend trends, capabili
   EVIDENCE: Dropped per Principle II (CLAUDE.md) and PR #64; published CLI is unchanged.
 
 - [ ] G5: Provider catalog baseline snapshot is byte-for-byte identical
-  CHECK: node tests/__baseline__/verify-providers.mjs && echo WAVE8_G5_BASELINES_OK
+  CHECK: bun tests/__baseline__/verify-providers.mjs && echo WAVE8_G5_BASELINES_OK
   EXPECT: WAVE8_G5_BASELINES_OK
   CWD: ../..
   EVIDENCE: pending

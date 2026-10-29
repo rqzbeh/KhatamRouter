@@ -18,11 +18,7 @@ export default defineConfig({
       "**/dist/**",
       "**/real/**",
       "**/*.real.test.js",
-      "**/auth/**",
       "**/embeddings.cloud.test.js",
-      "**/cline-auth.test.js",
-      "**/kimchi.test.js",
-      "**/kimchi-strip-reasoning.test.js",
     ],
     // Allow many it.concurrent cases (real provider smoke runs ~50 providers in parallel)
     maxConcurrency: 60,

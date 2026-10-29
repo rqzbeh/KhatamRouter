@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
 // Rebuilds tray_darwin_arm64, the native Apple Silicon menubar binary that
 // hooks/trayRuntime.js overlays on top of systray2's x86_64-only build.

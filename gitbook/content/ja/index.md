@@ -105,7 +105,7 @@ MiniMax経由で200万: $0.40
 
 ```bash
 # グローバルインストール
-npm install -g 9router
+bun add -g 9router
 
 # 起動(ダッシュボードが自動で開きます)
 9router

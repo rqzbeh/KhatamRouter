@@ -8,22 +8,19 @@
 
 ### システム要件
 
-- **Node.js**: バージョン 20.0.0以上
-- **npm**: バージョン 10.0.0以上 (Node.jsに付属)
+- **Bun**: バージョン 1.4.3以上 (https://bun.sh)
 - **OS**: macOS、Linux、Windows (WSL推奨)
 - **ディスク容量**: インストールに約200MB
 
 ### バージョンを確認
 
 ```bash
-node --version
+bun --version
 # v20.x.x以上が表示されるはず
 
-npm --version
-# 10.x.x以上が表示されるはず
 ```
 
-**Node.jsがない場合?** [nodejs.org](https://nodejs.org/)からインストール
+**Bunがない場合?** [bun.sh](https://bun.sh)からインストール
 
 ---
 
@@ -34,7 +31,7 @@ npm --version
 どこからでも使用できるように9Routerをグローバルインストール:
 
 ```bash
-npm install -g 9router
+bun add -g 9router
 ```
 
 **9Routerを起動:**
@@ -46,7 +43,7 @@ npm install -g 9router
 **利点:**
 - ✅ どのディレクトリからでも実行
 - ✅ シンプルなコマンド: `9router`
-- ✅ `npm update -g 9router` で自動更新
+- ✅ `bun update -g 9router` で自動更新
 
 ### 方法2: ローカルインストール
 
@@ -55,13 +52,13 @@ npm install -g 9router
 ```bash
 mkdir my-9router
 cd my-9router
-npm install 9router
+bun add 9router
 ```
 
 **9Routerを起動:**
 
 ```bash
-npx 9router
+bunx 9router
 ```
 
 **利点:**
@@ -76,9 +73,9 @@ GitHubからクローンしてビルド:
 ```bash
 git clone https://github.com/decolua/9router.git
 cd 9router/app
-npm install
-npm run build
-npm start
+bun install
+bun run build:bun
+bun run start:bun
 ```
 
 **利点:**
@@ -277,30 +274,27 @@ Error: EACCES: permission denied, mkdir '/usr/local/lib/node_modules/9router'
 
 ```bash
 # npm権限を修正 (推奨)
-mkdir ~/.npm-global
-npm config set prefix '~/.npm-global'
-echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.bashrc
+echo 'export PATH=~/.bun/bin:$PATH' >> ~/.bashrc
 source ~/.bashrc
 
 # 再度インストール
-npm install -g 9router
+bun add -g 9router
 ```
 
-### Node.jsバージョンが古すぎる
+### Bunのバージョンが古すぎる
 
 **エラー:**
 ```
 Error: The engine "node" is incompatible with this module
 ```
 
-**解決策: Node.jsを更新**
+**解決策: Bunを更新 (`bun upgrade`)**
 
 ```bash
 # nvmを使用 (推奨)
-nvm install 20
-nvm use 20
+bun upgrade
 
-# またはnodejs.orgからダウンロード
+# またはbun.shからダウンロード
 ```
 
 ### ダッシュボードが開かない
@@ -316,7 +310,7 @@ http://localhost:20128
 **解決策2: ファイアウォールを確認**
 
 ```bash
-# macOS: システム環境設定 → セキュリティでNode.jsを許可
+# macOS: システム環境設定 → セキュリティでBunを許可
 # Linux: iptablesを確認
 # Windows: Windowsファイアウォールを確認
 ```
@@ -360,8 +354,8 @@ pkill -f 9router
 **または自動再起動にPM2を使用:**
 
 ```bash
-npm install -g pm2
-pm2 start 9router --name 9router
+bun add -g pm2
+pm2 start bun --name khatamrouter -- run start:bun
 pm2 save
 ```
 
@@ -372,7 +366,7 @@ pm2 save
 ### ローカル開発
 
 ```bash
-npm install -g 9router
+bun add -g 9router
 9router
 ```
 
@@ -382,7 +376,7 @@ npm install -g 9router
 
 ```bash
 # インストール
-npm install -g 9router
+bun add -g 9router
 
 # 設定
 export JWT_SECRET="your-secure-secret"
@@ -390,8 +384,8 @@ export INITIAL_PASSWORD="your-password"
 export NODE_ENV="production"
 
 # PM2で起動
-npm install -g pm2
-pm2 start 9router --name 9router
+bun add -g pm2
+pm2 start bun --name khatamrouter -- run start:bun
 pm2 save
 pm2 startup
 ```
@@ -444,7 +438,7 @@ server {
 ### グローバルインストールを削除
 
 ```bash
-npm uninstall -g 9router
+bun remove -g 9router
 ```
 
 ### データディレクトリを削除

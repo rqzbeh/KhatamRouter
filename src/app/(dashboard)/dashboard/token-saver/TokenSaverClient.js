@@ -1000,7 +1000,7 @@ export default function TokenSaverClient() {
                 {pxpipeActionLoading || pxpipeStatus.installing ? "Installing…" : "Install"}
               </Button>
               <p className="text-xs text-text-muted">
-                Installs the npm package <code className="font-mono">pxpipe-proxy</code> into
+                Installs the <code className="font-mono">pxpipe-proxy</code> package into
                 the KhatamRouter data directory. May take a few minutes.
               </p>
             </div>

@@ -9,10 +9,10 @@ Pon en marcha 9Router en 5 minutos y comienza a enrutar solicitudes de IA de for
 ### 1. Instalar
 
 ```bash
-npm install -g 9router
+bun add -g 9router
 ```
 
-**Requisitos:** Node.js 20+ ([Detalles de instalación](getting-started/installation.md))
+**Requisitos:** Bun 1.4.3+ ([Detalles de instalación](getting-started/installation.md))
 
 ### 2. Iniciar
 

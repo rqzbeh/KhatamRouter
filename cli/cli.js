@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
 const { spawn, exec, execSync } = require("child_process");
 const path = require("path");
@@ -81,7 +81,7 @@ if (args[0] === "xai" && args[1] === "video") {
 
 // `9router connect <url>` configures local CLI tools against a remote server, and
 // `9router show` prints what they're currently set to — no local server, no
-// runtime deps. Usable via `npx 9router …`.
+// runtime deps. Usable via `bunx 9router …`.
 if (args[0] === "connect" || args[0] === "show") {
   const { run } = require(args[0] === "show" ? "./src/cli/commands/show" : "./src/cli/commands/connect");
   run(args.slice(1))
@@ -159,7 +159,7 @@ function ensureBun() {
     console.error("Please install Bun from https://bun.sh:");
     console.error("  curl -fsSL https://bun.sh/install | bash        # macOS / Linux");
     console.error('  powershell -c "irm bun.sh/install.ps1 | iex"   # Windows');
-    console.error("  npm install -g bun                             # via npm");
+    console.error("  bun upgrade                                    # if already installed");
     console.error("");
     console.error("Visit https://bun.sh for detailed installation instructions.");
     process.exit(1);
@@ -663,7 +663,7 @@ const serverPath = fs.existsSync(customServerPath)
 
 if (!fs.existsSync(serverPath)) {
   console.error("Error: Standalone build not found.");
-  console.error("Please run 'npm run build:cli' first.");
+  console.error("Please run 'bun run build' in cli/ first.");
   process.exit(1);
 }
 

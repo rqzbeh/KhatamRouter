@@ -53,12 +53,22 @@ bun run build:bun && PORT=20128 bun run start:bun
 
 ### Option 3 — KhatamRouter CLI Launcher
 
+Install globally or run on-demand using Bun (Bun fetches packages directly from the npm registry):
+
 ```bash
+# Install globally via Bun
+bun add -g 9router
+
+# Or run directly without installing
+bunx 9router
+
 # Start gateway server (requires Bun runtime on PATH)
 khatamrouter
 # Or using the backward-compatible alias:
 9router
 ```
+
+Alternatively, run via **Docker** (Option 1 above) or download standalone releases from [GitHub Releases](https://github.com/rqzbeh/KhatamRouter/releases).
 
 🎉 Dashboard opens at `http://localhost:20128`
 

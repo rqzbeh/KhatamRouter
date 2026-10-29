@@ -32,13 +32,17 @@ describe("T4: Documentation, Specs & Acceptance Audit", () => {
     it("passes gate-lint with 0 errors", () => {
       const gatesPath = path.join(unlazyDir, "GATES.md");
       const lintScript = "/home/redsnow/.claude/skills/unlazy/scripts/gate-lint.mjs";
-      if (fs.existsSync(lintScript)) {
-        const output = execSync(`node ${lintScript} ${gatesPath}`, {
-          encoding: "utf8",
-          cwd: rootDir,
-        });
-        expect(output).toContain("LINT OK");
+      // ponytail: gate-lint lives in the developer's ~/.claude skills dir, not in this repo.
+      // Absent in CI, so skip explicitly and log it rather than passing silently.
+      if (!fs.existsSync(lintScript)) {
+        console.warn(`[spec-docs-audit] SKIPPED gate-lint: ${lintScript} not found (external skill, not in repo)`);
+        return;
       }
+      const output = execSync(`bun ${lintScript} ${gatesPath}`, {
+        encoding: "utf8",
+        cwd: rootDir,
+      });
+      expect(output).toContain("LINT OK");
     });
   });
 

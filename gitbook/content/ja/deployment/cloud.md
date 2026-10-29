@@ -9,7 +9,7 @@
 ### 前提条件
 
 - Ubuntu 20.04+ または同様のLinuxディストリビューション
-- Node.js 20以上
+- Bun 1.4.3+ (https://bun.sh)
 - Git
 - rootまたはsudoアクセス
 
@@ -23,13 +23,13 @@ cd 9router/app
 ### ステップ2: 依存関係をインストール
 
 ```bash
-npm install
+bun install
 ```
 
 ### ステップ3: アプリケーションをビルド
 
 ```bash
-npm run build
+bun run build:bun
 ```
 
 ### ステップ4: 環境変数を設定
@@ -63,7 +63,7 @@ sudo chown $USER:$USER /var/lib/9router
 ### ステップ6: アプリケーションを起動
 
 ```bash
-npm run start
+bun run start:bun
 ```
 
 ### ステップ7: 本番環境用にPM2をセットアップ
@@ -72,10 +72,10 @@ PM2はアプリケーションを稼働させ続け、クラッシュ時に再�
 
 ```bash
 # PM2をグローバルにインストール
-npm install -g pm2
+bun add -g pm2
 
 # PM2で9Routerを起動
-pm2 start npm --name 9router -- start
+pm2 start bun --name khatamrouter -- run start:bun
 
 # PM2設定を保存
 pm2 save
@@ -112,35 +112,8 @@ pm2 monit
 
 `app` ディレクトリに `Dockerfile` を作成:
 
-```dockerfile
-FROM node:20-alpine
-
-WORKDIR /app
-
-# Copy package files
-COPY package*.json ./
-
-# Install dependencies
-RUN npm ci --only=production
-
-# Copy application files
-COPY . .
-
-# Build application
-RUN npm run build
-
-# Expose ports
-EXPOSE 3000 20128
-
-# Set environment variables
-ENV NODE_ENV=production
-ENV DATA_DIR=/app/data
-
-# Create data directory
-RUN mkdir -p /app/data
-
-# Start application
-CMD ["npm", "run", "start"]
+```bash
+docker build -f Dockerfile.bun -t khatamrouter .
 ```
 
 **ビルドと実行:**
@@ -366,8 +339,8 @@ sudo apt update && sudo apt upgrade -y
 # 9Routerを更新
 cd /path/to/9router/app
 git pull
-npm install
-npm run build
+bun install
+bun run build:bun
 pm2 restart 9router
 ```
 

@@ -104,8 +104,8 @@ the full offline test suite, the application build, and the CLI package build.
 
 ## Delivery
 
-Build the CLI with `npm --prefix cli run build`, create a package with
-`npm --prefix cli pack`, and install the generated tarball globally to replace
+Build the CLI with `bun --cwd cli run build`, create a package with
+`bun pm pack --cwd cli`, and install the generated tarball globally to replace
 the current npm-installed `9router@0.5.65`. Verify the installed package version
 and packaged source contains the new executor.
 

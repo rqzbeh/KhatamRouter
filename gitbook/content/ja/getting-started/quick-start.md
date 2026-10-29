@@ -9,10 +9,10 @@
 ### 1. インストール
 
 ```bash
-npm install -g 9router
+bun add -g 9router
 ```
 
-**要件:** Node.js 20+ ([インストール詳細](getting-started/installation.md))
+**要件:** Bun 1.4.3+ ([インストール詳細](getting-started/installation.md))
 
 ### 2. 起動
 

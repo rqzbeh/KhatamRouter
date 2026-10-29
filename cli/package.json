@@ -15,13 +15,13 @@
     "LICENSE"
   ],
   "scripts": {
-    "dev": "nodemon -I --watch cli.js --watch src --watch hooks --ext js,json cli.js",
-    "build": "node scripts/build-cli.js",
-    "build:tray-arm64": "node scripts/buildTrayArm64.js",
-    "pack:cli": "npm run build && npm pack --pack-destination ..",
-    "publish:cli": "npm run build && npm publish",
-    "postinstall": "node -e 'try { require(\"./hooks/trayRuntime\").ensureTrayRuntime({ silent: false }); } catch (e) {}'",
-    "prepublishOnly": "npm run build"
+    "dev": "bun --watch cli.js",
+    "build": "bun scripts/build-cli.js",
+    "build:tray-arm64": "bun scripts/buildTrayArm64.js",
+    "pack:cli": "bun run build && bun pm pack --destination ..",
+    "publish:cli": "bun run build && bun publish",
+    "postinstall": "bun -e 'try { require(\"./hooks/trayRuntime\").ensureTrayRuntime({ silent: false }); } catch (e) {}'",
+    "prepublishOnly": "bun run build"
   },
   "dependencies": {
     "enquirer": "^2.4.1",
@@ -36,9 +36,9 @@
   },
   "comment_runtime": "Starting with Wave 7.5, KhatamRouter server runs on Bun (bun:sqlite). Node-only execution is no longer supported. SQLite fallbacks (better-sqlite3, sql.js, node:sqlite) are removed.",
   "comment_systray": "systray2 is NOT bundled here. It is lazy-installed into ~/.9router/runtime/node_modules by hooks/postinstall.js on macOS/Linux only. Windows uses PowerShell NotifyIcon (zero binary). This avoids shipping unsigned Go binaries that trigger antivirus false positives (Kaspersky). We use the systray2 fork because the legacy systray@1.0.5 ships a 2017 x86_64 binary that fails to load on modern macOS dyld. Neither package ships an arm64 macOS binary, so on Apple Silicon hooks/trayRuntime.js overlays our own arm64 build from the tray-binaries GitHub release; without it the tray requires Rosetta 2.",
-  "comment_tray_arm64": "tray_darwin_arm64 is built by scripts/buildTrayArm64.js (npm run build:tray-arm64) from felixhao28/systray-portable — the same source systray2's binary comes from — and uploaded to the pinned 'tray-binaries' GitHub release. Its sha256 is pinned as ARM64_TRAY_SHA256 in hooks/trayRuntime.js and verified after every download; rebuild and update both together. .github/workflows/tray-binaries.yml builds the same artifact in CI but refuses to publish when the sha diverges from the pin.",
+  "comment_tray_arm64": "tray_darwin_arm64 is built by scripts/buildTrayArm64.js (bun run build:tray-arm64) from felixhao28/systray-portable — the same source systray2's binary comes from — and uploaded to the pinned 'tray-binaries' GitHub release. Its sha256 is pinned as ARM64_TRAY_SHA256 in hooks/trayRuntime.js and verified after every download; rebuild and update both together. .github/workflows/tray-binaries.yml builds the same artifact in CI but refuses to publish when the sha diverges from the pin.",
   "engines": {
-    "node": ">=18.0.0"
+    "bun": ">=1.4.3"
   },
   "keywords": [
     "9router",
@@ -50,7 +50,6 @@
   ],
   "license": "MIT",
   "devDependencies": {
-    "esbuild": "^0.28.2",
-    "nodemon": "^3.1.14"
+    "esbuild": "^0.28.2"
   }
 }

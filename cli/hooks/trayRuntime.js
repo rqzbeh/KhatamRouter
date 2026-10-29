@@ -1,6 +1,6 @@
 // Lazy install systray2 for macOS/Linux into USER_DATA_DIR/runtime/node_modules.
 // Windows uses PowerShell NotifyIcon (no binary) → no systray needed.
-// This keeps the published npm tarball free of unsigned Go binaries that
+// This keeps the published package tarball free of unsigned Go binaries that
 // trigger antivirus false positives (e.g. Kaspersky flagging tray_windows.exe).
 //
 // We use the maintained `systray2` fork. The original `systray@1.0.5` package
@@ -37,7 +37,7 @@ function ensureRuntimeDir() {
   const dir = getRuntimeDir();
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-  // Minimal package.json so npm treats it as a project root
+  // Minimal package.json so bun treats it as a project root
   const pkgPath = path.join(dir, "package.json");
   if (!fs.existsSync(pkgPath)) {
     fs.writeFileSync(pkgPath, JSON.stringify({
@@ -50,24 +50,24 @@ function ensureRuntimeDir() {
   return dir;
 }
 
-// Extract short, user-friendly reason from npm stderr.
-function summarizeNpmError(stderr = "") {
+// Extract short, user-friendly reason from bun stderr.
+function summarizeBunError(stderr = "") {
   const text = String(stderr);
   if (/ENOTFOUND|ETIMEDOUT|EAI_AGAIN|network|getaddrinfo/i.test(text)) return "No internet connection or registry unreachable";
   if (/EACCES|EPERM|permission denied/i.test(text)) return "Permission denied (check folder permissions)";
   if (/ENOSPC|no space/i.test(text)) return "Not enough disk space";
   if (/node-gyp|gyp ERR|python|MSBuild|Visual Studio|Xcode/i.test(text)) return "Missing build tools (Xcode CLT / Python / VS Build Tools)";
-  if (/ETARGET|version.*not found/i.test(text)) return "Package version not found on registry";
-  const m = text.match(/npm ERR! (.+)/);
+  if (/ETARGET|version.*not found|No version matching/i.test(text)) return "Package version not found on registry";
+  const m = text.match(/error: (.+)/);
   if (m) return m[1].slice(0, 200);
   const lastLine = text.trim().split(/\r?\n/).filter(Boolean).pop();
   return lastLine ? lastLine.slice(0, 200) : "Unknown error";
 }
 
-function runNpmInstall({ cwd, pkgs, extraArgs = [], timeout = 180000 }) {
-  const args = ["install", ...pkgs, "--no-audit", "--no-fund", "--prefer-online", ...extraArgs];
-  const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
-  const res = spawnSync(npmCmd, args, {
+function runBunAdd({ cwd, pkgs, extraArgs = [], timeout = 180000 }) {
+  const args = ["add", ...pkgs, "--no-save", ...extraArgs];
+  const bunCmd = process.platform === "win32" ? "bun.exe" : "bun";
+  const res = spawnSync(bunCmd, args, {
     cwd,
     stdio: ["ignore", "pipe", "pipe"],
     timeout,
@@ -121,7 +121,7 @@ function cleanupLegacySystray({ silent = false } = {}) {
   }
 }
 
-// systray2's npm tarball sometimes ships the bundled Go binary without the
+// systray2's published tarball sometimes ships the bundled Go binary without the
 // executable bit set on macOS, causing spawn() to fail with EACCES. Set +x
 // best-effort so the tray actually starts.
 function chmodSystrayBin({ silent = false } = {}) {
@@ -254,15 +254,15 @@ function ensureArm64TrayBin() {
   }
 }
 
-function npmInstall(pkgs, { silent = false } = {}) {
+function bunInstall(pkgs, { silent = false } = {}) {
   const cwd = ensureRuntimeDir();
   if (!silent) console.log("⏳ Installing system tray (first run)...");
-  const res = runNpmInstall({ cwd, pkgs, extraArgs: ["--no-save"], timeout: 120000 });
+  const res = runBunAdd({ cwd, pkgs, timeout: 120000 });
   if (!res.ok && !silent) {
-    const reason = summarizeNpmError(res.stderr);
+    const reason = summarizeBunError(res.stderr);
     console.warn("⚠️  System tray install failed — tray disabled");
     console.warn(`   Reason: ${reason}`);
-    console.warn(`   Retry:  cd "${cwd}" && npm install ${pkgs.join(" ")}`);
+    console.warn(`   Retry:  cd "${cwd}" && bun add --no-save ${pkgs.join(" ")}`);
   }
   return res.ok;
 }
@@ -280,7 +280,7 @@ function ensureTrayRuntime({ silent = false } = {}) {
 
   let ready = hasSystray();
   if (!ready) {
-    ready = npmInstall([`${SYSTRAY_PKG}@${SYSTRAY_VERSION}`], { silent }) && hasSystray();
+    ready = bunInstall([`${SYSTRAY_PKG}@${SYSTRAY_VERSION}`], { silent }) && hasSystray();
   }
   if (ready) {
     chmodSystrayBin({ silent });
@@ -300,8 +300,8 @@ module.exports = {
   getRuntimeDir,
   getRuntimeNodeModules,
   ensureRuntimeDir,
-  runNpmInstall,
-  summarizeNpmError,
+  runBunAdd,
+  summarizeBunError,
   ARM64_TRAY_SHA256,
   ARM64_TRAY_URL,
 };

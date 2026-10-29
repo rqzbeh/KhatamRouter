@@ -1,6 +1,6 @@
 /**
  * Script: đọc providersDisplay.js + providers.js, inject display+category+uiAlias+extra vào từng registry file.
- * Chạy: node scripts/injectDisplayToRegistry.mjs
+ * Chạy: bun scripts/injectDisplayToRegistry.mjs
  */
 import fs from "fs";
 import path from "path";

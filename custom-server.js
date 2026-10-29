@@ -20,7 +20,7 @@ function normalizePort(value, fallback) {
   return Number.isInteger(parsed) && parsed > 0 && parsed <= 65535 ? parsed : fallback;
 }
 
-// Legacy callers pass `--port` (e.g. `npm start` -> `custom-server.js --port 20127`).
+// Legacy callers pass `--port` (e.g. `bun start` -> `custom-server.js --port 20127`).
 // When present it names the listener port and outranks the environment,
 // matching Next's own precedence (`argv --port` before `process.env.PORT`).
 const portArgIndex = process.argv.indexOf("--port");
@@ -390,14 +390,38 @@ http.createServer = (...args) => {
       tryComplete();
     };
 
-    if (transferEncoding || received < expectedLength) {
-      socket.on("data", readBody);
-      socket.on("end", () => {
-        if (!settled) fail(new Error("h2c request ended before the body was complete"));
+    if (req.readable && !req.complete) {
+      // Under Bun, http.IncomingMessage remains a readable stream delivering the body,
+      // while socket delivers 0 data events after the upgrade event.
+      req.on("data", (chunk) => {
+        if (settled) return;
+        chunks.push(chunk);
+        received += chunk.length;
+        if (received > MAX_H2C_BODY_BYTES) {
+          fail(new Error("h2c body is too large"));
+        }
       });
-      socket.resume();
+      req.on("end", () => {
+        if (settled) return;
+        if (!transferEncoding && received < expectedLength) {
+          fail(new Error("h2c request ended before the body was complete"));
+          return;
+        }
+        serve(Buffer.concat(chunks, received).subarray(0, expectedLength || undefined));
+      });
+      req.on("error", (error) => {
+        if (!settled) fail(error);
+      });
+    } else {
+      if (transferEncoding || received < expectedLength) {
+        socket.on("data", readBody);
+        socket.on("end", () => {
+          if (!settled) fail(new Error("h2c request ended before the body was complete"));
+        });
+        socket.resume();
+      }
+      tryComplete();
     }
-    tryComplete();
 
     delete req.headers.upgrade;
     delete req.headers["http2-settings"];

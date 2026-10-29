@@ -7,8 +7,7 @@
   
   **Kết nối tất cả công cụ AI Code (Claude Code, Codex, Cursor, Cline, Copilot, Antigravity...) tới 40+ Nhà cung cấp AI & 100+ Mô hình.**
   
-  [![npm](https://img.shields.io/npm/v/9router.svg)](https://www.npmjs.com/package/9router)
-  [![Downloads](https://img.shields.io/npm/dm/9router.svg)](https://www.npmjs.com/package/9router)
+  [![Release](https://img.shields.io/github/v/release/rqzbeh/KhatamRouter)](https://github.com/rqzbeh/KhatamRouter/releases)
   [![License](https://github.com/decolua/9router/blob/main/LICENSE)](https://github.com/decolua/9router/blob/main/LICENSE)
   
   [🚀 Bắt đầu nhanh](#-quick-start) • [💡 Tính năng](#-key-features) • [📖 Cài đặt](#-setup-guide) • [🌐 Website](https://9router.com)
@@ -69,7 +68,7 @@ Kết quả: Không bao giờ ngừng code, chi phí tối thiểu + tiết ki�
 **1. Cài đặt toàn cục:**
 
 ```bash
-npm install -g 9router
+bun add -g 9router
 9router
 ```
 
@@ -96,15 +95,15 @@ Gói kho lưu trữ này là riêng tư (`9router-app`), vì vậy việc chạy
 
 ```bash
 cp .env.example .env
-npm install
-PORT=20128 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run dev
+bun install
+PORT=20128 NEXT_PUBLIC_BASE_URL=http://localhost:20128 bun run dev:bun
 ```
 
 Chế độ Production:
 
 ```bash
-npm run build
-PORT=20128 HOSTNAME=0.0.0.0 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run start
+bun run build:bun
+PORT=20128 HOSTNAME=0.0.0.0 NEXT_PUBLIC_BASE_URL=http://localhost:20128 bun run start:bun
 ```
 
 URL mặc định:
@@ -947,8 +946,8 @@ Model: cc/claude-opus-4-6
 # Clone và cài đặt
 git clone https://github.com/decolua/9router.git
 cd 9router
-npm install
-npm run build
+bun install
+bun run build:bun
 
 # Cấu hình
 export JWT="your-secure-secret-change-this"
@@ -963,11 +962,11 @@ export API_KEY_SECRET="endpoint-proxy-api-key-secret"
 export MACHINE_ID_SALT="endpoint-proxy-salt"
 
 # Khởi động
-npm run start
+bun run start:bun
 
 # Hoặc sử dụng PM2
-npm install -g pm2
-pm2 start --name 9router -- start
+bun add -g pm2
+pm2 start bun --name khatamrouter -- run start:bun
 pm2 save
 pm2 startup
 ```

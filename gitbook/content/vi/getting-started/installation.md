@@ -8,22 +8,19 @@ Hướng dẫn cài đặt chi tiết cho 9Router với mẹo troubleshooting.
 
 ### Yêu cầu hệ thống
 
-- **Node.js**: Phiên bản 20.0.0 trở lên
-- **npm**: Phiên bản 10.0.0 trở lên (đi kèm Node.js)
+- **Bun**: Phiên bản 1.4.3 trở lên (https://bun.sh)
 - **OS**: macOS, Linux, Windows (khuyên dùng WSL)
 - **Dung lượng**: ~200MB để cài đặt
 
 ### Kiểm tra Phiên bản
 
 ```bash
-node --version
-# Should show v20.x.x or higher
+bun --version
+# Should show 1.4.3 or higher
 
-npm --version
-# Should show 10.x.x or higher
 ```
 
-**Chưa có Node.js?** Cài đặt từ [nodejs.org](https://nodejs.org/)
+**Chưa có Bun?** Cài đặt từ [bun.sh](https://bun.sh)
 
 ---
 
@@ -34,7 +31,7 @@ npm --version
 Cài 9Router toàn cục để dùng ở bất kỳ đâu:
 
 ```bash
-npm install -g 9router
+bun add -g 9router
 ```
 
 **Khởi động 9Router:**
@@ -46,7 +43,7 @@ npm install -g 9router
 **Lợi ích:**
 - ✅ Chạy từ mọi thư mục
 - ✅ Lệnh đơn giản: `9router`
-- ✅ Auto-update với `npm update -g 9router`
+- ✅ Auto-update với `bun update -g 9router`
 
 ### Cách 2: Cài Local
 
@@ -55,13 +52,13 @@ Cài trong project cụ thể:
 ```bash
 mkdir my-9router
 cd my-9router
-npm install 9router
+bun add 9router
 ```
 
 **Khởi động 9Router:**
 
 ```bash
-npx 9router
+bunx 9router
 ```
 
 **Lợi ích:**
@@ -76,9 +73,9 @@ Clone và build từ GitHub:
 ```bash
 git clone https://github.com/decolua/9router.git
 cd 9router/app
-npm install
-npm run build
-npm start
+bun install
+bun run build:bun
+bun run start:bun
 ```
 
 **Lợi ích:**
@@ -273,34 +270,31 @@ kill -9 <PID>
 Error: EACCES: permission denied, mkdir '/usr/local/lib/node_modules/9router'
 ```
 
-**Giải pháp: Dùng sudo (không khuyến nghị) hoặc fix npm permissions**
+**Giải pháp: Dùng sudo (không khuyến nghị) hoặc thêm ~/.bun/bin vào PATH**
 
 ```bash
-# Fix npm permissions (recommended)
-mkdir ~/.npm-global
-npm config set prefix '~/.npm-global'
-echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.bashrc
+# Thêm ~/.bun/bin vào PATH (khuyến nghị)
+echo 'export PATH=~/.bun/bin:$PATH' >> ~/.bashrc
 source ~/.bashrc
 
 # Then install again
-npm install -g 9router
+bun add -g 9router
 ```
 
-### Node.js Phiên bản quá cũ
+### Phiên bản Bun quá cũ
 
 **Lỗi:**
 ```
 Error: The engine "node" is incompatible with this module
 ```
 
-**Giải pháp: Cập nhật Node.js**
+**Giải pháp: Cập nhật Bun (`bun upgrade`)**
 
 ```bash
 # Using nvm (recommended)
-nvm install 20
-nvm use 20
+bun upgrade
 
-# Or download from nodejs.org
+# Or download from bun.sh
 ```
 
 ### Dashboard không mở
@@ -316,7 +310,7 @@ http://localhost:20128
 **Giải pháp 2: Kiểm tra firewall**
 
 ```bash
-# macOS: Allow Node.js in System Preferences → Security
+# macOS: Allow Bun in System Preferences → Security
 # Linux: Check iptables
 # Windows: Check Windows Firewall
 ```
@@ -360,8 +354,8 @@ pkill -f 9router
 **Hoặc dùng PM2 để auto-restart:**
 
 ```bash
-npm install -g pm2
-pm2 start 9router --name 9router
+bun add -g pm2
+pm2 start bun --name khatamrouter -- run start:bun
 pm2 save
 ```
 
@@ -372,7 +366,7 @@ pm2 save
 ### Phát triển cục bộ
 
 ```bash
-npm install -g 9router
+bun add -g 9router
 9router
 ```
 
@@ -382,7 +376,7 @@ npm install -g 9router
 
 ```bash
 # Install
-npm install -g 9router
+bun add -g 9router
 
 # Configure
 export JWT_SECRET="your-secure-secret"
@@ -390,8 +384,8 @@ export INITIAL_PASSWORD="your-password"
 export NODE_ENV="production"
 
 # Start with PM2
-npm install -g pm2
-pm2 start 9router --name 9router
+bun add -g pm2
+pm2 start bun --name khatamrouter -- run start:bun
 pm2 save
 pm2 startup
 ```
@@ -444,7 +438,7 @@ server {
 ### Gỡ Global Installation
 
 ```bash
-npm uninstall -g 9router
+bun remove -g 9router
 ```
 
 ### Xóa Data Directory

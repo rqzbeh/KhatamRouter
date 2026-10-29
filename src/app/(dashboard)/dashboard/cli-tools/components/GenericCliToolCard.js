@@ -286,9 +286,9 @@ export default function GenericCliToolCard({
   const getInstallCommand = () => {
     switch (tool.id) {
       case "pi":
-        return "curl -fsSL https://pi.dev/install.sh | sh  # or: npm install -g --ignore-scripts @earendil-works/pi-coding-agent";
+        return "curl -fsSL https://pi.dev/install.sh | sh  # or: bun add -g --ignore-scripts @earendil-works/pi-coding-agent";
       case "omp":
-        return "npm install -g oh-my-pi";
+        return "bun add -g oh-my-pi";
       case "crush":
         return "brew install charmbracelet/tap/crush  # or go install github.com/charmbracelet/crush@latest";
       case "forge":
@@ -298,7 +298,7 @@ export default function GenericCliToolCard({
       case "codewhale":
         return "cargo install codewhale";
       default:
-        return `npm install -g ${tool.id}`;
+        return `bun add -g ${tool.id}`;
     }
   };
 
