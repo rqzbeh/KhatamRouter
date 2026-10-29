@@ -54,7 +54,7 @@
     "socks-proxy-agent": "^10.1.0",
     "undici": "^7.30.1",
     "uuid": "^14.0.3",
-    "zustand": "^5.0.10"
+    "zustand": "^5.0.16"
   },
   "optionalDependencies": {
     "@aws-sdk/credential-providers": "^3.1135.0",
