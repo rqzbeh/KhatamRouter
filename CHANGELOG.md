@@ -1,4 +1,17 @@
-# Unreleased — Wave 8: Bun Performance & Vertical Scale (PR #79, merged 2026-10-28)
+# Unreleased — Spec 014: Psiphon Rotating Proxy Pool
+
+## Features
+- **feat(proxy-pools)**: psiphon rotating pool for OpenCode Free and pool-bound providers:
+  - Supervise local `psiphon-tunnel-core` (`ConsoleClient`) sidecars: lazy startup on demand, parallel candidate evaluation across regions to select lowest latency, and sticky hold while requests succeed
+  - Automatic rotation on burn signals: triggers on HTTP 429 rate limit, 403 `FreeTierError`/`FreeUsageLimit`, and 502/503 transport failures (`connect timeout`, `ECONNRESET`, `ETIMEDOUT`, `ECONNREFUSED`, `Proxy`)
+  - Geographic diversity: rotates to fresh regions excluding current and last 3 used regions, allocates isolated data directories to reset server affinity, and verifies distinct exit IP (retrying up to 3 times on duplicate IP)
+  - Fail-closed guarantees: forced `strictProxy`, bypasses direct replay for psiphon pools, and returns 503 `PsiphonUnavailableError` without direct origin egress when tunnel is unavailable
+  - Concurrency & crash safety: single-flight connection establishment, generation guard preventing duplicate rotations under concurrent failures, minimum interval throttling (`PSIPHON_MIN_ROTATE_INTERVAL_MS`), and crash-loop backoff guard halting after 3 crashes in 30s
+  - Proactive rotation: per-pool `maxRequestsPerIp` and `maxTokensPerIp` threshold counters triggering rotation before IP quotas expire
+  - API & UI: pool type `psiphon` in `/api/proxy-pools`, `GET /api/proxy-pools/[id]/status` (omits secrets and binary paths), `POST /api/proxy-pools/[id]/rotate`, `POST /api/proxy-pools/[id]/test`, and dashboard status badge with manual "Rotate now" control
+  - Sidecar boundary: operator-supplied binary (`PSIPHON_BIN`, GPL-3.0 boundary) and config (`PSIPHON_CONFIG_FILE`), loopback-only binding (`127.0.0.1`), no binary bundled or downloaded
+
+# Wave 8: Bun Performance & Vertical Scale (PR #79, merged 2026-10-28)
 
 ## Performance
 - **perf(slim)**: in-process hot-path slimming. Measured with `scripts/perf-l1-harness.mjs` (5 x 1,000 requests, 100 warmup): DB queries/req 15.20 -> 10.78 (met, target <= 11.0), p95 4.93 -> 2.56 ms (-47.96%, met), p50 1.35 -> 1.00 ms (-25.67%, **misses** the 35% p50 target). Contents:

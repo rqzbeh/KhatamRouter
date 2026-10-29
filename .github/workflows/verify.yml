@@ -190,7 +190,10 @@ jobs:
             unit/wave75-idempotency.test.js \
             unit/wave75-redis-accelerators.test.js \
             unit/wave75-redis-shared-state.test.js \
-            unit/wave75-twins-alignment.test.js
+            unit/wave75-twins-alignment.test.js \
+            unit/psiphon-manager.test.js \
+            unit/psiphon-rotation.test.js \
+            unit/psiphon-pool-api.test.js
 
   verify:
     name: Verify (tests + baselines)

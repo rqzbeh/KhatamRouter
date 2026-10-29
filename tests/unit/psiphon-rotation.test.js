@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from "vitest";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
@@ -55,6 +55,12 @@ vi.mock("@/lib/usageDb.js", () => ({
   saveRequestUsage: vi.fn(async () => {}),
 }));
 
+// Captured as originalFetch when proxyFetch.js loads; proxy attempts carry an
+// undici dispatcher, direct attempts do not.
+const realFetch = globalThis.fetch;
+const fetchMock = vi.fn();
+globalThis.fetch = fetchMock;
+
 // Import implementations to test
 const { resolveConnectionProxyConfig } = await import("../../src/lib/network/connectionProxy.js");
 const { proxyAwareFetch } = await import("../../open-sse/utils/proxyFetch.js");
@@ -85,6 +91,7 @@ describe("Psiphon Integration & Rotation (T3)", () => {
   let baseConfigFile;
 
   beforeEach(() => {
+    fetchMock.mockReset();
     tmpDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "psiphon-test-t3-"));
     baseConfigFile = path.join(tmpDataDir, "client.config.json");
     fs.writeFileSync(
@@ -146,6 +153,10 @@ describe("Psiphon Integration & Rotation (T3)", () => {
     } catch {}
   });
 
+  afterAll(() => {
+    globalThis.fetch = realFetch;
+  });
+
   describe("resolveConnectionProxyConfig for Psiphon", () => {
     it("resolves active psiphon pool with strictProxy=true, connectionProxyEnabled=true, and tunnel port", async () => {
       const cfg = await resolveConnectionProxyConfig({ proxyPoolId: "pool-psiphon-1" });
@@ -181,54 +192,48 @@ describe("Psiphon Integration & Rotation (T3)", () => {
 
   describe("proxyFetch: fail closed & no direct replay for psiphon", () => {
     it("never replays 403 FreeTierError directly when psiphonPoolId is set", async () => {
-      const originalFetch = globalThis.fetch;
       let directCalled = false;
       const FREE_TIER_403 = JSON.stringify({
         type: "error",
         error: { type: "FreeTierError", message: "Flagged IP" },
       });
 
-      globalThis.fetch = async (url, opts = {}) => {
+      fetchMock.mockImplementation(async (url, opts = {}) => {
         if (!opts.dispatcher) {
           directCalled = true;
           return new Response("ok direct", { status: 200 });
         }
         return new Response(FREE_TIER_403, { status: 403, headers: { "content-type": "application/json" } });
-      };
+      });
 
-      try {
-        const res = await proxyAwareFetch(
-          "https://opencode.ai/inference/v1/chat/completions",
-          { method: "POST", body: "{}" },
-          { enabled: true, url: "http://127.0.0.1:9999", psiphonPoolId: "pool-psiphon-1", strictProxy: true }
-        );
-        expect(res.status).toBe(403);
-        expect(directCalled).toBe(false);
-      } finally {
-        globalThis.fetch = originalFetch;
-      }
+      const res = await proxyAwareFetch(
+        "https://opencode.ai/inference/v1/chat/completions",
+        { method: "POST", body: "{}" },
+        { enabled: true, url: "http://127.0.0.1:9999", psiphonPoolId: "pool-psiphon-1", strictProxy: true }
+      );
+      expect(res.status).toBe(403);
+      expect(directCalled).toBe(false);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const lastCallOpts = fetchMock.mock.calls[0]?.[1];
+      expect(lastCallOpts?.dispatcher).toBeDefined();
     });
 
     it("throws strictProxy error without calling direct fetch when psiphon tunnel is empty", async () => {
-      const originalFetch = globalThis.fetch;
       let directCalled = false;
-      globalThis.fetch = async () => {
+      fetchMock.mockImplementation(async () => {
         directCalled = true;
         return new Response("direct", { status: 200 });
-      };
+      });
 
-      try {
-        await expect(
-          proxyAwareFetch(
-            "https://opencode.ai/inference/v1/chat/completions",
-            { method: "POST", body: "{}" },
-            { connectionProxyEnabled: true, connectionProxyUrl: "", psiphonPoolId: "pool-psiphon-1", strictProxy: true }
-          )
-        ).rejects.toThrow(/strictProxy/);
-        expect(directCalled).toBe(false);
-      } finally {
-        globalThis.fetch = originalFetch;
-      }
+      await expect(
+        proxyAwareFetch(
+          "https://opencode.ai/inference/v1/chat/completions",
+          { method: "POST", body: "{}" },
+          { connectionProxyEnabled: true, connectionProxyUrl: "", psiphonPoolId: "pool-psiphon-1", strictProxy: true }
+        )
+      ).rejects.toThrow(/strictProxy/);
+      expect(directCalled).toBe(false);
+      expect(fetchMock).not.toHaveBeenCalled();
     });
   });
 
@@ -249,16 +254,8 @@ describe("Psiphon Integration & Rotation (T3)", () => {
       const initialTunnel = await ensureTunnel(mockPools.get("pool-psiphon-1"));
       const initialGen = initialTunnel.generation;
 
-      const originalFetch = globalThis.fetch;
-      globalThis.fetch = async (url, opts = {}) => {
-        const urlStr = String(url);
-        if (urlStr.includes("generate_204")) {
-          return new Response(null, { status: 204 });
-        }
-        if (urlStr.includes("trace") || urlStr.includes("ip")) {
-          return new Response("198.51.100.123", { status: 200 });
-        }
-
+      fetchMock.mockImplementation(async (url, opts = {}) => {
+        expect(opts.dispatcher).toBeDefined();
         upstreamChatCalls++;
         if (upstreamChatCalls === 1) {
           return new Response(JSON.stringify({ error: { message: "rate limited" } }), {
@@ -270,25 +267,21 @@ describe("Psiphon Integration & Rotation (T3)", () => {
           status: 200,
           headers: { "Content-Type": "text/event-stream" },
         });
-      };
+      });
 
-      try {
-        const req = makePostRequest("/v1/chat/completions", {
-          model: "opencode/beam-free",
-          stream: false,
-          messages: [{ role: "user", content: "hi" }],
-        });
-        const res = await handleChat(req);
-        expect(res.status).toBe(200);
-        expect(upstreamChatCalls).toBe(2);
+      const req = makePostRequest("/v1/chat/completions", {
+        model: "opencode/beam-free",
+        stream: false,
+        messages: [{ role: "user", content: "hi" }],
+      });
+      const res = await handleChat(req);
+      expect(res.status).toBe(200);
+      expect(upstreamChatCalls).toBe(2);
 
-        const status = getStatus("pool-psiphon-1");
-        expect(status.generation).toBeGreaterThan(initialGen);
-        expect(status.requests).toBe(1);
-        expect(status.tokens).toBe(42);
-      } finally {
-        globalThis.fetch = originalFetch;
-      }
+      const status = getStatus("pool-psiphon-1");
+      expect(status.generation).toBeGreaterThan(initialGen);
+      expect(status.requests).toBe(1);
+      expect(status.tokens).toBe(42);
     });
 
     it("rotates on 403 FreeTierError and retries", async () => {
@@ -296,12 +289,8 @@ describe("Psiphon Integration & Rotation (T3)", () => {
       const initialTunnel = await ensureTunnel(mockPools.get("pool-psiphon-1"));
       const initialGen = initialTunnel.generation;
 
-      const originalFetch = globalThis.fetch;
-      globalThis.fetch = async (url) => {
-        const urlStr = String(url);
-        if (urlStr.includes("generate_204")) return new Response(null, { status: 204 });
-        if (urlStr.includes("trace") || urlStr.includes("ip")) return new Response("198.51.100.123", { status: 200 });
-
+      fetchMock.mockImplementation(async (url, opts = {}) => {
+        expect(opts.dispatcher).toBeDefined();
         upstreamChatCalls++;
         if (upstreamChatCalls === 1) {
           return new Response(JSON.stringify({ error: { type: "FreeTierError", message: "Flagged IP" } }), {
@@ -313,22 +302,18 @@ describe("Psiphon Integration & Rotation (T3)", () => {
           status: 200,
           headers: { "Content-Type": "text/event-stream" },
         });
-      };
+      });
 
-      try {
-        const req = makePostRequest("/v1/chat/completions", {
-          model: "opencode/beam-free",
-          stream: false,
-          messages: [{ role: "user", content: "hi" }],
-        });
-        const res = await handleChat(req);
-        expect(res.status).toBe(200);
-        expect(upstreamChatCalls).toBe(2);
-        const status = getStatus("pool-psiphon-1");
-        expect(status.generation).toBeGreaterThan(initialGen);
-      } finally {
-        globalThis.fetch = originalFetch;
-      }
+      const req = makePostRequest("/v1/chat/completions", {
+        model: "opencode/beam-free",
+        stream: false,
+        messages: [{ role: "user", content: "hi" }],
+      });
+      const res = await handleChat(req);
+      expect(res.status).toBe(200);
+      expect(upstreamChatCalls).toBe(2);
+      const status = getStatus("pool-psiphon-1");
+      expect(status.generation).toBeGreaterThan(initialGen);
     });
 
     it("rotates on transport 502 (connect timeout / ECONNRESET)", async () => {
@@ -336,12 +321,8 @@ describe("Psiphon Integration & Rotation (T3)", () => {
       const initialTunnel = await ensureTunnel(mockPools.get("pool-psiphon-1"));
       const initialGen = initialTunnel.generation;
 
-      const originalFetch = globalThis.fetch;
-      globalThis.fetch = async (url) => {
-        const urlStr = String(url);
-        if (urlStr.includes("generate_204")) return new Response(null, { status: 204 });
-        if (urlStr.includes("trace") || urlStr.includes("ip")) return new Response("198.51.100.123", { status: 200 });
-
+      fetchMock.mockImplementation(async (url, opts = {}) => {
+        expect(opts.dispatcher).toBeDefined();
         upstreamChatCalls++;
         if (upstreamChatCalls === 1) {
           return new Response(JSON.stringify({ error: { message: "Proxy error: connect timeout (ECONNRESET)" } }), {
@@ -353,22 +334,18 @@ describe("Psiphon Integration & Rotation (T3)", () => {
           status: 200,
           headers: { "Content-Type": "text/event-stream" },
         });
-      };
+      });
 
-      try {
-        const req = makePostRequest("/v1/chat/completions", {
-          model: "opencode/beam-free",
-          stream: false,
-          messages: [{ role: "user", content: "hi" }],
-        });
-        const res = await handleChat(req);
-        expect(res.status).toBe(200);
-        expect(upstreamChatCalls).toBe(2);
-        const status = getStatus("pool-psiphon-1");
-        expect(status.generation).toBeGreaterThan(initialGen);
-      } finally {
-        globalThis.fetch = originalFetch;
-      }
+      const req = makePostRequest("/v1/chat/completions", {
+        model: "opencode/beam-free",
+        stream: false,
+        messages: [{ role: "user", content: "hi" }],
+      });
+      const res = await handleChat(req);
+      expect(res.status).toBe(200);
+      expect(upstreamChatCalls).toBe(2);
+      const status = getStatus("pool-psiphon-1");
+      expect(status.generation).toBeGreaterThan(initialGen);
     });
 
     it("does not rotate on client errors 400 or 401", async () => {
@@ -376,33 +353,25 @@ describe("Psiphon Integration & Rotation (T3)", () => {
       const initialTunnel = await ensureTunnel(mockPools.get("pool-psiphon-1"));
       const initialGen = initialTunnel.generation;
 
-      const originalFetch = globalThis.fetch;
-      globalThis.fetch = async (url) => {
-        const urlStr = String(url);
-        if (urlStr.includes("generate_204")) return new Response(null, { status: 204 });
-        if (urlStr.includes("trace") || urlStr.includes("ip")) return new Response("198.51.100.123", { status: 200 });
-
+      fetchMock.mockImplementation(async (url, opts = {}) => {
+        expect(opts.dispatcher).toBeDefined();
         upstreamChatCalls++;
         return new Response(JSON.stringify({ error: { message: "Invalid request" } }), {
           status: 400,
           headers: { "Content-Type": "application/json" },
         });
-      };
+      });
 
-      try {
-        const req = makePostRequest("/v1/chat/completions", {
-          model: "opencode/beam-free",
-          stream: false,
-          messages: [{ role: "user", content: "hi" }],
-        });
-        const res = await handleChat(req);
-        expect(res.status).toBe(400);
-        expect(upstreamChatCalls).toBe(1);
-        const status = getStatus("pool-psiphon-1");
-        expect(status.generation).toBe(initialGen);
-      } finally {
-        globalThis.fetch = originalFetch;
-      }
+      const req = makePostRequest("/v1/chat/completions", {
+        model: "opencode/beam-free",
+        stream: false,
+        messages: [{ role: "user", content: "hi" }],
+      });
+      const res = await handleChat(req);
+      expect(res.status).toBe(400);
+      expect(upstreamChatCalls).toBe(1);
+      const status = getStatus("pool-psiphon-1");
+      expect(status.generation).toBe(initialGen);
     });
 
     it("stops after at most 2 rotations and returns last failure", async () => {
@@ -410,88 +379,68 @@ describe("Psiphon Integration & Rotation (T3)", () => {
       const initialTunnel = await ensureTunnel(mockPools.get("pool-psiphon-1"));
       const initialGen = initialTunnel.generation;
 
-      const originalFetch = globalThis.fetch;
-      globalThis.fetch = async (url) => {
-        const urlStr = String(url);
-        if (urlStr.includes("generate_204")) return new Response(null, { status: 204 });
-        if (urlStr.includes("trace") || urlStr.includes("ip")) return new Response("198.51.100.123", { status: 200 });
-
+      fetchMock.mockImplementation(async (url, opts = {}) => {
+        expect(opts.dispatcher).toBeDefined();
         upstreamChatCalls++;
         return new Response(JSON.stringify({ error: { message: "persistent rate limit" } }), {
           status: 429,
           headers: { "Content-Type": "application/json" },
         });
-      };
+      });
 
-      try {
-        const req = makePostRequest("/v1/chat/completions", {
-          model: "opencode/beam-free",
-          stream: false,
-          messages: [{ role: "user", content: "hi" }],
-        });
-        const res = await handleChat(req);
-        expect(res.status).toBe(429);
-        // Initial attempt (1) + 2 retries = 3 total attempts
-        expect(upstreamChatCalls).toBe(3);
-        const status = getStatus("pool-psiphon-1");
-        expect(status.generation).toBe(initialGen + 2);
-      } finally {
-        globalThis.fetch = originalFetch;
-      }
+      const req = makePostRequest("/v1/chat/completions", {
+        model: "opencode/beam-free",
+        stream: false,
+        messages: [{ role: "user", content: "hi" }],
+      });
+      const res = await handleChat(req);
+      expect(res.status).toBe(429);
+      // Initial attempt (1) + 2 retries = 3 total attempts
+      expect(upstreamChatCalls).toBe(3);
+      const status = getStatus("pool-psiphon-1");
+      expect(status.generation).toBe(initialGen + 2);
     });
 
     it("non-psiphon pool is untouched on 429 (no rotation)", async () => {
       mockSettings.providerStrategies.opencode.proxyPoolId = "pool-static-1";
       let upstreamChatCalls = 0;
 
-      const originalFetch = globalThis.fetch;
-      globalThis.fetch = async (url) => {
-        const urlStr = String(url);
-        if (urlStr.includes("generate_204")) return new Response(null, { status: 204 });
-        if (urlStr.includes("trace") || urlStr.includes("ip")) return new Response("198.51.100.123", { status: 200 });
-
+      fetchMock.mockImplementation(async (url, opts = {}) => {
+        expect(opts.dispatcher).toBeDefined();
         upstreamChatCalls++;
         return new Response(JSON.stringify({ error: { message: "static pool rate limit" } }), {
           status: 429,
           headers: { "Content-Type": "application/json" },
         });
-      };
+      });
 
-      try {
-        const req = makePostRequest("/v1/chat/completions", {
-          model: "opencode/beam-free",
-          stream: false,
-          messages: [{ role: "user", content: "hi" }],
-        });
-        const res = await handleChat(req);
-        expect(res.status).toBe(429);
-        expect(upstreamChatCalls).toBe(1);
-      } finally {
-        globalThis.fetch = originalFetch;
-      }
+      const req = makePostRequest("/v1/chat/completions", {
+        model: "opencode/beam-free",
+        stream: false,
+        messages: [{ role: "user", content: "hi" }],
+      });
+      const res = await handleChat(req);
+      expect(res.status).toBe(429);
+      expect(upstreamChatCalls).toBe(1);
     });
 
     it("returns 503 and never calls origin fetch when psiphon tunnel is unavailable", async () => {
       process.env.PSIPHON_BIN = "/nonexistent/binary";
       let originFetchCalled = false;
-      const originalFetch = globalThis.fetch;
-      globalThis.fetch = async () => {
+      fetchMock.mockImplementation(async () => {
         originFetchCalled = true;
         return new Response("direct", { status: 200 });
-      };
+      });
 
-      try {
-        const req = makePostRequest("/v1/chat/completions", {
-          model: "opencode/beam-free",
-          stream: false,
-          messages: [{ role: "user", content: "hi" }],
-        });
-        const res = await handleChat(req);
-        expect(res.status).toBe(503);
-        expect(originFetchCalled).toBe(false);
-      } finally {
-        globalThis.fetch = originalFetch;
-      }
+      const req = makePostRequest("/v1/chat/completions", {
+        model: "opencode/beam-free",
+        stream: false,
+        messages: [{ role: "user", content: "hi" }],
+      });
+      const res = await handleChat(req);
+      expect(res.status).toBe(503);
+      expect(originFetchCalled).toBe(false);
+      expect(fetchMock).not.toHaveBeenCalled();
     }, 15000);
 
     it("deduplicates concurrent rotations using generation guard", async () => {

@@ -276,8 +276,7 @@ async function fetchWithTlsFallback(url, options, proxyUrl) {
       return await directFetch(url, options);
     }
     const dispatcher = proxyUrl ? await getDispatcher(proxyUrl) : undefined;
-    const activeFetch = (globalThis.fetch && globalThis.fetch !== patchedFetch) ? globalThis.fetch : originalFetch;
-    return await activeFetch(url, dispatcher ? { ...fetchOptions, dispatcher } : fetchOptions);
+    return await originalFetch(url, dispatcher ? { ...fetchOptions, dispatcher } : fetchOptions);
   } catch (err) {
     const isStrictSsl = options?.strictTls === true || process.env.STRICT_SSL === "true" || process.env.STRICT_SSL === "1";
     if (!isStrictSsl && isTlsCertError(err)) {
@@ -288,8 +287,7 @@ async function fetchWithTlsFallback(url, options, proxyUrl) {
       console.warn(`[ProxyFetch] TLS cert verification failed (${err.cause?.code || err.code}), retrying with insecure TLS: ${url}`);
       const insecureDispatcher = await getDispatcher(proxyUrl, true);
       const { directFetch: _df, ...fetchOptions } = options || {};
-      const activeFetch = (globalThis.fetch && globalThis.fetch !== patchedFetch) ? globalThis.fetch : originalFetch;
-      return await activeFetch(url, { ...fetchOptions, dispatcher: insecureDispatcher });
+      return await originalFetch(url, { ...fetchOptions, dispatcher: insecureDispatcher });
     }
     throw err;
   }
