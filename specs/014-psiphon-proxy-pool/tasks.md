@@ -23,7 +23,7 @@
 - Tests (>=14 expects): best-latency pick, losers terminated, sticky reuse, rotate => new region + new IP + new data dir, last-3-regions avoidance, same-IP retry, single-flight ensure, generation guard (3 concurrent rotates => 1 rotation), threshold rotation, process-exit recovery, missing binary => PsiphonUnavailableError, ready timeout => error, region validation, stopAll kills children, scrubbed env (no `JWT_SECRET`), no `shell`.
 - **Oracle**:
 ```bash
-test -s tests/unit/psiphon-manager.test.js && [ $(grep -c 'expect(' tests/unit/psiphon-manager.test.js) -ge 14 ] && ! grep -qE "it\.skip|it\.todo|xit|describe\.skip" tests/unit/psiphon-manager.test.js && ! grep -rqE "shell: *true|child_process.*exec\(" src/lib/network/psiphon && cd tests && bun x vitest run unit/psiphon-manager.test.js && echo T2_PASS
+test -s tests/unit/psiphon-manager.test.js && [ $(grep -c 'expect(' tests/unit/psiphon-manager.test.js) -ge 14 ] && ! grep -qE "\bit\.skip|\bit\.todo|\bxit\(|\bxdescribe\(|describe\.skip" tests/unit/psiphon-manager.test.js && ! grep -rqE "shell: *true|child_process.*exec\(" src/lib/network/psiphon && cd tests && bun x vitest run unit/psiphon-manager.test.js && echo T2_PASS
 ```
 
 #### T3: Integration
@@ -34,7 +34,7 @@ test -s tests/unit/psiphon-manager.test.js && [ $(grep -c 'expect(' tests/unit/p
 - Tests (>=10 expects): 429 => rotate+retry => 200; 403 FreeTierError => rotate; transport 502 => rotate; 400/401 => no rotate; max 2 rotations then returns failure; non-psiphon pool untouched; psiphon tunnel unavailable => 503 and global fetch never called directly; no direct replay for psiphon; concurrent failures => single rotation; regression suites listed in SC-014-05.
 - **Oracle**:
 ```bash
-test -s tests/unit/psiphon-rotation.test.js && [ $(grep -c 'expect(' tests/unit/psiphon-rotation.test.js) -ge 10 ] && ! grep -qE "it\.skip|it\.todo|xit|describe\.skip" tests/unit/psiphon-rotation.test.js && cd tests && bun x vitest run unit/psiphon-rotation.test.js unit/strict-proxy-enforcement.test.js unit/opencode-freetier-direct-replay.test.js unit/opencode-tls-client.test.js && echo T3_PASS
+test -s tests/unit/psiphon-rotation.test.js && [ $(grep -c 'expect(' tests/unit/psiphon-rotation.test.js) -ge 10 ] && ! grep -qE "\bit\.skip|\bit\.todo|\bxit\(|\bxdescribe\(|describe\.skip" tests/unit/psiphon-rotation.test.js && cd tests && bun x vitest run unit/psiphon-rotation.test.js unit/strict-proxy-enforcement.test.js unit/opencode-freetier-direct-replay.test.js unit/opencode-tls-client.test.js && echo T3_PASS
 ```
 
 #### T4: API + UI
@@ -43,7 +43,7 @@ test -s tests/unit/psiphon-rotation.test.js && [ $(grep -c 'expect(' tests/unit/
 - Tests (>=10 expects): create ok/400 matrix (regions, candidates, negatives), proxyUrl optional, status shape omits config/secrets, rotate 400 for non-psiphon, rotate calls manager, delete stops tunnel, auth guard path covered.
 - **Oracle**:
 ```bash
-test -s tests/unit/psiphon-pool-api.test.js && [ $(grep -c 'expect(' tests/unit/psiphon-pool-api.test.js) -ge 10 ] && ! grep -qE "it\.skip|it\.todo|xit|describe\.skip" tests/unit/psiphon-pool-api.test.js && cd tests && bun x vitest run unit/psiphon-pool-api.test.js && cd .. && bun x eslint src/app/api/proxy-pools "src/app/(dashboard)/dashboard/proxy-pools" src/lib/network && echo T4_PASS
+test -s tests/unit/psiphon-pool-api.test.js && [ $(grep -c 'expect(' tests/unit/psiphon-pool-api.test.js) -ge 10 ] && ! grep -qE "\bit\.skip|\bit\.todo|\bxit\(|\bxdescribe\(|describe\.skip" tests/unit/psiphon-pool-api.test.js && cd tests && bun x vitest run unit/psiphon-pool-api.test.js && cd .. && bun x eslint src/app/api/proxy-pools "src/app/(dashboard)/dashboard/proxy-pools" src/lib/network && echo T4_PASS
 ```
 
 #### T5: Docs
