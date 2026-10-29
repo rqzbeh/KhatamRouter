@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getProxyPoolById, updateProxyPool } from "@/models";
 import { testProxyUrl } from "@/lib/network/proxyTest";
 import { fetch as undiciFetch } from "undici";
+import { ensureTunnel } from "@/lib/network/psiphon/psiphonManager.js";
+import { probeLatency } from "@/lib/network/psiphon/probe.js";
 
 async function testVercelRelay(relayUrl, timeoutMs = 10000) {
   const controller = new AbortController();
@@ -41,6 +43,55 @@ export async function POST(request, { params }) {
 
     if (!proxyPool) {
       return NextResponse.json({ error: "Proxy pool not found" }, { status: 404 });
+    }
+
+    if (proxyPool.type === "psiphon") {
+      const startedAt = Date.now();
+      try {
+        const tunnel = await ensureTunnel(proxyPool);
+        const probeRes = await probeLatency(tunnel.proxyUrl);
+        const ok = probeRes.ok;
+        const latency = probeRes.latency !== Infinity ? probeRes.latency : Math.max(1, Date.now() - startedAt);
+        const now = new Date().toISOString();
+
+        await updateProxyPool(id, {
+          testStatus: ok ? "active" : "error",
+          lastTestedAt: now,
+          lastError: ok ? null : (probeRes.error || "Proxy connectivity probe failed"),
+          isActive: ok,
+        });
+
+        return NextResponse.json({
+          ok,
+          status: ok ? 200 : (probeRes.status || 500),
+          statusText: ok ? "OK" : null,
+          error: ok ? null : (probeRes.error || "Probe failed"),
+          elapsedMs: latency,
+          testedAt: now,
+          region: tunnel.region || null,
+          latency,
+          exitIp: tunnel.exitIp || null,
+        });
+      } catch (err) {
+        const now = new Date().toISOString();
+        const errorMessage = err?.message || String(err);
+        await updateProxyPool(id, {
+          testStatus: "error",
+          lastTestedAt: now,
+          lastError: errorMessage,
+          isActive: false,
+        });
+        return NextResponse.json({
+          ok: false,
+          status: err?.status || 500,
+          error: errorMessage,
+          elapsedMs: Date.now() - startedAt,
+          testedAt: now,
+          region: null,
+          latency: null,
+          exitIp: null,
+        });
+      }
     }
 
     const result = proxyPool.type === "vercel" || proxyPool.type === "cloudflare" || proxyPool.type === "deno" || proxyPool.type === "netlify"

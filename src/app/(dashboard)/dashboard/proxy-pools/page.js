@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
-import { Badge, Button, Card, CardSkeleton, Input, Modal, Toggle, ConfirmModal } from "@/shared/components";
+import { Badge, Button, Card, CardSkeleton, Input, Modal, Toggle, ConfirmModal, Select } from "@/shared/components";
 import { useNotificationStore } from "@/store/notificationStore";
 
 function getStatusVariant(status) {
@@ -18,12 +18,19 @@ function formatDateTime(value) {
 }
 
 function normalizeFormData(data = {}) {
+  const isPsiphon = data.type === "psiphon";
+  const psiphon = data.psiphon || data.data?.psiphon || {};
   return {
     name: data.name || "",
-    proxyUrl: data.proxyUrl || "",
+    type: data.type || "http",
+    proxyUrl: data.proxyUrl || (isPsiphon ? "psiphon://managed" : ""),
     noProxy: data.noProxy || "",
     isActive: data.isActive !== false,
-    strictProxy: data.strictProxy === true,
+    strictProxy: isPsiphon ? true : data.strictProxy === true,
+    regions: Array.isArray(psiphon.regions) ? psiphon.regions.join(", ") : "",
+    probeCandidates: psiphon.probeCandidates !== undefined ? psiphon.probeCandidates : 3,
+    maxRequestsPerIp: psiphon.maxRequestsPerIp !== undefined ? psiphon.maxRequestsPerIp : 0,
+    maxTokensPerIp: psiphon.maxTokensPerIp !== undefined ? psiphon.maxTokensPerIp : 0,
   };
 }
 
@@ -48,6 +55,8 @@ export default function ProxyPoolsPage() {
   const [importing, setImporting] = useState(false);
   const [deploying, setDeploying] = useState(false);
   const [testingId, setTestingId] = useState(null);
+  const [rotatingId, setRotatingId] = useState(null);
+  const [psiphonStatuses, setPsiphonStatuses] = useState({});
   const [selectedIds, setSelectedIds] = useState([]);
   const [healthChecking, setHealthChecking] = useState(false);
   const [healthProgress, setHealthProgress] = useState({ current: 0, total: 0 });
@@ -73,7 +82,20 @@ export default function ProxyPoolsPage() {
       const res = await fetch("/api/proxy-pools?includeUsage=true", { cache: "no-store" });
       const data = await res.json();
       if (res.ok) {
-        setProxyPools(data.proxyPools || []);
+        const pools = data.proxyPools || [];
+        setProxyPools(pools);
+        const psiphonPools = pools.filter((p) => p.type === "psiphon");
+        for (const p of psiphonPools) {
+          try {
+            const stRes = await fetch(`/api/proxy-pools/${p.id}/status`, { cache: "no-store" });
+            if (stRes.ok) {
+              const stData = await stRes.json();
+              if (stData.status) {
+                setPsiphonStatuses((prev) => ({ ...prev, [p.id]: stData.status }));
+              }
+            }
+          } catch {}
+        }
       }
     } catch (error) {
       console.log("Error fetching proxy pools:", error);
@@ -83,8 +105,35 @@ export default function ProxyPoolsPage() {
   }, []);
 
   useEffect(() => {
-    fetchProxyPools();
-  }, [fetchProxyPools]);
+    let ignore = false;
+    fetch("/api/proxy-pools?includeUsage=true", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data) => {
+        if (!ignore) {
+          const pools = data.proxyPools || [];
+          setProxyPools(pools);
+          setLoading(false);
+          const psiphonPools = pools.filter((p) => p.type === "psiphon");
+          for (const p of psiphonPools) {
+            fetch(`/api/proxy-pools/${p.id}/status`, { cache: "no-store" })
+              .then((r) => (r.ok ? r.json() : null))
+              .then((st) => {
+                if (!ignore && st?.status) {
+                  setPsiphonStatuses((prev) => ({ ...prev, [p.id]: st.status }));
+                }
+              })
+              .catch(() => {});
+          }
+        }
+      })
+      .catch((error) => {
+        console.log("Error fetching proxy pools:", error);
+        if (!ignore) setLoading(false);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   const resetForm = () => {
     setEditingProxyPool(null);
@@ -107,16 +156,103 @@ export default function ProxyPoolsPage() {
     resetForm();
   };
 
+  const handleRotate = async (poolId) => {
+    setRotatingId(poolId);
+    try {
+      const res = await fetch(`/api/proxy-pools/${poolId}/rotate`, { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        notify.success(`Rotated to ${data.region || "new region"} (gen #${data.generation})`);
+        try {
+          const stRes = await fetch(`/api/proxy-pools/${poolId}/status`, { cache: "no-store" });
+          if (stRes.ok) {
+            const stData = await stRes.json();
+            if (stData.status) {
+              setPsiphonStatuses((prev) => ({ ...prev, [poolId]: stData.status }));
+            }
+          }
+        } catch {}
+      } else {
+        notify.error(data.error || "Failed to rotate tunnel");
+      }
+    } catch (error) {
+      console.log("Error rotating tunnel:", error);
+      notify.error("Failed to rotate tunnel");
+    } finally {
+      setRotatingId(null);
+    }
+  };
+
   const handleSave = async () => {
+    const isPsiphon = formData.type === "psiphon";
+    const name = formData.name.trim();
+    if (!name) {
+      notify.error("Name is required");
+      return;
+    }
+
+    let proxyUrl = formData.proxyUrl.trim();
+    if (isPsiphon && !proxyUrl) {
+      proxyUrl = "psiphon://managed";
+    }
+    if (!isPsiphon && !proxyUrl) {
+      notify.error("Proxy URL is required");
+      return;
+    }
+
     const payload = {
-      name: formData.name.trim(),
-      proxyUrl: formData.proxyUrl.trim(),
+      name,
+      type: formData.type,
+      proxyUrl,
       noProxy: formData.noProxy.trim(),
       isActive: formData.isActive === true,
-      strictProxy: formData.strictProxy === true,
+      strictProxy: isPsiphon ? true : formData.strictProxy === true,
     };
 
-    if (!payload.name || !payload.proxyUrl) return;
+    if (isPsiphon) {
+      let regions = [];
+      if (formData.regions && formData.regions.trim()) {
+        regions = formData.regions
+          .split(",")
+          .map((r) => r.trim().toUpperCase())
+          .filter(Boolean);
+        for (const r of regions) {
+          if (!/^[A-Z]{2}$/.test(r)) {
+            notify.error(`Invalid region: "${r}". Must be a 2-letter uppercase ISO code.`);
+            return;
+          }
+        }
+        if (new Set(regions).size !== regions.length) {
+          notify.error("Duplicate regions are not allowed");
+          return;
+        }
+      }
+
+      const probeCandidates = parseInt(formData.probeCandidates, 10);
+      if (Number.isNaN(probeCandidates) || probeCandidates < 1 || probeCandidates > 5) {
+        notify.error("Probe candidates must be an integer between 1 and 5");
+        return;
+      }
+
+      const maxRequestsPerIp = parseInt(formData.maxRequestsPerIp, 10);
+      if (Number.isNaN(maxRequestsPerIp) || maxRequestsPerIp < 0) {
+        notify.error("Max requests per IP must be an integer >= 0");
+        return;
+      }
+
+      const maxTokensPerIp = parseInt(formData.maxTokensPerIp, 10);
+      if (Number.isNaN(maxTokensPerIp) || maxTokensPerIp < 0) {
+        notify.error("Max tokens per IP must be an integer >= 0");
+        return;
+      }
+
+      payload.psiphon = {
+        regions,
+        probeCandidates,
+        maxRequestsPerIp,
+        maxTokensPerIp,
+      };
+    }
 
     setSaving(true);
     try {
@@ -329,10 +465,11 @@ export default function ProxyPoolsPage() {
     }
   };
 
-  // Cleanup selectedIds when pools change
-  useEffect(() => {
-    setSelectedIds((prev) => prev.filter((id) => proxyPools.some((p) => p.id === id)));
-  }, [proxyPools]);
+  // Filter selected IDs against active pools
+  const validSelectedIds = useMemo(
+    () => selectedIds.filter((id) => proxyPools.some((p) => p.id === id)),
+    [selectedIds, proxyPools]
+  );
 
   const openBatchImportModal = () => {
     setBatchImportText("");
@@ -775,6 +912,38 @@ export default function ProxyPoolsPage() {
                     {pool.type === "netlify" && (
                       <Badge variant="default" size="sm">netlify relay</Badge>
                     )}
+                    {pool.type === "psiphon" && (
+                      <Badge variant="default" size="sm">psiphon</Badge>
+                    )}
+                    {pool.type === "psiphon" && psiphonStatuses[pool.id] && (
+                      <>
+                        <Badge
+                          variant={psiphonStatuses[pool.id].state === "ready" ? "success" : psiphonStatuses[pool.id].state === "failed" ? "error" : "default"}
+                          size="sm"
+                          dot
+                        >
+                          {psiphonStatuses[pool.id].state || "idle"}
+                        </Badge>
+                        {psiphonStatuses[pool.id].region && (
+                          <Badge variant="default" size="sm">
+                            {psiphonStatuses[pool.id].region}
+                          </Badge>
+                        )}
+                        {psiphonStatuses[pool.id].exitIp && (
+                          <Badge variant="default" size="sm">
+                            IP: {psiphonStatuses[pool.id].exitIp}
+                          </Badge>
+                        )}
+                        <Badge variant="default" size="sm">
+                          Gen #{psiphonStatuses[pool.id].generation || 0}
+                        </Badge>
+                        {(psiphonStatuses[pool.id].requests > 0 || psiphonStatuses[pool.id].tokens > 0) && (
+                          <Badge variant="default" size="sm">
+                            {psiphonStatuses[pool.id].requests || 0} reqs · {psiphonStatuses[pool.id].tokens || 0} tokens
+                          </Badge>
+                        )}
+                      </>
+                    )}
                     <Badge variant="default" size="sm">
                       {pool.boundConnectionCount || 0} bound
                     </Badge>
@@ -797,6 +966,21 @@ export default function ProxyPoolsPage() {
                     onChange={() => handleToggleActive(pool)}
                     title={pool.isActive ? "Disable" : "Enable"}
                   />
+                  {pool.type === "psiphon" && (
+                    <button
+                      onClick={() => handleRotate(pool.id)}
+                      className="p-2 rounded hover:bg-black/5 dark:hover:bg-white/5 text-text-muted hover:text-primary"
+                      title="Rotate now"
+                      disabled={rotatingId === pool.id}
+                    >
+                      <span
+                        className="material-symbols-outlined text-[18px]"
+                        style={rotatingId === pool.id ? { animation: "spin 1s linear infinite" } : undefined}
+                      >
+                        {rotatingId === pool.id ? "sync" : "refresh"}
+                      </span>
+                    </button>
+                  )}
                   <button
                     onClick={() => handleTest(pool.id)}
                     className="p-2 rounded hover:bg-black/5 dark:hover:bg-white/5 text-text-muted hover:text-primary"
@@ -948,7 +1132,7 @@ export default function ProxyPoolsPage() {
             value={cloudflareForm.apiToken}
             onChange={(e) => setCloudflareForm((prev) => ({ ...prev, apiToken: e.target.value }))}
             placeholder="your-cloudflare-api-token"
-            hint={<>Requires "Workers Scripts: Edit" permission. <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Get token →</a></>}
+            hint={<>Requires &quot;Workers Scripts: Edit&quot; permission. <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Get token →</a></>}
             type="password"
           />
           <Input
@@ -1105,19 +1289,87 @@ export default function ProxyPoolsPage() {
             onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
             placeholder="Office Proxy"
           />
-          <Input
-            label="Proxy URL"
-            value={formData.proxyUrl}
-            onChange={(e) => setFormData((prev) => ({ ...prev, proxyUrl: e.target.value }))}
-            placeholder="http://127.0.0.1:7897"
+
+          <Select
+            label="Proxy Type"
+            value={formData.type}
+            onChange={(e) => {
+              const newType = e.target.value;
+              setFormData((prev) => ({
+                ...prev,
+                type: newType,
+                proxyUrl: newType === "psiphon" ? (prev.proxyUrl || "psiphon://managed") : (prev.proxyUrl === "psiphon://managed" ? "" : prev.proxyUrl),
+                strictProxy: newType === "psiphon" ? true : prev.strictProxy,
+              }));
+            }}
+            options={[
+              { value: "http", label: "Standard HTTP(S)" },
+              { value: "psiphon", label: "Psiphon Rotating Tunnel" },
+              { value: "vercel", label: "Vercel Relay" },
+              { value: "cloudflare", label: "Cloudflare Relay" },
+              { value: "deno", label: "Deno Relay" },
+              { value: "netlify", label: "Netlify Relay" },
+            ]}
           />
-          <Input
-            label="No Proxy"
-            value={formData.noProxy}
-            onChange={(e) => setFormData((prev) => ({ ...prev, noProxy: e.target.value }))}
-            placeholder="localhost,127.0.0.1,.internal"
-            hint="Comma-separated hosts/domains to bypass proxy"
-          />
+
+          {formData.type === "psiphon" ? (
+            <div className="rounded-lg bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 p-3 flex flex-col gap-3">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary text-[20px]">vpn_lock</span>
+                <p className="text-sm text-text-main font-medium">Psiphon Configuration</p>
+              </div>
+              <Input
+                label="Regions (comma-separated ISO-2, empty for any)"
+                value={formData.regions}
+                onChange={(e) => setFormData((prev) => ({ ...prev, regions: e.target.value }))}
+                placeholder="US, CA, NL, DE, GB"
+                hint="Egress country codes to select from. Leave empty to allow any available region."
+              />
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <Input
+                  label="Probe Candidates"
+                  type="number"
+                  min="1"
+                  max="5"
+                  value={formData.probeCandidates}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, probeCandidates: e.target.value }))}
+                  hint="Fastest ping wins (1-5)"
+                />
+                <Input
+                  label="Max Requests / IP"
+                  type="number"
+                  min="0"
+                  value={formData.maxRequestsPerIp}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, maxRequestsPerIp: e.target.value }))}
+                  hint="0 = disabled"
+                />
+                <Input
+                  label="Max Tokens / IP"
+                  type="number"
+                  min="0"
+                  value={formData.maxTokensPerIp}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, maxTokensPerIp: e.target.value }))}
+                  hint="0 = disabled"
+                />
+              </div>
+            </div>
+          ) : (
+            <>
+              <Input
+                label="Proxy URL"
+                value={formData.proxyUrl}
+                onChange={(e) => setFormData((prev) => ({ ...prev, proxyUrl: e.target.value }))}
+                placeholder="http://127.0.0.1:7897"
+              />
+              <Input
+                label="No Proxy"
+                value={formData.noProxy}
+                onChange={(e) => setFormData((prev) => ({ ...prev, noProxy: e.target.value }))}
+                placeholder="localhost,127.0.0.1,.internal"
+                hint="Comma-separated hosts/domains to bypass proxy"
+              />
+            </>
+          )}
 
           <div className="flex flex-col gap-3 rounded-lg border border-border/50 p-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -1137,9 +1389,9 @@ export default function ProxyPoolsPage() {
               <p className="text-xs text-text-muted">Fail request if proxy is unreachable instead of falling back to direct.</p>
             </div>
             <Toggle
-              checked={formData.strictProxy === true}
+              checked={formData.type === "psiphon" ? true : formData.strictProxy === true}
               onChange={() => setFormData((prev) => ({ ...prev, strictProxy: !prev.strictProxy }))}
-              disabled={saving}
+              disabled={formData.type === "psiphon" || saving}
             />
           </div>
 
@@ -1147,7 +1399,7 @@ export default function ProxyPoolsPage() {
             <Button
               fullWidth
               onClick={handleSave}
-              disabled={!formData.name.trim() || !formData.proxyUrl.trim() || saving}
+              disabled={!formData.name.trim() || (formData.type !== "psiphon" && !formData.proxyUrl.trim()) || saving}
             >
               {saving ? "Saving..." : "Save"}
             </Button>

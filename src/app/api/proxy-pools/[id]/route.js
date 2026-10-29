@@ -5,9 +5,14 @@ import {
   getProxyPoolById,
   updateProxyPool,
 } from "@/models";
+import { stopTunnel } from "@/lib/network/psiphon/psiphonManager.js";
+import { VALID_PROXY_TYPES, MANAGED_PSIPHON_URL, normalizePsiphonOptions } from "../types.js";
 
-function normalizeProxyPoolUpdate(body = {}) {
+function normalizeProxyPoolUpdate(body = {}, existing = {}) {
   const updates = {};
+  const effectiveType = body?.type !== undefined
+    ? (VALID_PROXY_TYPES.includes(body.type) ? body.type : "http")
+    : (existing?.type || "http");
 
   if (Object.prototype.hasOwnProperty.call(body, "name")) {
     const name = typeof body?.name === "string" ? body.name.trim() : "";
@@ -18,8 +23,10 @@ function normalizeProxyPoolUpdate(body = {}) {
   }
 
   if (Object.prototype.hasOwnProperty.call(body, "proxyUrl")) {
-    const proxyUrl = typeof body?.proxyUrl === "string" ? body.proxyUrl.trim() : "";
-    if (!proxyUrl) {
+    let proxyUrl = typeof body?.proxyUrl === "string" ? body.proxyUrl.trim() : "";
+    if (effectiveType === "psiphon" && !proxyUrl) {
+      proxyUrl = MANAGED_PSIPHON_URL;
+    } else if (!proxyUrl) {
       return { error: "Proxy URL is required" };
     }
     updates.proxyUrl = proxyUrl;
@@ -34,12 +41,23 @@ function normalizeProxyPoolUpdate(body = {}) {
   }
 
   if (Object.prototype.hasOwnProperty.call(body, "strictProxy")) {
-    updates.strictProxy = body?.strictProxy === true;
+    updates.strictProxy = effectiveType === "psiphon" ? true : body?.strictProxy === true;
+  } else if (effectiveType === "psiphon") {
+    updates.strictProxy = true;
   }
 
   if (Object.prototype.hasOwnProperty.call(body, "type")) {
-    const validTypes = ["http", "vercel", "cloudflare", "deno", "netlify"];
-    updates.type = validTypes.includes(body?.type) ? body.type : "http";
+    updates.type = effectiveType;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, "psiphon")) {
+    if (effectiveType === "psiphon") {
+      const psiphonResult = normalizePsiphonOptions(body.psiphon);
+      if (!psiphonResult.valid) {
+        return { error: psiphonResult.error };
+      }
+      updates.psiphon = psiphonResult.psiphon;
+    }
   }
 
   return { updates };
@@ -77,10 +95,19 @@ export async function PUT(request, { params }) {
     }
 
     const body = await request.json();
-    const normalized = normalizeProxyPoolUpdate(body);
+    const normalized = normalizeProxyPoolUpdate(body, existing);
 
     if (normalized.error) {
       return NextResponse.json({ error: normalized.error }, { status: 400 });
+    }
+
+    // Stop tunnel if deactivating or switching away from psiphon
+    const isPsiphon = existing.type === "psiphon";
+    const willBeInactive = normalized.updates.isActive === false;
+    const willChangeType = normalized.updates.type && normalized.updates.type !== "psiphon";
+
+    if (isPsiphon && (willBeInactive || willChangeType)) {
+      await stopTunnel(id);
     }
 
     const updated = await updateProxyPool(id, normalized.updates);
@@ -112,6 +139,11 @@ export async function DELETE(request, { params }) {
         },
         { status: 409 }
       );
+    }
+
+    // Stop tunnel if psiphon
+    if (existing.type === "psiphon") {
+      await stopTunnel(id);
     }
 
     await deleteProxyPool(id);

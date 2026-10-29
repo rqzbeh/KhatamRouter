@@ -1,4 +1,9 @@
 import { getProxyPoolById } from "@/models";
+import {
+  isPsiphonPool,
+  ensureTunnel,
+  PsiphonUnavailableError,
+} from "@/lib/network/psiphon/psiphonManager.js";
 
 // Safely normalize any value into a trimmed string.
 function normalizeString(value) {
@@ -94,12 +99,62 @@ export async function resolveConnectionProxyConfig(
       const proxyUrl = normalizeString(proxyPool?.proxyUrl);
       const noProxy = normalizeString(proxyPool?.noProxy);
 
+      const isPsiphon = isPsiphonPool(proxyPool);
+      poolStrictProxy = isPsiphon || proxyPool?.strictProxy === true;
+
+      if (isPsiphon) {
+        if (proxyPool?.isActive === true) {
+          try {
+            const tunnel = await ensureTunnel(proxyPool);
+            return {
+              source: "pool",
+              proxyPoolId,
+              proxyPool,
+              connectionProxyEnabled: true,
+              connectionProxyUrl: tunnel.proxyUrl,
+              connectionNoProxy: noProxy,
+              strictProxy: true,
+              psiphonPoolId: proxyPoolId,
+              psiphonGeneration: tunnel.generation,
+            };
+          } catch (err) {
+            // Fail closed on PsiphonUnavailableError (or any establishment error):
+            // return empty connectionProxyUrl with strictProxy: true so proxyAwareFetch throws
+            return {
+              source: "pool",
+              proxyPoolId,
+              proxyPool,
+              connectionProxyEnabled: true,
+              connectionProxyUrl: "",
+              connectionNoProxy: noProxy,
+              strictProxy: true,
+              psiphonPoolId: proxyPoolId,
+              psiphonGeneration: -1,
+              psiphonUnavailable: true,
+              error: err,
+            };
+          }
+        }
+
+        // Inactive psiphon pool fails closed
+        return {
+          source: "pool",
+          proxyPoolId,
+          proxyPool,
+          connectionProxyEnabled: true,
+          connectionProxyUrl: "",
+          connectionNoProxy: noProxy,
+          strictProxy: true,
+          psiphonPoolId: proxyPoolId,
+          psiphonGeneration: -1,
+          psiphonUnavailable: true,
+        };
+      }
+
       const isValidPool =
         proxyPool &&
         proxyPool.isActive === true &&
         proxyUrl;
-
-      poolStrictProxy = proxyPool?.strictProxy === true;
 
       if (isValidPool) {
         /**
