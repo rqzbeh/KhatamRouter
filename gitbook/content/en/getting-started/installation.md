@@ -8,7 +8,7 @@ Detailed installation guide for 9Router with troubleshooting tips.
 
 ### System Requirements
 
-- **Bun**: Version 1.4.3 or higher (https://bun.sh)
+- **Bun**: Version 1.4.4 or higher (https://bun.sh)
 - **OS**: macOS, Linux, Windows (WSL recommended)
 - **Disk Space**: ~200MB for installation
 
@@ -16,7 +16,7 @@ Detailed installation guide for 9Router with troubleshooting tips.
 
 ```bash
 bun --version
-# Should show 1.4.3 or higher
+# Should show 1.4.4 or higher
 
 ```
 

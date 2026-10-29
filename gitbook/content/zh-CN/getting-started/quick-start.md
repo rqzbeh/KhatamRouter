@@ -12,7 +12,7 @@
 bun add -g 9router
 ```
 
-**要求:** Bun 1.4.3+([安装详情](getting-started/installation.md))
+**要求:** Bun 1.4.4+([安装详情](getting-started/installation.md))
 
 ### 2. 启动
 

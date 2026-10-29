@@ -20,7 +20,7 @@ Core capabilities:
 
 Primary runtime model:
 
-- The server strictly requires Bun (Bun v1.4.3+). Node.js is no longer supported.
+- The server strictly requires Bun (Bun v1.4.4+). Node.js is no longer supported.
 - Native `bun:sqlite` is the sole SQLite driver (all Node-runtime fallback drivers like better-sqlite3, node:sqlite, sql.js have been eliminated).
 - Next.js app routes under `src/app/api/*` implement both dashboard APIs and compatibility APIs
 - A shared SSE/routing core in `src/sse/*` + `open-sse/*` handles provider execution, translation, streaming, fallback, and usage
@@ -586,7 +586,7 @@ Environment variables actively used by code:
 
 ## Known Architectural Notes
 
-1. Server strictly requires Bun runtime (Bun v1.4.3+). Node.js is no longer supported.
+1. Server strictly requires Bun runtime (Bun v1.4.4+). Node.js is no longer supported.
 2. `usageDb` currently stores under `~/.9router` and does not follow `DATA_DIR`.
 3. `/api/v1/route.js` returns a static model list and is not the main models source used by `/v1/models`.
 4. Request logger writes full headers/body when enabled; treat log directory as sensitive.

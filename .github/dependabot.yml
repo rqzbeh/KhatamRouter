@@ -8,7 +8,8 @@ updates:
     commit-message:
       prefix: "ci"
 
-  - package-ecosystem: "npm"
+  # Root has a committed bun.lock, so it uses the bun ecosystem.
+  - package-ecosystem: "bun"
     directory: "/"
     schedule:
       interval: "weekly"
@@ -24,6 +25,7 @@ updates:
       - dependency-name: "react-dom"
         update-types: ["version-update:semver-major"]
 
+  # cli/ and gitbook/ have no committed lockfile, so the bun ecosystem has nothing to scan. Stays npm.
   - package-ecosystem: "npm"
     directory: "/cli"
     schedule:
