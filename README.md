@@ -90,6 +90,7 @@ KhatamRouter is initialized from [decolua/9router](https://github.com/decolua/9r
 | **Model Capability Gating** | Fail-closed vision requirement enforcement (`KHATAM_MODEL_CAPABILITY_GUARD=1`) | None | None | `src/domain/requestCapabilities.js:16`, `open-sse/services/combo.js:525` |
 | **Granular Quota & Cost Ledger** | Per-key spend caps & transactional `request_cost_ledger` table | No `request_cost_ledger` table | No `request_cost_ledger` table | `src/domain/keyQuota.js:1-25`, `src/lib/db/keyQuota.js:1-24` |
 | **LoopGuard** | Opt-in sliding-window loop detection (`loopGuardEnabled`) | Not present | Present (`open-sse/handlers/chatCore.js`) | `open-sse/utils/loopGuard.js:1-30`, `src/lib/db/repos/settingsRepo.js:71` |
+| **Rotating Psiphon Proxy Pool** | `psiphon` pool type: holds a lowest-latency tunnel, rotates to a new IP and country on 429 / `FreeTierError` / transport failure; fail-closed (never falls back to the server IP). Operator supplies the GPL-3.0 `ConsoleClient` | Static proxy URLs only | Static proxy URLs only | `src/lib/network/psiphon/psiphonManager.js`, `docs/PSIPHON.md` |
 
 ---
 
@@ -100,6 +101,7 @@ KhatamRouter is initialized from [decolua/9router](https://github.com/decolua/9r
 - **🛡️ Hardened Request Ingestion**: Rejects malformed requests combining `Content-Length` and `Transfer-Encoding` to eliminate request smuggling, and enforces a 64 MiB ceiling on chunked payloads in `custom-server.js`.
 - **👁️ Fail-Closed Capability Guard**: Protects multi-modal workflows by rejecting vision requests when no target in a combo confirms vision support, activated via `KHATAM_MODEL_CAPABILITY_GUARD=1`.
 - **💳 Per-Key Spend Limits & Cost Ledger**: Configure granular spend limits per API key across daily, weekly, and monthly UTC accounting windows, backed by a persistent `request_cost_ledger` table.
+- **🌐 Rotating Psiphon Proxy Pool**: Keeps OpenCode Free (or any pool-bound provider) off flagged IPs: holds a lowest-latency Psiphon tunnel and rotates to a new IP and country on 429 / `FreeTierError` / transport failure. Fail-closed, operator-supplied GPL-3.0 sidecar, see `docs/PSIPHON.md`.
 - **🔁 LoopGuard Protection**: Detects repetitive tool-calling cycles and repeating assistant messages using an opt-in sliding window in `open-sse/utils/loopGuard.js`.
 - **🔐 Resilient Persistence & Clustering**: Zero-dependency `bun:sqlite` with WAL mode and preflight integrity validation. Optional Redis provides cross-worker event broadcasting and distributed progressive login limiting.
 - **📊 Real-Time Dashboard**: Web interface for API keys, model combos, provider nodes, OAuth authentication, usage metrics, and CLI tooling integration.
