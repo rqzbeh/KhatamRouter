@@ -4,7 +4,7 @@
 
   # KhatamRouter
 
-  **High-Performance AI Routing Gateway, Vertical Scale Engine &amp; Protocol Translator**
+  **High-Performance AI Routing Gateway, Vertical Scale Engine & Protocol Translator**
 
   Connect any AI developer tool or client to 40+ AI providers through one unified, high-concurrency OpenAI-compatible endpoint.
 
@@ -82,15 +82,14 @@ KhatamRouter is initialized from [decolua/9router](https://github.com/decolua/9r
 |---|---|---|---|---|
 | **Runtime Engine** | Strict Bun runtime (`process.versions.bun` enforced; Node drivers removed) | Multi-driver Node fallback chain (`better-sqlite3`, `node:sqlite`, `sql.js`) | Node.js (`engines.node`, pnpm packaging) | `src/lib/db/driver.js:24-25` |
 | **Persistence Driver** | `bun:sqlite` exclusively with WAL journal mode | Multi-driver Node fallback chain | `better-sqlite3` / `node:sqlite` | `src/lib/db/adapters/bunSqliteAdapter.js:1-16` |
-| **Process Model &amp; Scaling** | `node:cluster` supervisor running `max(1, nproc - 2)` workers (`KHATAM_WORKERS`) | Single-process | Single-process | `src/lib/cluster/supervisor.js:20-33` |
-| **Distributed Coordination** | Optional Redis Pub/Sub events &amp; distributed login rate limiter | None (in-process only) | In-process `Map`s for combo state and failures | `src/lib/redis/events.js:1-28`, `src/lib/auth/loginLimiter.js:1-26` |
+| **Process Model & Scaling** | `node:cluster` supervisor running `max(1, nproc - 2)` workers (`KHATAM_WORKERS`) | Single-process | Single-process | `src/lib/cluster/supervisor.js:20-33` |
+| **Distributed Coordination** | Optional Redis Pub/Sub events & distributed login rate limiter | None (in-process only) | In-process `Map`s for combo state and failures | `src/lib/redis/events.js:1-28`, `src/lib/auth/loginLimiter.js:1-26` |
 | **Hot-Path Repository Caches** | 5-second TTL in-memory LRU caches for aliases, combos, and nodes | None | None | `src/lib/db/repos/aliasRepo.js:14`, `src/lib/db/repos/combosRepo.js:10`, `src/lib/db/repos/nodesRepo.js:10` |
 | **Worker Secret Convergence** | Atomic file locking via hard-link collision (`publishSecretOnce`) | Single-process file write | Single-process file write | `src/shared/utils/secretFile.js:9-26`, `src/lib/auth/dashboardSession.js:22` |
 | **Request Ingestion Hardening** | Rejects combined `Content-Length` + `Transfer-Encoding`; 64 MiB chunked cap | Default HTTP parsing | Rejects combined `Content-Length` + `Transfer-Encoding`; 64 MiB chunked cap | `custom-server.js:164`, `custom-server.js:310-336` |
 | **Model Capability Gating** | Fail-closed vision requirement enforcement (`KHATAM_MODEL_CAPABILITY_GUARD=1`) | None | None | `src/domain/requestCapabilities.js:16`, `open-sse/services/combo.js:525` |
-| **Granular Quota &amp; Cost Ledger** | Per-key spend caps &amp; transactional `request_cost_ledger` table | Standard token counts | Standard token counts | `src/domain/keyQuota.js:1-25`, `src/lib/db/keyQuota.js:1-24` |
-| **Specialized Executors &amp; Loops** | Dedicated executors + sliding-window LoopGuard (`loopGuardEnabled`) | Standard executors | Dedicated executors + sliding-window LoopGuard | `open-sse/executors/`, `open-sse/utils/loopGuard.js:1-30`, `src/lib/db/repos/settingsRepo.js:71` |
-| **Docs &amp; Claim Verification** | Native Vitest suite under Bun + `scripts/verify-docs-claims.mjs` | Standard test setup | Standard test setup | `scripts/verify-docs-claims.mjs`, `tests/` |
+| **Granular Quota & Cost Ledger** | Per-key spend caps & transactional `request_cost_ledger` table | No `request_cost_ledger` table | No `request_cost_ledger` table | `src/domain/keyQuota.js:1-25`, `src/lib/db/keyQuota.js:1-24` |
+| **LoopGuard** | Opt-in sliding-window loop detection (`loopGuardEnabled`) | Not present | Present (`open-sse/handlers/chatCore.js`) | `open-sse/utils/loopGuard.js:1-30`, `src/lib/db/repos/settingsRepo.js:71` |
 
 ---
 
@@ -100,9 +99,9 @@ KhatamRouter is initialized from [decolua/9router](https://github.com/decolua/9r
 - **🔀 Unified Multi-Modal Gateway**: Connect any OpenAI-compatible client to 40+ providers via `/v1/*` endpoints (`chat/completions`, `messages`, `responses`, `embeddings`). Format translation bridges OpenAI, Anthropic Claude, and Google Gemini schemas.
 - **🛡️ Hardened Request Ingestion**: Rejects malformed requests combining `Content-Length` and `Transfer-Encoding` to eliminate request smuggling, and enforces a 64 MiB ceiling on chunked payloads in `custom-server.js`.
 - **👁️ Fail-Closed Capability Guard**: Protects multi-modal workflows by rejecting vision requests when no target in a combo confirms vision support, activated via `KHATAM_MODEL_CAPABILITY_GUARD=1`.
-- **💳 Per-Key Spend Limits &amp; Cost Ledger**: Configure granular spend limits per API key across daily, weekly, and monthly UTC accounting windows, backed by a persistent `request_cost_ledger` table.
+- **💳 Per-Key Spend Limits & Cost Ledger**: Configure granular spend limits per API key across daily, weekly, and monthly UTC accounting windows, backed by a persistent `request_cost_ledger` table.
 - **🔁 LoopGuard Protection**: Detects repetitive tool-calling cycles and repeating assistant messages using an opt-in sliding window in `open-sse/utils/loopGuard.js`.
-- **🔐 Resilient Persistence &amp; Clustering**: Zero-dependency `bun:sqlite` with WAL mode and preflight integrity validation. Optional Redis provides cross-worker event broadcasting and distributed progressive login limiting.
+- **🔐 Resilient Persistence & Clustering**: Zero-dependency `bun:sqlite` with WAL mode and preflight integrity validation. Optional Redis provides cross-worker event broadcasting and distributed progressive login limiting.
 - **📊 Real-Time Dashboard**: Web interface for API keys, model combos, provider nodes, OAuth authentication, usage metrics, and CLI tooling integration.
 
 ---
@@ -118,7 +117,7 @@ docker compose up -d
 `docker-compose.yml` builds the image locally from `Dockerfile.bun`, starts Redis alongside it, and publishes the gateway on port `20128`. The web dashboard is accessible at `http://localhost:20128/dashboard`.
 
 <details>
-<summary><b>Docker Deployment Details &amp; Operational Commands</b></summary>
+<summary><b>Docker Deployment Details & Operational Commands</b></summary>
 
 - Standalone container configurations and persistent volume details live in [DOCKER.md](./DOCKER.md).
 - To view live container logs:
