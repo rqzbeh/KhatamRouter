@@ -17,5 +17,5 @@ This directory contains Spec-Kit specifications, implementation plans, and tasks
 | [010-dashboard-tooling](010-dashboard-tooling/) | Wave 8 Dashboard Tooling & Key Quota Management | Merged (PR #72) | `master` |
 | [011-branding-update-source](011-branding-update-source/) | KhatamRouter Branding & Release Isolation | In progress | `spec/011-branding-update-source` |
 | [012-opencode-wreq-bun](012-opencode-wreq-bun/) | OpenCode Free TLS Client (wreq-js) under Bun | Merged (PR #78) | `port/opencode-bun-native` |
-| [013-upstream-0-5-112](013-upstream-0-5-112/) | Wave 13 — Upstream v0.5.112 Port (14 Commits, Core Routing, MiniMax Named-Pipe Lease Broker, DeepSeek PoW Boundary) | Planned | `spec/013-upstream-0-5-112` |
+| [013-upstream-0-5-112](013-upstream-0-5-112/) | Wave 13 — Upstream v0.5.112 Port (14 Commits, Core Routing, MiniMax Named-Pipe Lease Broker, DeepSeek PoW Boundary) | Merged (PR #119) | `spec/013-upstream-0-5-112` |
 | [014-psiphon-proxy-pool](014-psiphon-proxy-pool/) | Wave 14 — Psiphon rotating proxy pool for OpenCode Free (best-ping country, rotate on 429/FreeTierError) | Merged (PR #117) | `spec/014-psiphon-proxy-pool` |
