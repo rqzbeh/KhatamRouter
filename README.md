@@ -108,13 +108,15 @@ KhatamRouter is initialized from [decolua/9router](https://github.com/decolua/9r
 
 ## 🚀 Quick Start
 
-### Option 1: Docker Compose (Recommended)
+### Option 1: Prebuilt Docker image (Recommended, nothing to build)
 
 ```bash
-docker compose up -d
+docker compose -f docker-compose-prod.yml up -d
 ```
 
-`docker-compose.yml` builds the image locally from `Dockerfile.bun`, starts Redis alongside it, and publishes the gateway on port `20128`. The web dashboard is accessible at `http://localhost:20128/dashboard`.
+`docker-compose-prod.yml` pulls the `ghcr.io/rqzbeh/khatamrouter:edge` image that CI publishes from every green `master` (amd64 and arm64), starts Redis and the Headroom sidecar next to it, and publishes the gateway on port `20128`. The web dashboard is accessible at `http://localhost:20128/dashboard`.
+
+To build the image yourself instead, run `docker compose up -d`: `docker-compose.yml` builds from `Dockerfile.bun`.
 
 <details>
 <summary><b>Docker Deployment Details & Operational Commands</b></summary>
