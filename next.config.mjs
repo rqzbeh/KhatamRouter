@@ -42,9 +42,6 @@ const nextConfig = {
     root: tracingRoot
   },
   outputFileTracingRoot: tracingRoot,
-  outputFileTracingExcludes: {
-    "*": ["./gitbook/**/*"]
-  },
   images: {
     unoptimized: true
   },
@@ -72,7 +69,7 @@ const nextConfig = {
     config.watchOptions = {
       ...config.watchOptions,
       aggregateTimeout: 300,
-      ignored: /[\\/](node_modules|\.git|logs|\.next|\.next-cli-build|gitbook|cli|open-sse\.old|tests|docs)[\\/]/,
+      ignored: /[\\/](node_modules|\.git|logs|\.next|\.next-cli-build|cli|open-sse\.old|tests|docs)[\\/]/,
     };
     return config;
   },

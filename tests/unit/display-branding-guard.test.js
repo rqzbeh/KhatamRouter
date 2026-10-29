@@ -157,15 +157,6 @@ export const ALLOWLIST = [
     pattern: /^(?:has9Router(?:Config|Stt|InYml)?|is9RouterStt|upsertStt9Router|removeStt9Router|build9RouterConfig|get9RouterEntry|stt9Router)$/,
   },
 
-  // 15. Legacy docs sidebar mapping
-  {
-    id: "legacy-docs-mapping",
-    justification: "Dual-matching sidebar title mapping for docs content backward compatibility",
-    pattern: /^Welcome to 9Router$/,
-    // Scoped: this exact title may appear ONLY in the docs sidebar mapper. Anywhere
-    // else it is a user-visible leak and must fail the guard.
-    files: /^gitbook\/utils\/markdown\.js$/,
-  },
 ];
 
 export function isAllowlisted(val, relPath = "") {
@@ -177,7 +168,7 @@ export function isAllowlisted(val, relPath = "") {
 }
 
 export function collectSourceFiles(rootDir) {
-  const dirs = ["src", "cli", "gitbook"];
+  const dirs = ["src", "cli"];
   const out = [];
 
   function walk(dir) {
@@ -305,9 +296,7 @@ describe("Display Branding Guard", () => {
     }
   });
 
-  it("scopes the legacy docs-title allowance to gitbook/utils/markdown.js only", () => {
-    expect(isAllowlisted("Welcome to 9Router", "gitbook/utils/markdown.js")).toBe(true);
-    // The same literal anywhere else is a user-visible leak.
+  it("does not allowlist the legacy 'Welcome to 9Router' docs title anywhere", () => {
     expect(isAllowlisted("Welcome to 9Router", "src/test_mutation.js")).toBe(false);
     expect(isAllowlisted("Welcome to 9Router", "src/app/page.js")).toBe(false);
     expect(isAllowlisted("Welcome to 9Router", "")).toBe(false);

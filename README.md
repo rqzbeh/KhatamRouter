@@ -11,7 +11,7 @@
   [![Publish Docker Image](https://github.com/rqzbeh/KhatamRouter/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/rqzbeh/KhatamRouter/actions/workflows/docker-publish.yml)
   [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/rqzbeh/KhatamRouter/blob/master/LICENSE)
 
-[🚀 Quick Start](#-quick-start) • [✨ Why KhatamRouter?](#-why-khatamrouter) • [💡 Features](#-key-features) • [📖 Setup](#-setup-guide) • [🗺️ Roadmap](./ROADMAP.md) • [🌐 Docs](https://rqzbeh.github.io/KhatamRouter/)
+[🚀 Quick Start](#-quick-start) • [✨ Why KhatamRouter?](#-why-khatamrouter) • [💡 Features](#-key-features) • [📖 Setup](#-setup-guide) • [🗺️ Roadmap](./ROADMAP.md) • [📚 Docs](./docs/)
 
 [🇧🇷 Português (Brasil)](./i18n/README.pt-BR.md) • [🇻🇳 Tiếng Việt](./i18n/README.vi.md) • [🇨🇳 中文](./i18n/README.zh-CN.md) • [🇯🇵 日本語](./i18n/README.ja-JP.md) • [🇷🇺 Русский](./i18n/README.ru.md) • [🇹🇭 ไทย](./i18n/README.th.md) • [🇮🇷 فارسی](./i18n/README.fa_IR.md) • [🇮🇩 Indonesia](./i18n/README.id-ID.md) • [🇪🇸 Español](./i18n/README.es.md) • [🇫🇷 Français](./i18n/README.fr.md)
 
@@ -1620,7 +1620,7 @@ Authorization: Bearer your-api-key
 
 ## 📧 Support
 
-- **Docs**: [rqzbeh.github.io/KhatamRouter](https://rqzbeh.github.io/KhatamRouter/)
+- **Docs**: documentation lives in this repository: this README and [`docs/`](./docs/)
 - **GitHub**: [github.com/rqzbeh/KhatamRouter](https://github.com/rqzbeh/KhatamRouter)
 - **Issues**: [github.com/rqzbeh/KhatamRouter/issues](https://github.com/rqzbeh/KhatamRouter/issues)
 

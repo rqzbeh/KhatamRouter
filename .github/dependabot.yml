@@ -33,7 +33,7 @@ updates:
       - dependency-name: "react-dom"
         update-types: ["version-update:semver-major"]
 
-  # cli/ and gitbook/ have no committed lockfile, so the bun ecosystem has nothing to scan. Stays npm.
+  # cli/ has no committed lockfile, so the bun ecosystem has nothing to scan. Stays npm.
   - package-ecosystem: "npm"
     directory: "/cli"
     schedule:
@@ -41,14 +41,6 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "deps(cli)"
-
-  - package-ecosystem: "npm"
-    directory: "/gitbook"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: "deps(docs)"
 
   - package-ecosystem: "docker"
     directory: "/"

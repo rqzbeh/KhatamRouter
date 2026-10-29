@@ -37,25 +37,20 @@ tests/unit/antigravity-oauth-client.test.js
 # ------------------------------------------------------------------------------
 # 3. Branding, Documentation, and Local Docs Configuration
 # ------------------------------------------------------------------------------
-# KhatamRouter-specific branding (name, URLs, logos, Next.js docs export).
-gitbook/README.md
-gitbook/components/LanguageSwitcher.js
-gitbook/constants/docsConfig.js
-gitbook/package.json
+# KhatamRouter-specific branding (name, URLs, logos).
 
 # ------------------------------------------------------------------------------
 # 4. CI / Automation / Packaging Workflows & Policy
 # ------------------------------------------------------------------------------
 # KhatamRouter maintains its own GitHub Actions workflows (multi-arch Docker
-# publishing to GHCR, GitHub Pages docs deployment, and custom Dependabot rules).
+# publishing to GHCR and custom Dependabot rules).
 .github/dependabot.yml
 .github/workflows/docker-publish.yml
-.github/workflows/gitbook-pages.yml
 
 # ------------------------------------------------------------------------------
 # 5. Git Ignore Customizations
 # ------------------------------------------------------------------------------
-# Ignores KhatamRouter-specific local artifacts (e.g., gitbook/README.md).
+# Ignores KhatamRouter-specific local artifacts.
 .gitignore
 
 # ------------------------------------------------------------------------------
