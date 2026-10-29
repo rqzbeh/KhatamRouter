@@ -44,7 +44,7 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
           # The Go module lives in a temp clone of the upstream repo, so there is
