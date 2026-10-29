@@ -1127,7 +1127,7 @@ docker stop 9router && docker rm 9router
 
 ## 🛠️ 技術スタック
 
-- **ランタイム**: Bun v1.4.3+（Node.jsはサポートされていません）
+- **ランタイム**: Bun v1.4.4+（Node.jsはサポートされていません）
 - **フレームワーク**: Next.js 16
 - **UI**: React 19 + Tailwind CSS 4
 - **データベース**: SQLite WALモード（`bun:sqlite` 専用）

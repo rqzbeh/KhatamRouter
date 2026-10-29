@@ -657,7 +657,7 @@ Combo: "openclaw-free"
 
 ## 🛠️ Tech Stack
 
-- **Runtime**: Bun v1.4.3+ (Node.js is not supported)
+- **Runtime**: Bun v1.4.4+ (Node.js is not supported)
 - **Framework**: Next.js 16
 - **UI**: React 19 + Tailwind CSS 4
 - **Database**: SQLite WAL mode (exclusively via `bun:sqlite`)
