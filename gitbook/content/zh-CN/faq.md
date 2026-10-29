@@ -174,8 +174,8 @@ Cursor Settings → Models → Advanced:
 # 部署到 VPS
 git clone https://github.com/decolua/9router.git
 cd 9router/app
-npm install && npm run build
-npm start
+bun install && bun run build:bun
+bun run start:bun
 
 # 配置 Nginx 反向代理
 # 将 Cursor 指向: https://your-domain.com/v1
@@ -198,7 +198,7 @@ npm start
 
 ### Localhost(默认)
 ```bash
-npm install -g 9router
+bun add -g 9router
 9router
 → 仪表盘: http://localhost:3000
 → API: http://localhost:20128/v1
@@ -208,13 +208,13 @@ npm install -g 9router
 ```bash
 git clone https://github.com/decolua/9router.git
 cd 9router/app
-npm install && npm run build
+bun install && bun run build:bun
 
 export JWT_SECRET="your-secure-secret"
 export INITIAL_PASSWORD="your-password"
 export NODE_ENV="production"
 
-npm start
+bun run start:bun
 ```
 
 ### Docker
@@ -230,7 +230,7 @@ docker run -d \
 ### Cloudflare Workers
 ```bash
 cd 9router/app
-npm run deploy:cloudflare
+bun run deploy:cloudflare
 ```
 
 **环境变量:**
@@ -285,18 +285,18 @@ npm run deploy:cloudflare
 
 **更新方式取决于安装类型:**
 
-### 全局 NPM 安装
+### 全局 Bun 安装
 ```bash
-npm update -g 9router
+bun update -g 9router
 ```
 
 ### 本地安装
 ```bash
 cd 9router/app
 git pull origin main
-npm install
-npm run build
-npm start
+bun install
+bun run build:bun
+bun run start:bun
 ```
 
 ### Docker
@@ -346,11 +346,11 @@ docker run -d \
    git checkout -b feature/your-feature
    
    # 修改代码
-   npm install
-   npm run dev
+   bun install
+   bun run dev:bun
    
    # 测试
-   npm test
+   cd tests && bun x vitest run
    
    # 提交并推送
    git add .

@@ -26,9 +26,9 @@ const checkOpenClawInstalled = async () => {
   try {
     const isWindows = os.platform() === "win32";
     const command = isWindows ? "where openclaw" : "which openclaw";
-    // On Windows, inject %APPDATA%\npm into PATH so npm global packages are found
+    // On Windows, inject %USERPROFILE%\.bun\bin and %APPDATA%\npm into PATH so global packages are found
     const env = isWindows
-      ? { ...process.env, PATH: `${process.env.APPDATA}\\npm;${process.env.PATH}` }
+      ? { ...process.env, PATH: `${process.env.USERPROFILE || ""}\\.bun\\bin;${process.env.APPDATA || ""}\\npm;${process.env.PATH || ""}` }
       : process.env;
     await execAsync(command, { windowsHide: true, env });
     return true;

@@ -7,9 +7,8 @@
 
   **すべてのAIコーディングツール（Claude Code、Cursor、Antigravity、Copilot、Codex、Gemini、OpenCode、Cline、OpenClaw...）を40以上のAIプロバイダーと100以上のモデルに接続。**
 
-  [![npm](https://img.shields.io/npm/v/9router.svg)](https://www.npmjs.com/package/9router)
-  [![Downloads](https://img.shields.io/npm/dm/9router.svg)](https://www.npmjs.com/package/9router)
-  [![License](https://img.shields.io/npm/l/9router.svg)](https://github.com/decolua/9router/blob/main/LICENSE)
+  [![Release](https://img.shields.io/github/v/release/rqzbeh/KhatamRouter)](https://github.com/rqzbeh/KhatamRouter/releases)
+  [![License](https://img.shields.io/github/license/rqzbeh/KhatamRouter.svg)](https://github.com/rqzbeh/KhatamRouter/blob/master/LICENSE)
 
   [🚀 クイックスタート](#-クイックスタート) • [💡 機能](#-主な機能) • [📖 セットアップ](#-セットアップガイド) • [🌐 ウェブサイト](https://9router.com)
 
@@ -68,7 +67,7 @@
 **1. グローバルインストール：**
 
 ```bash
-npm install -g 9router
+bun add -g 9router
 9router
 ```
 
@@ -95,15 +94,15 @@ Claude Code/Codex/Gemini CLI/OpenClaw/Cursor/Clineの設定:
 
 ```bash
 cp .env.example .env
-npm install
-PORT=20128 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run dev
+bun install
+PORT=20128 NEXT_PUBLIC_BASE_URL=http://localhost:20128 bun run dev:bun
 ```
 
 本番モード：
 
 ```bash
-npm run build
-PORT=20128 HOSTNAME=0.0.0.0 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run start
+bun run build:bun
+PORT=20128 HOSTNAME=0.0.0.0 NEXT_PUBLIC_BASE_URL=http://localhost:20128 bun run start:bun
 ```
 
 デフォルトURL：
@@ -947,8 +946,8 @@ Model: cc/claude-opus-4-6
 # クローンとインストール
 git clone https://github.com/decolua/9router.git
 cd 9router
-npm install
-npm run build
+bun install
+bun run build:bun
 
 # 設定
 export JWT_SECRET="your-secure-secret-change-this"
@@ -963,11 +962,11 @@ export API_KEY_SECRET="endpoint-proxy-api-key-secret"
 export MACHINE_ID_SALT="endpoint-proxy-salt"
 
 # 起動
-npm run start
+bun run start:bun
 
 # またはPM2を使用
-npm install -g pm2
-pm2 start npm --name 9router -- start
+bun add -g pm2
+pm2 start bun --name khatamrouter -- run start:bun
 pm2 save
 pm2 startup
 ```

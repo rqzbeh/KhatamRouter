@@ -3,7 +3,7 @@
 // Purpose: discover which providers actually accept inline base64 documents and how they
 // reject DOCX. Survey-only: logs a grouped table, never asserts on accept/reject outcome.
 //
-//   RUN_REAL=1 npx vitest run --config tests/vitest.config.js tests/translator/real/file-base64-survey.real.test.js
+//   RUN_REAL=1 bun x vitest run --config tests/vitest.config.js tests/translator/real/file-base64-survey.real.test.js
 import { describe, it, expect, afterAll } from "vitest";
 import { getProviderCredentials } from "../../../src/sse/services/auth.js";
 import { checkAndRefreshToken } from "../../../src/sse/services/tokenRefresh.js";

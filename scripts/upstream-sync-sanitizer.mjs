@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * KhatamRouter upstream-sync secret sanitizer.
  *
@@ -30,7 +30,7 @@
  * pushing instead of letting push protection reject the branch.
  *
  * Usage:
- *   node scripts/upstream-sync-sanitizer.mjs [fix|check] [--root <dir>] [--quiet]
+ *   bun scripts/upstream-sync-sanitizer.mjs [fix|check] [--root <dir>] [--quiet]
  *
  * Exit codes: 0 clean, 1 literal(s) present/remaining, 2 usage error.
  */
@@ -68,7 +68,7 @@ const CLIENT_ID_SUFFIX = ".apps.googleusercontent.com";
 function usage(message) {
   if (message) console.error(`upstream-sync-sanitizer: ${message}`);
   console.error(
-    "usage: node scripts/upstream-sync-sanitizer.mjs [fix|check] [--root <dir>] [--quiet]",
+    "usage: bun scripts/upstream-sync-sanitizer.mjs [fix|check] [--root <dir>] [--quiet]",
   );
   process.exit(2);
 }

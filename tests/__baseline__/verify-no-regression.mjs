@@ -1,6 +1,6 @@
 // Gate: so kết quả test hiện tại với baseline known-fails.
 // PASS nếu KHÔNG có test nào pass(baseline) → fail(now). Test mới được phép.
-// Usage: node tests/__baseline__/verify-no-regression.mjs <current-results.json>
+// Usage: bun tests/__baseline__/verify-no-regression.mjs <current-results.json>
 import { readFileSync } from "fs";
 
 const knownFails = new Set(

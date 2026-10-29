@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Two published artifacts live in this one repo:
 - The **dashboard + gateway** (root `package.json`, `9router-app`) — the Next.js server that does the actual routing.
-- The **CLI launcher** (`cli/`, published to npm as `9router`) — a separate package that installs/starts the server and manages the tray. It has its own `package.json`, version, and build.
+- The **CLI launcher** (`cli/`, distributed as `9router` via `bunx` / `bun add -g`, which fetch from the npm registry) — a separate package that installs/starts the server and manages the tray. It has its own `package.json`, version, and build.
 
 The code lives in `src/` (Next.js app + dashboard/compat APIs), `open-sse/` (the provider-agnostic routing/translation engine), `cli/` (the launcher package), and `tests/`.
 
@@ -32,7 +32,7 @@ cd cli && bun run dev  # dev mode
 ```
 > The published `9router` CLI requires `bun` on PATH and fails with an actionable install message otherwise. `cli/hooks/sqliteRuntime.js` has been removed (tray helpers live in `trayRuntime.js`).
 
-Tests (vitest, in `tests/`, an **independent** ESM package — not wired into root `npm test`):
+Tests (vitest, in `tests/`, an **independent** ESM package — not wired into root `bun test`):
 ```bash
 bun install                             # ROOT deps first — tests import from src/ which needs `open`, `undici`, etc.
 cd tests && bun install                 # then tests' own deps (vitest) → tests/node_modules (allowed by tests/.gitignore)

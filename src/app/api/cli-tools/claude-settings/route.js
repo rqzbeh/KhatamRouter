@@ -59,7 +59,7 @@ const checkClaudeInstalled = async () => {
     const isWindows = os.platform() === "win32";
     const command = isWindows ? "where claude" : "which claude";
     const env = isWindows
-      ? { ...process.env, PATH: `${process.env.APPDATA}\\npm;${process.env.PATH}` }
+      ? { ...process.env, PATH: `${process.env.USERPROFILE || ""}\\.bun\\bin;${process.env.APPDATA || ""}\\npm;${process.env.PATH || ""}` }
       : process.env;
     await execAsync(command, { windowsHide: true, env });
     return true;

@@ -59,7 +59,7 @@ Keep the older Codex-model assertion to protect the existing `gpt-5.3-codex` beh
 Run:
 
 ```bash
-npx vitest run tests/unit/thinking-levels-gpt56-sol.test.js
+bunx vitest run tests/unit/thinking-levels-gpt56-sol.test.js
 ```
 
 Expected: FAIL because Sol lacks Ultra, Terra/Luna lack Max, and Kiro currently inherits Sol Max.
@@ -88,7 +88,7 @@ const hit = PATTERN_THINKING.find((entry) =>
 Run:
 
 ```bash
-npx vitest run tests/unit/thinking-levels-gpt56-sol.test.js
+bunx vitest run tests/unit/thinking-levels-gpt56-sol.test.js
 ```
 
 Expected: 1 test file passed with no failures.
@@ -149,7 +149,7 @@ expect(apply("openai", "gpt-5.6-sol", { reasoning_effort: "max" }, "kiro").reaso
 Run:
 
 ```bash
-npx vitest run tests/translator/thinking-unified.test.js
+bunx vitest run tests/translator/thinking-unified.test.js
 ```
 
 Expected: FAIL because Ultra suffixes are ignored and OpenAI translation clamps Max to XHigh.
@@ -176,7 +176,7 @@ Keep `none`, automatic effort, budget conversion, and every non-OpenAI format un
 Run:
 
 ```bash
-npx vitest run tests/translator/thinking-unified.test.js tests/unit/thinking-effort-openai-max-clamp.test.js
+bunx vitest run tests/translator/thinking-unified.test.js tests/unit/thinking-effort-openai-max-clamp.test.js
 ```
 
 Expected: 2 test files passed; generic OpenAI Max still becomes XHigh.
@@ -237,7 +237,7 @@ Keep the existing GPT-5.5 Max-to-XHigh fast-tier test.
 Run:
 
 ```bash
-npx vitest run tests/unit/codex-fast-capacity.test.js
+bunx vitest run tests/unit/codex-fast-capacity.test.js
 ```
 
 Expected: FAIL because current normalization maps supported Max to XHigh and does not map Luna Ultra to Max.
@@ -263,7 +263,7 @@ Call it only after `body.model` has resolved review aliases to their upstream ba
 Run:
 
 ```bash
-npx vitest run tests/unit/codex-fast-capacity.test.js tests/unit/thinking-levels-gpt56-sol.test.js tests/translator/thinking-unified.test.js tests/unit/thinking-effort-openai-max-clamp.test.js
+bunx vitest run tests/unit/codex-fast-capacity.test.js tests/unit/thinking-levels-gpt56-sol.test.js tests/translator/thinking-unified.test.js tests/unit/thinking-effort-openai-max-clamp.test.js
 ```
 
 Expected: 4 test files passed with no failures.
@@ -287,7 +287,7 @@ git commit -m "feat(codex): forward GPT-5.6 max and ultra efforts"
 - [ ] **Step 1: Run all focused regression tests**
 
 ```bash
-npx vitest run tests/unit/thinking-levels-gpt56-sol.test.js tests/translator/thinking-unified.test.js tests/unit/thinking-effort-openai-max-clamp.test.js tests/unit/codex-fast-capacity.test.js
+bunx vitest run tests/unit/thinking-levels-gpt56-sol.test.js tests/translator/thinking-unified.test.js tests/unit/thinking-effort-openai-max-clamp.test.js tests/unit/codex-fast-capacity.test.js
 ```
 
 Expected: all selected test files and tests pass.
@@ -295,7 +295,7 @@ Expected: all selected test files and tests pass.
 - [ ] **Step 2: Run the complete unit test suite**
 
 ```bash
-npx vitest run tests/unit tests/translator
+bunx vitest run tests/unit tests/translator
 ```
 
 Expected: all test files pass with zero failed tests.
@@ -303,7 +303,7 @@ Expected: all test files pass with zero failed tests.
 - [ ] **Step 3: Run the production build**
 
 ```bash
-npm run build
+bun run build:bun
 ```
 
 Expected: Next.js production build exits with status 0.
@@ -322,7 +322,7 @@ Expected: no whitespace errors, no uncommitted source changes, and only scoped f
 
 ```bash
 git push -u origin codex/gpt-5-6-reasoning-overrides
-gh pr create --repo decolua/9router --base master --head seakleangnhak:codex/gpt-5-6-reasoning-overrides --title "feat(codex): support GPT-5.6 Max and Ultra overrides" --body $'## Summary\n- expose Max and Ultra for Codex GPT-5.6 Sol and Terra\n- expose Max for Codex GPT-5.6 Luna and normalize Luna Ultra to Max\n- keep Kiro and generic OpenAI-compatible reasoning behavior unchanged\n\n## Verification\n- `npx vitest run tests/unit tests/translator`\n- `npm run build`'
+gh pr create --repo decolua/9router --base master --head seakleangnhak:codex/gpt-5-6-reasoning-overrides --title "feat(codex): support GPT-5.6 Max and Ultra overrides" --body $'## Summary\n- expose Max and Ultra for Codex GPT-5.6 Sol and Terra\n- expose Max for Codex GPT-5.6 Luna and normalize Luna Ultra to Max\n- keep Kiro and generic OpenAI-compatible reasoning behavior unchanged\n\n## Verification\n- `bunx vitest run tests/unit tests/translator`\n- `bun run build:bun`'
 ```
 
 The pull request body must summarize the Codex-only support matrix, Luna Ultra-to-Max fallback, Kiro isolation, and fresh test/build evidence.

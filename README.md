@@ -127,6 +127,14 @@ Result: Never stop coding, minimal cost + 20-40% token savings via RTK
 
 ---
 
+## 📦 Install
+
+Bun is the only supported runtime, interpreter, and package manager. Three distribution channels:
+
+- **Docker**: `ghcr.io/rqzbeh/khatamrouter` (see [DOCKER.md](./DOCKER.md) and Quick Start below).
+- **GitHub Releases**: tagged builds at [github.com/rqzbeh/KhatamRouter/releases](https://github.com/rqzbeh/KhatamRouter/releases).
+- **CLI launcher (`9router`)**: `bunx 9router` or `bun add -g 9router`. These fetch from the npm registry, which is the only npm dependency; the package requires `bun` on PATH. Install Bun from [bun.sh](https://bun.sh) (`bun upgrade` to update).
+
 ## ⚡ Quick Start
 
 ### 1. Start KhatamRouter

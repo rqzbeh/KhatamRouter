@@ -174,8 +174,8 @@ Cursor Settings → Models → Advanced:
 # Despliega en VPS
 git clone https://github.com/decolua/9router.git
 cd 9router/app
-npm install && npm run build
-npm start
+bun install && bun run build:bun
+bun run start:bun
 
 # Configura proxy reverso Nginx
 # Apunta Cursor a: https://your-domain.com/v1
@@ -198,7 +198,7 @@ Consulta la [guía de integración de Cursor](integration/cursor.md) para detall
 
 ### Localhost (Por defecto)
 ```bash
-npm install -g 9router
+bun add -g 9router
 9router
 → Dashboard: http://localhost:3000
 → API: http://localhost:20128/v1
@@ -208,13 +208,13 @@ npm install -g 9router
 ```bash
 git clone https://github.com/decolua/9router.git
 cd 9router/app
-npm install && npm run build
+bun install && bun run build:bun
 
 export JWT_SECRET="your-secure-secret"
 export INITIAL_PASSWORD="your-password"
 export NODE_ENV="production"
 
-npm start
+bun run start:bun
 ```
 
 ### Docker
@@ -230,7 +230,7 @@ docker run -d \
 ### Cloudflare Workers
 ```bash
 cd 9router/app
-npm run deploy:cloudflare
+bun run deploy:cloudflare
 ```
 
 **Variables de entorno:**
@@ -285,18 +285,18 @@ Consulta la [guía de despliegue](getting-started/installation.md#deployment) pa
 
 **Los métodos de actualización dependen del tipo de instalación:**
 
-### Instalación global NPM
+### Instalación global (Bun)
 ```bash
-npm update -g 9router
+bun update -g 9router
 ```
 
 ### Instalación local
 ```bash
 cd 9router/app
 git pull origin main
-npm install
-npm run build
-npm start
+bun install
+bun run build:bun
+bun run start:bun
 ```
 
 ### Docker
@@ -346,11 +346,11 @@ docker run -d \
    git checkout -b feature/your-feature
    
    # Haz cambios
-   npm install
-   npm run dev
+   bun install
+   bun run dev:bun
    
    # Prueba
-   npm test
+   cd tests && bun x vitest run
    
    # Commit y push
    git add .

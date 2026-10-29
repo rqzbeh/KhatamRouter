@@ -27,7 +27,7 @@ const LOCAL_STDIO_PLUGINS = [
     title: "Browser MCP",
     description: "Control your running Chrome (requires Chrome extension)",
     extensionUrl: "https://chromewebstore.google.com/detail/browser-mcp-automate-your/bjfgambnhccakkhmkepdoekmckoijdlc",
-    command: "npx",
+    command: "bunx",
     args: ["-y", "@browsermcp/mcp@latest"],
     toolNames: ["browser_navigate", "browser_snapshot", "browser_click", "browser_type", "browser_screenshot", "browser_get_console_logs", "browser_wait", "browser_press_key", "browser_go_back", "browser_go_forward"],
   },

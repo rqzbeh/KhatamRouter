@@ -43,7 +43,7 @@ function normalizeOptionalPort(value: string | undefined): number | null {
   return Number.isInteger(parsed) && parsed > 0 && parsed <= 65535 ? parsed : null;
 }
 
-// Legacy callers pass `--port` (e.g. `npm start` -> `custom-server.js --port 20127`).
+// Legacy callers pass `--port` (e.g. `bun start` -> `custom-server.js --port 20127`).
 // When present it names the listener port and outranks the environment,
 // matching Next's own precedence (`argv --port` before `process.env.PORT`).
 const cliPort = portArgIndex === -1 ? null : normalizeOptionalPort(process.argv[portArgIndex + 1]);

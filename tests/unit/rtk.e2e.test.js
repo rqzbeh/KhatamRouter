@@ -1,5 +1,5 @@
 // End-to-end integration test: hit live local proxy and verify [RTK] behavior.
-// Run with: RUN_E2E=1 RTK_E2E_PORT=... RTK_E2E_KEY=... RTK_E2E_LOG=<absolute path to server stdout file> npm test rtk.e2e.test.js
+// Run with: RUN_E2E=1 RTK_E2E_PORT=... RTK_E2E_KEY=... RTK_E2E_LOG=<absolute path to server stdout file> bun run test rtk.e2e.test.js
 // Requires: dev server running, rtkEnabled=true, API key present.
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";

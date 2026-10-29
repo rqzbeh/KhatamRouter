@@ -2,7 +2,7 @@
 // active credential in the local DB, through the full production path (handleChatCore).
 // Gated by RUN_REAL=1 so the default `vitest run` never touches the network.
 //
-//   RUN_REAL=1 npx vitest run "tests/translator/real/"
+//   RUN_REAL=1 bun x vitest run "tests/translator/real/"
 //
 // Each provider becomes its own test; providers without an llm model or without an
 // active credential are skipped automatically.

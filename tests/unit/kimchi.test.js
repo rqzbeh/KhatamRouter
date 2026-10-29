@@ -1,4 +1,4 @@
-import { describe, it, before } from "node:test";
+import { describe, it, beforeAll } from "vitest";
 import assert from "node:assert/strict";
 
 // Load the registry entry once for the suite so a load failure is reported
@@ -7,13 +7,13 @@ import assert from "node:assert/strict";
 let kimchiEntry;
 
 describe("kimchi registry entry", () => {
-  before(async () => {
+  beforeAll(async () => {
     kimchiEntry = (await import("../../open-sse/providers/registry/kimchi.js")).default;
   });
 
-  it("is an oauth provider auto-listed via byCategory", () => {
+  it("is a freeTier provider auto-listed via byCategory", () => {
     assert.equal(kimchiEntry.id, "kimchi");
-    assert.equal(kimchiEntry.category, "oauth");
+    assert.equal(kimchiEntry.category, "freeTier");
   });
 
   it("points at the OpenAI-compatible gateway with an authenticated UA", () => {
@@ -49,7 +49,7 @@ describe("kimchi registry entry", () => {
 });
 
 // ── Pure-function clones of the service logic (tested in isolation so
-//     node --test works without resolving the Next.js Webpack "open-sse"
+//     bun test works without resolving the Next.js Webpack "open-sse"
 //     alias that src/lib/oauth/services/kimchi.js's dependency imports). ──
 
 function buildKimchiAuthUrl(callbackUrl, state) {
@@ -99,7 +99,7 @@ describe("kimchi oauth", () => {
 
 // ── kimchiModels service (pure mapping logic, tested in isolation) ──
 
-// Clone of the metadata→model mapper so node --test resolves without the
+// Clone of the metadata→model mapper so bun test resolves without the
 // open-sse/Webpack alias chain the real module imports.
 function mapKimchiMetadata(raw) {
   if (!Array.isArray(raw)) return [];

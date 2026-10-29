@@ -6,8 +6,8 @@ Documentation site for [KhatamRouter](https://github.com/rqzbeh/KhatamRouter), b
 
 ```bash
 cd gitbook
-npm install
-npm run dev
+bun install
+bun run dev:bun
 ```
 
 The dev server runs at http://localhost:3001.
@@ -16,7 +16,7 @@ The dev server runs at http://localhost:3001.
 
 ```bash
 cd gitbook
-npm run build
+bun run build:bun
 ```
 
 The static site is written to `gitbook/out`.

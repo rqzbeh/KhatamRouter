@@ -52,7 +52,7 @@ Cover native header preservation, stable values across all three runtime transpo
 Run:
 
 ```bash
-npx vitest run --config tests/vitest.config.js tests/unit/opencode-go-session.test.js
+bunx vitest run --config tests/vitest.config.js tests/unit/opencode-go-session.test.js
 ```
 
 Expected: FAIL because `getExecutor("opencode-go")` still returns `DefaultExecutor` and `prepareRequestCredentials` does not exist.
@@ -107,7 +107,7 @@ Register `new OpenCodeGoExecutor()` under `"opencode-go"` and export the class.
 Run:
 
 ```bash
-npx vitest run --config tests/vitest.config.js tests/unit/opencode-go-session.test.js
+bunx vitest run --config tests/vitest.config.js tests/unit/opencode-go-session.test.js
 ```
 
 Expected: executor-level tests pass; any chatCore-context assertion remains failing until Task 3.
@@ -140,7 +140,7 @@ translation.
 Run:
 
 ```bash
-npx vitest run --config tests/vitest.config.js tests/unit/opencode-go-session.test.js
+bunx vitest run --config tests/vitest.config.js tests/unit/opencode-go-session.test.js
 ```
 
 Expected: FAIL because `handleChatCore()` does not pass `providerSessionId` or
@@ -169,7 +169,7 @@ executor.execute({
 Run:
 
 ```bash
-npx vitest run --config tests/vitest.config.js \
+bunx vitest run --config tests/vitest.config.js \
   tests/unit/opencode-go-session.test.js \
   tests/unit/opencode-go-models.test.js \
   tests/unit/session-manager.test.js \
@@ -199,8 +199,8 @@ git commit -m "fix(chat): forward provider session context"
 
 ```bash
 git diff --check origin/master...HEAD
-npx vitest run --config tests/vitest.config.js tests/unit/
-npm run build
+bunx vitest run --config tests/vitest.config.js tests/unit/
+bun run build:bun
 ```
 
 Expected: every command exits zero. Record any pre-existing full-suite failures
@@ -209,8 +209,7 @@ separately rather than hiding them.
 - [ ] **Step 2: Build and package the CLI**
 
 ```bash
-npm --prefix cli run build
-npm --prefix cli pack -- --pack-destination ..
+bun --cwd cli run pack:cli   # runs build + `bun pm pack --destination ..`
 ```
 
 Expected: `9router-0.5.65.tgz` exists and contains the patched bundled server.
@@ -218,7 +217,7 @@ Expected: `9router-0.5.65.tgz` exists and contains the patched bundled server.
 - [ ] **Step 3: Replace the global npm installation**
 
 ```bash
-npm install -g ./9router-0.5.65.tgz
+bun add -g ./9router-0.5.65.tgz
 ```
 
 Expected: `/opt/homebrew/lib/node_modules/9router/package.json` reports `0.5.65`

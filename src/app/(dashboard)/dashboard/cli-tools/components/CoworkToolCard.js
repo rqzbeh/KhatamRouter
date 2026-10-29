@@ -483,7 +483,7 @@ export default function CoworkToolCard({
                         })}
                       </div>
                       <p className="text-[10px] text-text-muted leading-snug">
-                        ⚠️ Local plugins run as subprocess via <code className="px-1 py-0.5 rounded bg-black/5 dark:bg-white/5">npx</code>. Requires Node.js installed.
+                        ⚠️ Local plugins run as subprocess via <code className="px-1 py-0.5 rounded bg-black/5 dark:bg-white/5">bunx</code>. Requires Bun installed.
                       </p>
                     </div>
                   </div>

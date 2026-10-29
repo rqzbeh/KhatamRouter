@@ -18,7 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const REPO_ROOT = path.resolve(__dirname, "../..");
 
 // ---------------------------------------------------------------------------
-// Runner compatibility: this suite runs under both Vitest (`npx vitest`) and
+// Runner compatibility: this suite runs under both Vitest (`bun x vitest`) and
 // Bun's native test runner (`bun test`). Bun's `vitest` compatibility shim has
 // no `vi.doMock` / `vi.doUnmock` / `vi.resetModules`, so module mocking goes
 // through `bun:test`'s `mock.module` there. Bun also has no module-cache reset,

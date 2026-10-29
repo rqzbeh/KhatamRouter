@@ -9,7 +9,7 @@ Despliega 9Router en VPS o Docker para acceso remoto y uso en producción.
 ### Requisitos previos
 
 - Ubuntu 20.04+ o distribución Linux similar
-- Node.js 20+
+- Bun 1.4.3+ (https://bun.sh)
 - Git
 - Acceso root o sudo
 
@@ -23,13 +23,13 @@ cd 9router/app
 ### Paso 2: Instalar dependencias
 
 ```bash
-npm install
+bun install
 ```
 
 ### Paso 3: Compilar la aplicación
 
 ```bash
-npm run build
+bun run build:bun
 ```
 
 ### Paso 4: Configurar variables de entorno
@@ -63,7 +63,7 @@ sudo chown $USER:$USER /var/lib/9router
 ### Paso 6: Iniciar la aplicación
 
 ```bash
-npm run start
+bun run start:bun
 ```
 
 ### Paso 7: Configurar PM2 para producción
@@ -72,10 +72,10 @@ PM2 mantiene tu aplicación corriendo y la reinicia en caso de crash:
 
 ```bash
 # Instalar PM2 globalmente
-npm install -g pm2
+bun add -g pm2
 
 # Iniciar 9Router con PM2
-pm2 start npm --name 9router -- start
+pm2 start bun --name khatamrouter -- run start:bun
 
 # Guardar la configuración de PM2
 pm2 save
@@ -112,35 +112,8 @@ pm2 monit
 
 Crea un `Dockerfile` en el directorio `app`:
 
-```dockerfile
-FROM node:20-alpine
-
-WORKDIR /app
-
-# Copy package files
-COPY package*.json ./
-
-# Install dependencies
-RUN npm ci --only=production
-
-# Copy application files
-COPY . .
-
-# Build application
-RUN npm run build
-
-# Expose ports
-EXPOSE 3000 20128
-
-# Set environment variables
-ENV NODE_ENV=production
-ENV DATA_DIR=/app/data
-
-# Create data directory
-RUN mkdir -p /app/data
-
-# Start application
-CMD ["npm", "run", "start"]
+```bash
+docker build -f Dockerfile.bun -t khatamrouter .
 ```
 
 **Build y Run:**
@@ -366,8 +339,8 @@ sudo apt update && sudo apt upgrade -y
 # Actualizar 9Router
 cd /path/to/9router/app
 git pull
-npm install
-npm run build
+bun install
+bun run build:bun
 pm2 restart 9router
 ```
 

@@ -5,15 +5,15 @@
   "type": "module",
   "description": "Unit tests for 9router embeddings endpoint",
   "scripts": {
-    "test": "vitest run --reporter=verbose",
-    "test:watch": "vitest --reporter=verbose",
+    "test": "bun x vitest run --reporter=verbose",
+    "test:watch": "bun x vitest --reporter=verbose",
     "postinstall": "bun ./__baseline__/setup-bun-vitest.mjs"
   },
   "devDependencies": {
     "vitest": "^4.1.12"
   },
   "engines": {
-    "node": ">=18"
+    "bun": ">=1.4.3"
   },
   "imports": {
     "@/*": "../src/*",

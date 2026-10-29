@@ -1,6 +1,6 @@
 // Live test: combo capacity display + auto-switch routing.
 // Sends text / image / search requests to a combo and reports which member ran.
-//   node scripts/test-combo-autoswitch.mjs
+//   bun scripts/test-combo-autoswitch.mjs
 const BASE = process.env.BASE_URL || "http://localhost:20127";
 const KEY = process.env.API_KEY || "sk-6581be4f05a82b6b-uxy6jn-c8190ea8";
 const COMBO = process.env.COMBO || "haha";

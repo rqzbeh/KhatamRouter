@@ -2,8 +2,8 @@
 // Goal: maximize translation-path coverage to surface real bugs (system, multimodal image,
 // tool-call/tool-result, reasoning) across all source formats.
 //
-//   RUN_REAL=1 npx vitest run --config tests/vitest.config.js tests/translator/real/all-formats.real.test.js
-//   RUN_REAL=1 REAL_PROVIDERS=gemini,kiro,codex npx vitest run ... (optional filter)
+//   RUN_REAL=1 bun x vitest run --config tests/vitest.config.js tests/translator/real/all-formats.real.test.js
+//   RUN_REAL=1 REAL_PROVIDERS=gemini,kiro,codex bun x vitest run ... (optional filter)
 //
 // Skips (console.warn + pass) when: no credential/model, auth/quota status (401/402/403/429),
 // or the model rejects a capability (e.g. image on a non-vision model).

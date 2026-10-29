@@ -105,7 +105,7 @@ Comienza en 2 minutos:
 
 ```bash
 # Instala globalmente
-npm install -g 9router
+bun add -g 9router
 
 # Inicia (el dashboard se abre automáticamente)
 9router

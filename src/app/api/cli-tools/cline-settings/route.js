@@ -18,7 +18,7 @@ const checkInstalled = async () => {
     const isWindows = os.platform() === "win32";
     const command = isWindows ? "where cline" : "which cline";
     const env = isWindows
-      ? { ...process.env, PATH: `${process.env.APPDATA}\\npm;${process.env.PATH}` }
+      ? { ...process.env, PATH: `${process.env.USERPROFILE || ""}\\.bun\\bin;${process.env.APPDATA || ""}\\npm;${process.env.PATH || ""}` }
       : process.env;
     await execAsync(command, { windowsHide: true, env });
     return true;
