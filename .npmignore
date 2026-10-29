@@ -23,7 +23,6 @@ jsconfig.json
 eslint.config.mjs
 postcss.config.mjs
 next.config.mjs
-tsconfig.json
 
 # Build artifacts that shouldn't be published
 .next/cache/

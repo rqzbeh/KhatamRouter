@@ -92,7 +92,7 @@ Pre-translate hooks that compress `tool_result` content in-place to cut tokens. 
 
 ## Conventions & gotchas
 
-- Plain JavaScript (ESM), no TypeScript. `@/*` path alias → `src/*` (`jsconfig.json`).
+- Plain JavaScript (ESM) only; no TypeScript tooling (no `typescript` package, no `tsconfig`, no `.ts` files). `@/*` path alias → `src/*` (`jsconfig.json`). CI "Syntax check (bun build)" replaces the former tsc typecheck.
 - `custom-server.js` wraps the Next standalone server to derive client IP from the TCP socket and strip attacker-controlled `X-Forwarded-For` — trusting forwarding headers only from a loopback reverse proxy. Preserve this when touching request/IP/rate-limit code.
 - Security-sensitive env: `JWT_SECRET` (session cookie), `INITIAL_PASSWORD` (default `123456` — must override), `API_KEY_SECRET`, `MACHINE_ID_SALT`. Full env contract in `.env.example` and ARCHITECTURE.md's env matrix.
 - Binary/protobuf upstreams (kiro EventStream, cursor protobuf, commandcode NDJSON) don't round-trip through OpenAI — they're handled inside their own executor, not the translator.
