@@ -9,7 +9,7 @@ Triển khai 9Router trên VPS hoặc Docker để truy cập từ xa và dùng 
 ### Yêu cầu
 
 - Ubuntu 20.04+ hoặc distro Linux tương tự
-- Bun 1.4.3+ (https://bun.sh)
+- Bun 1.4.4+ (https://bun.sh)
 - Git
 - Quyền root hoặc sudo
 

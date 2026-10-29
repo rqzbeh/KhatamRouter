@@ -12,7 +12,7 @@ Khởi chạy 9Router trong 5 phút và bắt đầu định tuyến các reques
 bun add -g 9router
 ```
 
-**Yêu cầu:** Bun 1.4.3+ ([Chi tiết cài đặt](getting-started/installation.md))
+**Yêu cầu:** Bun 1.4.4+ ([Chi tiết cài đặt](getting-started/installation.md))
 
 ### 2. Khởi chạy
 

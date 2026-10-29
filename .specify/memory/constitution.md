@@ -5,8 +5,8 @@
 ### I. Upstream `decolua/9router` Base Integrity
 KhatamRouter is a direct fork of `decolua/9router` (`master` @ `v0.5.104`). Every feature ported from `Vanszs/VansRouter` and `diegosouzapw/OmniRoute` MUST be implemented cleanly on top of the `9router` codebase without regressing or deleting `9router`'s upstream capabilities (`keyAccess`, `capacityAdapter`, `responsesHandler`, `pxpipe`, and the 8 newer upstream executors).
 
-### II. Single-Runtime Stack & Port Contract (Bun `v1.4.3`)
-- **Unified Gateway & Dashboard**: Executed entirely on **Bun `v1.4.3`** (`bun:sqlite` sole driver, Next.js App Router, `custom-server.js` / `custom-server.ts`). Both dashboard control-plane and `/v1/*` endpoint routing run in a single process listening on default port **`20128`** (`PORT`, with `DASHBOARD_PORT` kept as a backward-compatible alias).
+### II. Single-Runtime Stack & Port Contract (Bun `v1.4.4`)
+- **Unified Gateway & Dashboard**: Executed entirely on **Bun `v1.4.4`** (`bun:sqlite` sole driver, Next.js App Router, `custom-server.js` / `custom-server.ts`). Both dashboard control-plane and `/v1/*` endpoint routing run in a single process listening on default port **`20128`** (`PORT`, with `DASHBOARD_PORT` kept as a backward-compatible alias).
 
 ### III. SQLite3 WAL + Redis Hybrid State
 - **SQLite3**: Driven exclusively by **`bun:sqlite`** (the sole SQLite driver) on `$DATA_DIR/db/data.sqlite` using WAL mode connection PRAGMAs (`journal_mode = WAL`, `synchronous = NORMAL`, `busy_timeout = 5000`, `temp_store = MEMORY`, `foreign_keys = ON`). Bun's versioned migration runner (`_khatam_migrations`) is the single schema migration authority at startup.

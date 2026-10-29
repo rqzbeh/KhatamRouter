@@ -12,7 +12,7 @@ Get 9Router running in 5 minutes and start routing AI requests intelligently.
 bun add -g 9router
 ```
 
-**Requirements:** Bun 1.4.3+ ([Installation details](getting-started/installation.md))
+**Requirements:** Bun 1.4.4+ ([Installation details](getting-started/installation.md))
 
 ### 2. Start
 

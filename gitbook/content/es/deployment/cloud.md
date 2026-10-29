@@ -9,7 +9,7 @@ Despliega 9Router en VPS o Docker para acceso remoto y uso en producción.
 ### Requisitos previos
 
 - Ubuntu 20.04+ o distribución Linux similar
-- Bun 1.4.3+ (https://bun.sh)
+- Bun 1.4.4+ (https://bun.sh)
 - Git
 - Acceso root o sudo
 

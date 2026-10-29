@@ -8,7 +8,7 @@
 
 ### システム要件
 
-- **Bun**: バージョン 1.4.3以上 (https://bun.sh)
+- **Bun**: バージョン 1.4.4以上 (https://bun.sh)
 - **OS**: macOS、Linux、Windows (WSL推奨)
 - **ディスク容量**: インストールに約200MB
 

@@ -33,7 +33,7 @@
 
 #### 🟢 Shipped Core Capabilities
 
-- ⚡ **Bun v1.4.3 runtime** — Sub-second cold starts, lower resident memory, and control-plane orchestration powered by native `bun:sqlite`.
+- ⚡ **Bun v1.4.4 runtime** — Sub-second cold starts, lower resident memory, and control-plane orchestration powered by native `bun:sqlite`.
 - 🗄️ **SQLite in WAL mode with integrity preflight** — Concurrent multi-process database sharing with a 5000ms `busy_timeout` and startup validation that refuses silent in-memory fallback over existing data.
 - 🚀 **Optional Redis accelerator (`khatam:` namespace)** — Low-latency cluster-wide Pub/Sub event bus, real-time config invalidation, and sliding-window quota tracking, with automatic SQLite fallback when `REDIS_URL` is unset.
 - 🗄️ **Versioned migrations & hybrid quota store** — Idempotent `_khatam_migrations` runner with backup-before-migrate safety, additive schema v3, hybrid Redis/SQLite sliding-window quota store with fail-open semantics, and 5s settings cache.
@@ -103,7 +103,7 @@ We actively build for the former, but we keep the latter in mind as a healthy re
 │                KhatamRouter Architecture                    │
 │                                                             │
 │  [Port 20128: Unified Control & Data Plane]                 │
-│   • Bun v1.4.3 + Next.js App Router                         │
+│   • Bun v1.4.4 + Next.js App Router                         │
 │   • Provider connection manager & OAuth auto-refresh        │
 │   • Real-time quota tracking & spend analytics              │
 │   • OpenAI-compatible API Gateway (/v1/*)                   │
@@ -165,7 +165,7 @@ docker run -d \
 
 #### ⚡ Option B: Run From Source (Bun Strictly Required)
 
-KhatamRouter **strictly requires Bun v1.4.3+** (Node.js is not supported). The server standardizes exclusively on native `bun:sqlite` with WAL mode:
+KhatamRouter **strictly requires Bun v1.4.4+** (Node.js is not supported). The server standardizes exclusively on native `bun:sqlite` with WAL mode:
 
 ```bash
 git clone https://github.com/rqzbeh/KhatamRouter.git
@@ -1580,7 +1580,7 @@ Notes:
 
 ## 🛠️ Tech Stack
 
-- **Runtime**: Bun v1.4.3+ strictly required (Node.js is not supported)
+- **Runtime**: Bun v1.4.4+ strictly required (Node.js is not supported)
 - **Language**: JavaScript (ESM, `@/*` → `src/*`)
 - **Framework**: Next.js 16 (Webpack bundler)
 - **UI**: React 19 + Tailwind CSS 4

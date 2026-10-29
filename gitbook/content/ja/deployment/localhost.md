@@ -13,7 +13,7 @@ bun add -g 9router
 ```
 
 **要件:**
-- Bun 1.4.3+ (https://bun.sh)
+- Bun 1.4.4+ (https://bun.sh)
 
 ---
 

@@ -1141,7 +1141,7 @@ docker stop 9router && docker rm 9router
 
 ## 🛠️ 技术栈
 
-- **运行时**：严格要求 Bun v1.4.3+（不再支持 Node.js）
+- **运行时**：严格要求 Bun v1.4.4+（不再支持 Node.js）
 - **框架**：Next.js 16
 - **UI**：React 19 + Tailwind CSS 4
 - **数据库**：SQLite WAL 模式（严格基于 `bun:sqlite`）
