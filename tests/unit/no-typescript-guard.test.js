@@ -6,18 +6,13 @@ import { execSync } from "node:child_process";
 const REPO_ROOT = path.resolve(new URL(".", import.meta.url).pathname, "../..");
 
 /**
- * ALLOWLIST for pre-existing TypeScript files that are explicitly out of scope.
+ * ALLOWLIST for TypeScript files that are explicitly out of scope.
  * Principle II (CLAUDE.md): plain JavaScript (ESM), NO TypeScript.
  *
- * Every entry must exist on historical baseline commit 5882c50b and have an
- * individual, documented justification.
+ * Empty: the project is JavaScript-only and the last TypeScript file
+ * (custom-server.ts) was removed. Any entry added here needs a documented reason.
  */
-export const TS_ALLOWLIST = new Map([
-  [
-    "custom-server.ts",
-    "Pre-existing twin kept by PR #64; tests/unit/wave75-twins-alignment.test.js covers it",
-  ],
-]);
+export const TS_ALLOWLIST = new Map();
 
 /**
  * Directory names to skip when falling back to filesystem traversal.
@@ -117,13 +112,8 @@ describe("No-TypeScript Guard (Principle II & PR #64)", () => {
     expect(violations).toEqual([]);
   });
 
-  it("ensures every entry on the allowlist is documented with a valid justification", () => {
-    expect(TS_ALLOWLIST.size).toBe(1);
-    expect(TS_ALLOWLIST.has("custom-server.ts")).toBe(true);
-    const justification = TS_ALLOWLIST.get("custom-server.ts");
-    expect(justification).toBeTruthy();
-    expect(typeof justification).toBe("string");
-    expect(justification.length).toBeGreaterThan(10);
+  it("keeps the TypeScript allowlist empty", () => {
+    expect(TS_ALLOWLIST.size).toBe(0);
   });
 
   it("directory walk fallback identifies TypeScript source files correctly", () => {
@@ -144,6 +134,7 @@ describe("No-TypeScript Guard (Principle II & PR #64)", () => {
     const violations = findDisallowedTypeScriptFiles(mockFiles, TS_ALLOWLIST);
     expect(violations).toEqual([
       "cli/src/ts/index.ts",
+      "custom-server.ts",
       "src/shared/components/Test.tsx",
     ]);
   });
