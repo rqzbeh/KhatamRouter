@@ -60,6 +60,8 @@ jobs:
         uses: actions/upload-pages-artifact@v5
         with:
           path: gitbook/out
+          # v4+ drops dotfiles by default; keep out/.nojekyll so GitHub Pages does not run Jekyll
+          include-hidden-files: true
 
       - name: Deploy to GitHub Pages
         id: deployment
