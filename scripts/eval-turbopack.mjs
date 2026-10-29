@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * scripts/eval-turbopack.mjs
  *
@@ -357,7 +357,7 @@ export async function runEvaluation(options = {}) {
   // 5. Postbuild copy assets for Turbopack standalone
   console.log("\n[eval] Step 5: Copying standalone assets...");
   try {
-    execSync(`node scripts/copy-standalone-assets.mjs`, {
+    execSync(`bun scripts/copy-standalone-assets.mjs`, {
       cwd: worktree,
       env: { ...process.env, NEXT_DIST_DIR: ".next-turbopack" },
       stdio: "ignore",

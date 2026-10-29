@@ -11,7 +11,7 @@
 // (reasoning + output) in the exact shape the client would, and records whether
 // the upstream accepts it.
 //
-//   RUN_REAL=1 npx vitest run --config tests/vitest.config.js tests/translator/real/opencode-go-thinking-passthrough.real.test.js
+//   RUN_REAL=1 bun x vitest run --config tests/vitest.config.js tests/translator/real/opencode-go-thinking-passthrough.real.test.js
 //
 // Cells:
 //   - openai-responses: assistant turn WITHOUT reasoning item (plain client replay)

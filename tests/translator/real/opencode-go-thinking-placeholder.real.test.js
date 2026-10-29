@@ -17,7 +17,7 @@
 //             replays that unsigned thinking block verbatim. Proves the direct path
 //             accepts real unsigned thinking — the natural endpoint state for C.
 //
-//   RUN_REAL=1 npx vitest run --config tests/vitest.config.js tests/translator/real/opencode-go-thinking-placeholder.real.test.js
+//   RUN_REAL=1 bun x vitest run --config tests/vitest.config.js tests/translator/real/opencode-go-thinking-placeholder.real.test.js
 import { describe, it, expect } from "vitest";
 import { getProviderCredentials } from "../../../src/sse/services/auth.js";
 import { checkAndRefreshToken } from "../../../src/sse/services/tokenRefresh.js";

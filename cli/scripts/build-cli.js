@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
 const fs = require("fs");
 const path = require("path");
@@ -23,6 +23,7 @@ const EXCLUDE_PATTERNS = [
   "*.log",          // Log files
   "tmp",            // Temp files
   ".DS_Store",      // macOS files
+  ".build-home",    // throwaway HOME used by the build (Bun cache/config): Next tracing can pull it into the standalone output
 ];
 
 function shouldExclude(name) {
@@ -142,6 +143,24 @@ function copyStandaloneBuild(appDir, buildDistDir, cliAppDir) {
   }
 }
 
+// Same closure as scripts/copy-standalone-assets.mjs (cluster, db, dataDir, jsconfig,
+// runtime-secrets). Missing sources throw: a silent skip here is the exact bug this fixes.
+function copyMultiWorkerAssets(appDir, cliAppDir) {
+  const dirs = [path.join("src", "lib", "cluster"), path.join("src", "lib", "db")];
+  const files = [path.join("src", "lib", "dataDir.js"), "jsconfig.json", "runtime-secrets.cjs"];
+  for (const rel of dirs) {
+    const src = path.join(appDir, rel);
+    if (!fs.existsSync(src)) throw new Error(`Multi-worker source missing: ${src}`);
+    copyRecursive(src, path.join(cliAppDir, rel));
+  }
+  for (const rel of files) {
+    const src = path.join(appDir, rel);
+    if (!fs.existsSync(src)) throw new Error(`Multi-worker source missing: ${src}`);
+    fs.mkdirSync(path.dirname(path.join(cliAppDir, rel)), { recursive: true });
+    fs.copyFileSync(src, path.join(cliAppDir, rel));
+  }
+}
+
 function mergeServerArtifacts(buildDistDir, cliAppDir) {
   const serverSrc = path.join(buildDistDir, "server");
   const serverDest = path.join(cliAppDir, buildDistDirName, "server");
@@ -192,7 +211,7 @@ function buildCliPackage() {
   // Step 1: Build app with Next.js (workspace tracing root → traced node_modules in standalone).
   console.log("1️⃣  Building Next.js app...");
   try {
-    execSync("npm run build", {
+    execSync("bun run build:bun", {
       stdio: "inherit",
       cwd: appDir,
       env: {
@@ -263,6 +282,13 @@ function buildCliPackage() {
   }
   console.log("");
 
+  // Step 3c: Multi-worker closure (KHATAM_WORKERS>1). Mirrors scripts/copy-standalone-assets.mjs,
+  // which skips under NEXT_TRACING_ROOT_MODE=workspace; without this the packaged
+  // supervisor cannot load src/lib/db and silently falls back to single-process.
+  console.log("3️⃣ c Copying multi-worker closure...");
+  copyMultiWorkerAssets(appDir, cliAppDir);
+  console.log("✅ Copied multi-worker closure\n");
+
   // Step 4: Copy static files
   console.log("4️⃣  Copying static files...");
   const staticSrc = path.join(appDir, ".next", "static");
@@ -330,7 +356,7 @@ function buildCliPackage() {
   // Step 8: Build MITM server (config driven - see app/cli/scripts/buildMitm.js)
   console.log("8️⃣  Building MITM server...");
   try {
-    execSync("node scripts/buildMitm.js", { stdio: "inherit", cwd: cliDir });
+    execSync("bun scripts/buildMitm.js", { stdio: "inherit", cwd: cliDir });
     console.log("✅ MITM server build completed\n");
   } catch (error) {
     console.error("❌ MITM build failed");
@@ -351,6 +377,7 @@ function buildCliPackage() {
 
 module.exports = {
   assertRequiredApiArtifacts,
+  copyMultiWorkerAssets,
   copyStandaloneBuild,
   ensureModuleInBundle,
   mergeServerArtifacts,

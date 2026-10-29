@@ -1,5 +1,5 @@
 // Benchmark: SQLite vs lowdb on equivalent workloads.
-// Run: cd app/tests && npm test -- db-benchmark
+// Run: cd app/tests && bun run test -- db-benchmark
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

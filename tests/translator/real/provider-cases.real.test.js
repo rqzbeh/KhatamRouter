@@ -3,7 +3,7 @@
 // Gated by RUN_REAL=1; any provider lacking creds/model or returning an auth/quota
 // status (401/402/403/429) is skipped (console.warn + pass).
 //
-//   RUN_REAL=1 npx vitest run --config tests/vitest.config.js tests/translator/real/provider-cases.real.test.js
+//   RUN_REAL=1 bun x vitest run --config tests/vitest.config.js tests/translator/real/provider-cases.real.test.js
 import { describe, it, expect } from "vitest";
 import { getProviderCredentials } from "../../../src/sse/services/auth.js";
 import { checkAndRefreshToken } from "../../../src/sse/services/tokenRefresh.js";

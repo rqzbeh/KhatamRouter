@@ -153,7 +153,7 @@ function initWindowsTray(options) {
 function resolveSystray() {
   let runtimeDir = null;
   try {
-    const { getRuntimeNodeModules } = require("../../../hooks/sqliteRuntime");
+    const { getRuntimeNodeModules } = require("../../../hooks/trayRuntime");
     runtimeDir = getRuntimeNodeModules();
   } catch (e) {}
 
@@ -172,11 +172,11 @@ function resolveSystray() {
 }
 
 function chmodTrayBin(pkgName) {
-  // systray2's npm tarball occasionally lands without +x on the bundled Go
+  // systray2's published tarball occasionally lands without +x on the bundled Go
   // binary (observed on macOS). spawn() then fails with EACCES. Best-effort
   // chmod on every init avoids a hard-to-diagnose silent tray failure.
   try {
-    const { getRuntimeNodeModules } = require("../../../hooks/sqliteRuntime");
+    const { getRuntimeNodeModules } = require("../../../hooks/trayRuntime");
     const binName = process.platform === "darwin" ? "tray_darwin_release" : "tray_linux_release";
     const candidates = [
       path.join(getRuntimeNodeModules(), pkgName, "traybin", binName),

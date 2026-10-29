@@ -8,22 +8,19 @@ Guía detallada de instalación de 9Router con consejos de solución de problema
 
 ### Requisitos del sistema
 
-- **Node.js**: Versión 20.0.0 o superior
-- **npm**: Versión 10.0.0 o superior (viene con Node.js)
+- **Bun**: Versión 1.4.3 o superior (https://bun.sh)
 - **OS**: macOS, Linux, Windows (WSL recomendado)
 - **Espacio en disco**: ~200MB para la instalación
 
 ### Verifica tu versión
 
 ```bash
-node --version
+bun --version
 # Debería mostrar v20.x.x o superior
 
-npm --version
-# Debería mostrar 10.x.x o superior
 ```
 
-**¿No tienes Node.js?** Instálalo desde [nodejs.org](https://nodejs.org/)
+**¿No tienes Bun?** Instálalo desde [bun.sh](https://bun.sh)
 
 ---
 
@@ -34,7 +31,7 @@ npm --version
 Instala 9Router globalmente para usar desde cualquier lugar:
 
 ```bash
-npm install -g 9router
+bun add -g 9router
 ```
 
 **Iniciar 9Router:**
@@ -46,7 +43,7 @@ npm install -g 9router
 **Beneficios:**
 - ✅ Ejecuta desde cualquier directorio
 - ✅ Comando simple: `9router`
-- ✅ Auto-actualizaciones con `npm update -g 9router`
+- ✅ Auto-actualizaciones con `bun update -g 9router`
 
 ### Método 2: Instalación local
 
@@ -55,13 +52,13 @@ Instala en un proyecto específico:
 ```bash
 mkdir my-9router
 cd my-9router
-npm install 9router
+bun add 9router
 ```
 
 **Iniciar 9Router:**
 
 ```bash
-npx 9router
+bunx 9router
 ```
 
 **Beneficios:**
@@ -76,9 +73,9 @@ Clona y compila desde GitHub:
 ```bash
 git clone https://github.com/decolua/9router.git
 cd 9router/app
-npm install
-npm run build
-npm start
+bun install
+bun run build:bun
+bun run start:bun
 ```
 
 **Beneficios:**
@@ -273,34 +270,31 @@ kill -9 <PID>
 Error: EACCES: permission denied, mkdir '/usr/local/lib/node_modules/9router'
 ```
 
-**Solución: Usa sudo (no recomendado) o corrige los permisos de npm**
+**Solución: Usa sudo (no recomendado) o añade ~/.bun/bin al PATH**
 
 ```bash
-# Corregir permisos de npm (recomendado)
-mkdir ~/.npm-global
-npm config set prefix '~/.npm-global'
-echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.bashrc
+# Añadir ~/.bun/bin al PATH (recomendado)
+echo 'export PATH=~/.bun/bin:$PATH' >> ~/.bashrc
 source ~/.bashrc
 
 # Luego instalar nuevamente
-npm install -g 9router
+bun add -g 9router
 ```
 
-### Versión de Node.js muy antigua
+### Versión de Bun muy antigua
 
 **Error:**
 ```
 Error: The engine "node" is incompatible with this module
 ```
 
-**Solución: Actualizar Node.js**
+**Solución: Actualizar Bun (`bun upgrade`)**
 
 ```bash
 # Usando nvm (recomendado)
-nvm install 20
-nvm use 20
+bun upgrade
 
-# O descargar desde nodejs.org
+# O descargar desde bun.sh
 ```
 
 ### El dashboard no se abre
@@ -316,7 +310,7 @@ http://localhost:20128
 **Solución 2: Verifica el firewall**
 
 ```bash
-# macOS: Permitir Node.js en System Preferences → Security
+# macOS: Permitir Bun en System Preferences → Security
 # Linux: Verificar iptables
 # Windows: Verificar Windows Firewall
 ```
@@ -360,8 +354,8 @@ pkill -f 9router
 **O usa PM2 para auto-reinicio:**
 
 ```bash
-npm install -g pm2
-pm2 start 9router --name 9router
+bun add -g pm2
+pm2 start bun --name khatamrouter -- run start:bun
 pm2 save
 ```
 
@@ -372,7 +366,7 @@ pm2 save
 ### Desarrollo local
 
 ```bash
-npm install -g 9router
+bun add -g 9router
 9router
 ```
 
@@ -382,7 +376,7 @@ npm install -g 9router
 
 ```bash
 # Instalar
-npm install -g 9router
+bun add -g 9router
 
 # Configurar
 export JWT_SECRET="your-secure-secret"
@@ -390,8 +384,8 @@ export INITIAL_PASSWORD="your-password"
 export NODE_ENV="production"
 
 # Iniciar con PM2
-npm install -g pm2
-pm2 start 9router --name 9router
+bun add -g pm2
+pm2 start bun --name khatamrouter -- run start:bun
 pm2 save
 pm2 startup
 ```
@@ -444,7 +438,7 @@ server {
 ### Eliminar instalación global
 
 ```bash
-npm uninstall -g 9router
+bun remove -g 9router
 ```
 
 ### Eliminar el directorio de datos

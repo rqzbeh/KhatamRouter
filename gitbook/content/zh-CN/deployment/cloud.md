@@ -9,7 +9,7 @@
 ### 前置要求
 
 - Ubuntu 20.04+ 或类似 Linux 发行版
-- Node.js 20+
+- Bun 1.4.3+ (https://bun.sh)
 - Git
 - root 或 sudo 权限
 
@@ -23,13 +23,13 @@ cd 9router/app
 ### 步骤 2:安装依赖
 
 ```bash
-npm install
+bun install
 ```
 
 ### 步骤 3:构建应用
 
 ```bash
-npm run build
+bun run build:bun
 ```
 
 ### 步骤 4:配置环境变量
@@ -63,7 +63,7 @@ sudo chown $USER:$USER /var/lib/9router
 ### 步骤 6:启动应用
 
 ```bash
-npm run start
+bun run start:bun
 ```
 
 ### 步骤 7:用 PM2 部署到生产环境
@@ -72,10 +72,10 @@ PM2 让应用持续运行,崩溃时自动重启:
 
 ```bash
 # 全局安装 PM2
-npm install -g pm2
+bun add -g pm2
 
 # 用 PM2 启动 9Router
-pm2 start npm --name 9router -- start
+pm2 start bun --name khatamrouter -- run start:bun
 
 # 保存 PM2 配置
 pm2 save
@@ -112,35 +112,8 @@ pm2 monit
 
 在 `app` 目录中创建 `Dockerfile`:
 
-```dockerfile
-FROM node:20-alpine
-
-WORKDIR /app
-
-# Copy package files
-COPY package*.json ./
-
-# Install dependencies
-RUN npm ci --only=production
-
-# Copy application files
-COPY . .
-
-# Build application
-RUN npm run build
-
-# Expose ports
-EXPOSE 3000 20128
-
-# Set environment variables
-ENV NODE_ENV=production
-ENV DATA_DIR=/app/data
-
-# Create data directory
-RUN mkdir -p /app/data
-
-# Start application
-CMD ["npm", "run", "start"]
+```bash
+docker build -f Dockerfile.bun -t khatamrouter .
 ```
 
 **构建并运行:**
@@ -366,8 +339,8 @@ sudo apt update && sudo apt upgrade -y
 # 更新 9Router
 cd /path/to/9router/app
 git pull
-npm install
-npm run build
+bun install
+bun run build:bun
 pm2 restart 9router
 ```
 

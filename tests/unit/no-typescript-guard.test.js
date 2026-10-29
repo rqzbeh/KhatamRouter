@@ -26,6 +26,7 @@ const IGNORED_DIRS = new Set([
   ".git",
   "node_modules",
   ".next",
+  ".next-cli-build",
   "dist",
   ".worktrees",
   ".claude",

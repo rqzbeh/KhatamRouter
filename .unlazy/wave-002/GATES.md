@@ -13,11 +13,11 @@ OWNS: src/lib/db/**, src/lib/quota/**, tests/unit/wave2-*.test.js, specs/002-db-
   CWD: ../..
 
 - [ ] G3: Quota store sliding window and fail-open unit tests pass
-  CHECK: npx vitest run unit/wave2-quota-store.test.js && echo WAVE2_G3_OK
+  CHECK: bun x vitest run unit/wave2-quota-store.test.js && echo WAVE2_G3_OK
   EXPECT: WAVE2_G3_OK
   CWD: ../../tests
 
 - [ ] G4: Provider catalog baseline snapshot is byte-for-byte identical
-  CHECK: node tests/__baseline__/verify-providers.mjs && echo WAVE2_G4_OK
+  CHECK: bun tests/__baseline__/verify-providers.mjs && echo WAVE2_G4_OK
   EXPECT: WAVE2_G4_OK
   CWD: ../..

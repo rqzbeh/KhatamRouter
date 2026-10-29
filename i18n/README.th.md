@@ -13,9 +13,8 @@
     <img src="../public/providers/openclaw.png" alt="OpenClaw" width="80"/>
   </p>
   
-  [![npm](https://img.shields.io/npm/v/9router.svg)](https://www.npmjs.com/package/9router)
-  [![Downloads](https://img.shields.io/npm/dm/9router.svg)](https://www.npmjs.com/package/9router)
-  [![License](https://img.shields.io/npm/l/9router.svg)](https://github.com/decolua/9router/blob/main/LICENSE)
+  [![Release](https://img.shields.io/github/v/release/rqzbeh/KhatamRouter)](https://github.com/rqzbeh/KhatamRouter/releases)
+  [![License](https://img.shields.io/github/license/rqzbeh/KhatamRouter.svg)](https://github.com/rqzbeh/KhatamRouter/blob/master/LICENSE)
   
   [🚀 เริ่มต้นใช้งาน](#-quick-start) • [💡 ฟีเจอร์](#-key-features) • [📖 การตั้งค่า](#-setup-guide) • [🌐 เว็บไซต์](https://9router.com)
 </div>
@@ -74,7 +73,7 @@
 **1. ติดตั้งแบบ Global:**
 
 ```bash
-npm install -g 9router
+bun add -g 9router
 9router
 ```
 
@@ -101,15 +100,15 @@ Repo นี้เป็น private package (`9router-app`) ดังนั้น
 
 ```bash
 cp .env.example .env
-npm install
-PORT=20128 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run dev
+bun install
+PORT=20128 NEXT_PUBLIC_BASE_URL=http://localhost:20128 bun run dev:bun
 ```
 
 โหมด Production:
 
 ```bash
-npm run build
-PORT=20128 HOSTNAME=0.0.0.0 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run start
+bun run build:bun
+PORT=20128 HOSTNAME=0.0.0.0 NEXT_PUBLIC_BASE_URL=http://localhost:20128 bun run start:bun
 ```
 
 URL ค่าเริ่มต้น:

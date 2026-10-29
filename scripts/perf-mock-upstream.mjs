@@ -94,7 +94,7 @@ const FIXED_MODELS_RESPONSE = JSON.stringify({
 
 /**
  * Start the in-process mock upstream server.
- * Uses Bun.serve when running under Bun runtime, or node:http when running under Node (e.g. Vitest).
+ * Uses Bun.serve when running under Bun runtime, or node:http when running under Vitest (also Bun).
  * @param {object} [options]
  * @param {number} [options.port=40128] - Port to listen on (0 for dynamic).
  * @param {string} [options.host="127.0.0.1"] - Host address.

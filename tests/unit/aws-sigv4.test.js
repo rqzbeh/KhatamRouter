@@ -5,7 +5,7 @@ import { escapeUri, signAwsRequest } from "../../open-sse/utils/awsSigv4.js";
 /**
  * The two pinned signatures below were cross-verified byte-for-byte against the `aws4`
  * reference implementation, not copied from documentation. Re-derive them any time with
- * `node tasks/test-commands/verify-sigv4-against-aws4.mjs` (installs aws4 with --no-save).
+ * `bun tasks/test-commands/verify-sigv4-against-aws4.mjs` (installs aws4 with --no-save).
  * We pin the values rather than depending on aws4 so the suite stays dependency-free.
  */
 const SIGNING_DATE = new Date("2015-08-30T12:36:00Z");

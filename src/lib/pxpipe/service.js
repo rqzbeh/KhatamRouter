@@ -1,4 +1,4 @@
-import { getInstallInfo, isInstalling, findNpm } from "./install.js";
+import { getInstallInfo, isInstalling, findBun } from "./install.js";
 import { getLoadedInfo, loadPxpipe, selfTest } from "./loader.js";
 
 // Aggregate status for the Token Saver card and /api/pxpipe/status.
@@ -14,7 +14,7 @@ export function getPxpipeStatus() {
     running: loaded.loaded,
     loadedAt: loaded.loadedAt || null,
     uptimeMs: loaded.loaded ? Date.now() - loaded.loadedAt : 0,
-    npmAvailable: !!findNpm(),
+    bunAvailable: !!findBun(),
     mode: "library", // in-process transform, not an external proxy
   };
 }

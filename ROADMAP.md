@@ -335,4 +335,4 @@ We preserve ongoing compatibility with upstream updates through the following me
 
 ## Contributing
 
-Contributions to KhatamRouter are welcome. All implementation work must follow the Spec-Kit specification-driven development workflow under `specs/<NNN-feature>/` and adhere to the architectural principles ratified in [`.specify/memory/constitution.md`](./.specify/memory/constitution.md). Before opening a Pull Request, verify that provider catalog baselines pass without regressions (`node tests/__baseline__/verify-providers.mjs`), avoid introducing unverified dependencies, and ensure your branch is up to date with `master`.
+Contributions to KhatamRouter are welcome. All implementation work must follow the Spec-Kit specification-driven development workflow under `specs/<NNN-feature>/` and adhere to the architectural principles ratified in [`.specify/memory/constitution.md`](./.specify/memory/constitution.md). Before opening a Pull Request, verify that provider catalog baselines pass without regressions (`bun tests/__baseline__/verify-providers.mjs`), avoid introducing unverified dependencies, and ensure your branch is up to date with `master`.

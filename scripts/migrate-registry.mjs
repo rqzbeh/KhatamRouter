@@ -6,7 +6,7 @@
  *   - *Config.models removed (data merged into models[])
  *   - format: terse, consistent indent
  *
- * Run: node --experimental-vm-modules migrate-registry.mjs [--dry]
+ * Run: bun migrate-registry.mjs [--dry]
  */
 import { readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";

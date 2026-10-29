@@ -13,7 +13,7 @@
 // the opencode-zen executor injects all of it, which is part of what this
 // smoke verifies.
 //
-//   OPENCODE_ZEN_KEY=oc_sk... RUN_REAL=1 npx vitest run --config tests/vitest.config.js tests/translator/real/opencode-zen-free-responses.real.test.js
+//   OPENCODE_ZEN_KEY=oc_sk... RUN_REAL=1 bun x vitest run --config tests/vitest.config.js tests/translator/real/opencode-zen-free-responses.real.test.js
 //
 // (OPENCODE_ZEN_KEY overrides credential lookup; otherwise an opencode-zen
 // connection must be configured in 9router.)

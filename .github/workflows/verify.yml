@@ -27,13 +27,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: bun.lock
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -42,17 +35,17 @@ jobs:
       - name: Install dependencies (root)
         run: |
           set -euo pipefail
-          bun install
+          bun install --frozen-lockfile
 
       - name: Typecheck core
         run: |
           set -euo pipefail
-          npx tsc --noEmit -p tsconfig.typecheck-core.json
+          bun x tsc --noEmit -p tsconfig.typecheck-core.json
 
       - name: Typecheck API
         run: |
           set -euo pipefail
-          npx tsc --noEmit -p tsconfig.typecheck-api.json
+          bun x tsc --noEmit -p tsconfig.typecheck-api.json
 
   baselines:
     name: Verify / Baselines
@@ -65,13 +58,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: bun.lock
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -80,33 +66,33 @@ jobs:
       - name: Install dependencies (root)
         run: |
           set -euo pipefail
-          bun install
+          bun install --frozen-lockfile
 
       - name: Install dependencies (tests)
         working-directory: tests
         run: |
           set -euo pipefail
-          bun install
+          bun install --frozen-lockfile
 
       - name: Baseline - provider registry
         run: |
           set -euo pipefail
-          node tests/__baseline__/verify-providers.mjs
+          bun tests/__baseline__/verify-providers.mjs
 
       - name: Baseline - model aliases
         run: |
           set -euo pipefail
-          node tests/__baseline__/verify-alias.mjs
+          bun tests/__baseline__/verify-alias.mjs
 
       - name: Baseline - OAuth URLs
         run: |
           set -euo pipefail
-          node tests/__baseline__/verify-oauth-urls.mjs
+          bun tests/__baseline__/verify-oauth-urls.mjs
 
       - name: Docs claims
         run: |
           set -euo pipefail
-          node scripts/verify-docs-claims.mjs
+          bun scripts/verify-docs-claims.mjs
 
   unit-core:
     name: Verify / Unit (core)
@@ -119,13 +105,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: bun.lock
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -134,13 +113,13 @@ jobs:
       - name: Install dependencies (root)
         run: |
           set -euo pipefail
-          bun install
+          bun install --frozen-lockfile
 
       - name: Install dependencies (tests)
         working-directory: tests
         run: |
           set -euo pipefail
-          bun install
+          bun install --frozen-lockfile
 
       - name: Unit tests (core)
         working-directory: tests
@@ -151,7 +130,9 @@ jobs:
             unit/capabilities-service-kind.test.js \
             unit/db-driver-chain.test.js \
             unit/db-migration-chain.test.js \
-            unit/custom-server-peer-headers.test.js
+            unit/custom-server-peer-headers.test.js \
+            unit/custom-server-h2c.test.js \
+            unit/bun-only-guard.test.js
 
   unit-wave:
     name: Verify / Unit (waves)
@@ -164,13 +145,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: bun.lock
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -179,13 +153,13 @@ jobs:
       - name: Install dependencies (root)
         run: |
           set -euo pipefail
-          bun install
+          bun install --frozen-lockfile
 
       - name: Install dependencies (tests)
         working-directory: tests
         run: |
           set -euo pipefail
-          bun install
+          bun install --frozen-lockfile
 
       - name: Unit tests (waves)
         working-directory: tests
@@ -244,19 +218,21 @@ jobs:
             echo "### Checks that ran across parallel jobs"
             echo ""
             echo "1. **Typecheck** (\`typecheck\`):"
-            echo "   - \`npx tsc --noEmit -p tsconfig.typecheck-core.json\`"
-            echo "   - \`npx tsc --noEmit -p tsconfig.typecheck-api.json\`"
+            echo "   - \`bun x tsc --noEmit -p tsconfig.typecheck-core.json\`"
+            echo "   - \`bun x tsc --noEmit -p tsconfig.typecheck-api.json\`"
             echo "2. **Baselines** (\`baselines\`):"
-            echo "   - \`node tests/__baseline__/verify-providers.mjs\` (94 providers)"
-            echo "   - \`node tests/__baseline__/verify-alias.mjs\` (132 tokens)"
-            echo "   - \`node tests/__baseline__/verify-oauth-urls.mjs\`"
-            echo "   - \`node scripts/verify-docs-claims.mjs\`"
+            echo "   - \`bun tests/__baseline__/verify-providers.mjs\` (94 providers)"
+            echo "   - \`bun tests/__baseline__/verify-alias.mjs\` (132 tokens)"
+            echo "   - \`bun tests/__baseline__/verify-oauth-urls.mjs\`"
+            echo "   - \`bun scripts/verify-docs-claims.mjs\`"
             echo "3. **Unit (core)** (\`unit-core\`):"
             echo "   - \`unit/capabilities.test.js\`"
             echo "   - \`unit/capabilities-service-kind.test.js\`"
             echo "   - \`unit/db-driver-chain.test.js\`"
             echo "   - \`unit/db-migration-chain.test.js\`"
             echo "   - \`unit/custom-server-peer-headers.test.js\`"
+            echo "   - \`unit/custom-server-h2c.test.js\`"
+            echo "   - \`unit/bun-only-guard.test.js\`"
             echo "4. **Unit (waves)** (\`unit-wave\`):"
             echo "   - \`unit/wave1-bun-ts-redis-sqlite.test.js\`"
             echo "   - \`unit/wave2-migrations.test.js\`"
@@ -277,12 +253,12 @@ jobs:
             echo ""
             echo "### Checks deliberately excluded (this gate does NOT run them)"
             echo ""
-            echo "- **Full vitest suite** (\`npx vitest run\` in tests/): NOT green on a plain checkout -"
+            echo "- **Full vitest suite** (\`bun x vitest run\` in tests/): NOT green on a plain checkout -"
             echo "  ~91 expected failures documented in CLAUDE.md, catalogued in"
             echo "  \`tests/__baseline__/known-fails.txt\`, plus \`unit/embeddings.cloud.test.js\`"
             echo "  (imports \`cloud/\` worker dir which is not in this repo) and \`tests/real/*.real.test.js\`"
             echo "  live provider calls that need credentials. Running it would leave the gate red forever."
-            echo "- **Lint (\`npx eslint .\`)**, **build (\`npm run build\`)**, **e2e / live-provider tests**: not calibrated as exit 0 for this gate; out of scope for the initial PR verification gate."
+            echo "- **Lint (\`bun x eslint .\`)**, **build (\`bun run build\`)**, **e2e / live-provider tests**: not calibrated as exit 0 for this gate; out of scope for the initial PR verification gate."
             echo "- **\`tests/__baseline__/verify-no-regression.mjs\`**: not part of the calibrated set for this gate."
             echo ""
             echo "A green check here means all four parallel verify jobs succeeded."

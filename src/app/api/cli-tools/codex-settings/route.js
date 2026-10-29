@@ -47,7 +47,7 @@ const checkCodexInstalled = async () => {
     const isWindows = os.platform() === "win32";
     const command = isWindows ? "where codex" : "which codex";
     const env = isWindows
-      ? { ...process.env, PATH: `${process.env.APPDATA}\\npm;${process.env.PATH}` }
+      ? { ...process.env, PATH: `${process.env.USERPROFILE || ""}\\.bun\\bin;${process.env.APPDATA || ""}\\npm;${process.env.PATH || ""}` }
       : process.env;
     await execAsync(command, { windowsHide: true, env });
     return true;

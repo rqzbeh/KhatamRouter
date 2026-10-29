@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
 const PLACEHOLDER_SECRETS = new Set([
   "change-me-to-a-long-random-secret",

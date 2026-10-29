@@ -17,7 +17,7 @@ const APP_LABEL = "com.9router.autostart";
  *   3. Compute relative to this file's own location. autostart.js lives at
  *      `<pkg>/src/cli/tray/autostart.js`, so cli.js is three levels up.
  *      This works for any global install layout (nvm, Volta, asdf, Homebrew,
- *      /usr/local, etc.) without depending on `npm bin -g` (removed in npm 9)
+ *      /usr/local, etc.) without depending on a package-manager global bin lookup
  *      or a hardcoded `/usr/local/...` path.
  *
  * Returns null if no candidate exists — callers should not write an autostart
@@ -151,12 +151,12 @@ function enableMacOS(cliPath) {
   // Don't write a broken plist that references a non-existent script.
   if (!routerScript) return false;
 
-  // Invoke node + cli.js directly with absolute paths — no shell wrapper.
+  // Invoke bun + cli.js directly with absolute paths — no shell wrapper.
   // The previous design ran `zsh -l -c "..."` so a login shell would source
   // nvm/.zshrc and set PATH; that's fragile (nvm.sh sourcing varies by user,
-  // some setups don't put node on PATH from a non-interactive login shell).
-  // EnvironmentVariables.PATH explicitly includes node's bin dir so child
-  // processes spawned by cli.js (npm install at runtime, etc.) resolve.
+  // some setups don't put bun on PATH from a non-interactive login shell).
+  // EnvironmentVariables.PATH explicitly includes bun's bin dir so child
+  // processes spawned by cli.js (bun add at runtime, etc.) resolve.
   const launchPath = `${path.dirname(nodePath)}:/usr/local/bin:/usr/bin:/bin`;
 
   const plistContent = `<?xml version="1.0" encoding="UTF-8"?>
@@ -246,8 +246,8 @@ function enableWindows(cliPath) {
   const routerScript = getCliJsPath(cliPath);
   if (!routerScript) return false;
 
-  // Run node + cli.js directly, hidden window. Avoids the fragile
-  // `9router.cmd` lookup that depended on the npm prefix path.
+  // Run bun + cli.js directly, hidden window. Avoids the fragile
+  // `9router.cmd` lookup that depended on the package-manager global prefix.
   const vbsContent = `Set WshShell = CreateObject("WScript.Shell")
 WshShell.Run """${nodePath}"" ""${routerScript}"" --tray --skip-update", 0, False
 `;

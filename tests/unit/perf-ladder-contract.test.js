@@ -133,7 +133,13 @@ describe("perf-ladder script hygiene", () => {
 });
 
 describe("perf-ladder real smoke (2 workers, tiny workload)", () => {
-  it("boots 2 workers, runs a tiny load, emits a well-formed Vertical 2-worker row with zero errors", () => {
+  const hasBuild = fs.existsSync(path.join(REPO_ROOT, ".next/BUILD_ID"));
+  // The smoke ladder needs a production .next build; CI / clean worktrees have none.
+  const noBuildReason =
+    "skipping real smoke: no .next/BUILD_ID — run `bun run build:bun` first to include this test";
+  if (!hasBuild) process.stderr.write(`[perf-ladder] ${noBuildReason}\n`);
+
+  it.skipIf(!hasBuild)("boots 2 workers, runs a tiny load, emits a well-formed Vertical 2-worker row with zero errors", () => {
     const r = spawnSync(
       "bash",
       [LADDER_SH, "2", "--requests", "40", "--warmup", "5", "--runs", "2", "--concurrency", "4", "--connection-mode", "keep-alive"],

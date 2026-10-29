@@ -8,22 +8,19 @@
 
 ### 系统要求
 
-- **Node.js**:版本 20.0.0 或更高
-- **npm**:版本 10.0.0 或更高(随 Node.js 安装)
+- **Bun**:版本 1.4.3 或更高(https://bun.sh)
 - **OS**:macOS、Linux、Windows(推荐 WSL)
 - **磁盘空间**:安装约需 200MB
 
 ### 查看版本
 
 ```bash
-node --version
+bun --version
 # 应显示 v20.x.x 或更高
 
-npm --version
-# 应显示 10.x.x 或更高
 ```
 
-**没有 Node.js?** 从 [nodejs.org](https://nodejs.org/) 安装
+**没有 Bun?** 从 [bun.sh](https://bun.sh) 安装
 
 ---
 
@@ -34,7 +31,7 @@ npm --version
 全局安装,任何位置都能使用:
 
 ```bash
-npm install -g 9router
+bun add -g 9router
 ```
 
 **启动 9Router:**
@@ -46,7 +43,7 @@ npm install -g 9router
 **优势:**
 - ✅ 任意目录均可运行
 - ✅ 命令简单:`9router`
-- ✅ 通过 `npm update -g 9router` 自动更新
+- ✅ 通过 `bun update -g 9router` 自动更新
 
 ### 方式 2:本地安装
 
@@ -55,13 +52,13 @@ npm install -g 9router
 ```bash
 mkdir my-9router
 cd my-9router
-npm install 9router
+bun add 9router
 ```
 
 **启动 9Router:**
 
 ```bash
-npx 9router
+bunx 9router
 ```
 
 **优势:**
@@ -76,9 +73,9 @@ npx 9router
 ```bash
 git clone https://github.com/decolua/9router.git
 cd 9router/app
-npm install
-npm run build
-npm start
+bun install
+bun run build:bun
+bun run start:bun
 ```
 
 **优势:**
@@ -273,34 +270,31 @@ kill -9 <PID>
 Error: EACCES: permission denied, mkdir '/usr/local/lib/node_modules/9router'
 ```
 
-**方案:使用 sudo(不推荐)或修复 npm 权限**
+**方案:使用 sudo(不推荐)或将 ~/.bun/bin 加入 PATH**
 
 ```bash
-# 修复 npm 权限(推荐)
-mkdir ~/.npm-global
-npm config set prefix '~/.npm-global'
-echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.bashrc
+# 将 ~/.bun/bin 加入 PATH(推荐)
+echo 'export PATH=~/.bun/bin:$PATH' >> ~/.bashrc
 source ~/.bashrc
 
 # 然后重新安装
-npm install -g 9router
+bun add -g 9router
 ```
 
-### Node.js 版本过低
+### Bun 版本过低
 
 **错误:**
 ```
 Error: The engine "node" is incompatible with this module
 ```
 
-**方案:更新 Node.js**
+**方案:升级 Bun(`bun upgrade`)**
 
 ```bash
 # 使用 nvm(推荐)
-nvm install 20
-nvm use 20
+bun upgrade
 
-# 或从 nodejs.org 下载
+# 或从 bun.sh 下载
 ```
 
 ### 仪表盘无法打开
@@ -316,7 +310,7 @@ http://localhost:20128
 **方案 2:检查防火墙**
 
 ```bash
-# macOS: 在 System Preferences → Security 中允许 Node.js
+# macOS: 在 System Preferences → Security 中允许 Bun
 # Linux: 检查 iptables
 # Windows: 检查 Windows Firewall
 ```
@@ -360,8 +354,8 @@ pkill -f 9router
 **或用 PM2 自动重启:**
 
 ```bash
-npm install -g pm2
-pm2 start 9router --name 9router
+bun add -g pm2
+pm2 start bun --name khatamrouter -- run start:bun
 pm2 save
 ```
 
@@ -372,7 +366,7 @@ pm2 save
 ### 本地开发
 
 ```bash
-npm install -g 9router
+bun add -g 9router
 9router
 ```
 
@@ -382,7 +376,7 @@ npm install -g 9router
 
 ```bash
 # 安装
-npm install -g 9router
+bun add -g 9router
 
 # 配置
 export JWT_SECRET="your-secure-secret"
@@ -390,8 +384,8 @@ export INITIAL_PASSWORD="your-password"
 export NODE_ENV="production"
 
 # 用 PM2 启动
-npm install -g pm2
-pm2 start 9router --name 9router
+bun add -g pm2
+pm2 start bun --name khatamrouter -- run start:bun
 pm2 save
 pm2 startup
 ```
@@ -444,7 +438,7 @@ server {
 ### 移除全局安装
 
 ```bash
-npm uninstall -g 9router
+bun remove -g 9router
 ```
 
 ### 移除数据目录

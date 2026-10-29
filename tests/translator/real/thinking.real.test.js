@@ -3,8 +3,8 @@
 // then asserts the upstream accepted it (no 400) and emitted reasoning output.
 // Gated by RUN_REAL=1 so the default `vitest run` never touches the network.
 //
-//   RUN_REAL=1 npx vitest run -c tests/vitest.config.js "tests/translator/real/thinking"
-//   RUN_REAL=1 REAL_PROVIDERS=claude,glm,deepseek npx vitest run -c tests/vitest.config.js "tests/translator/real/thinking"
+//   RUN_REAL=1 bun x vitest run -c tests/vitest.config.js "tests/translator/real/thinking"
+//   RUN_REAL=1 REAL_PROVIDERS=claude,glm,deepseek bun x vitest run -c tests/vitest.config.js "tests/translator/real/thinking"
 //
 import { describe, it, expect } from "vitest";
 import { getProviderCredentials } from "../../../src/sse/services/auth.js";

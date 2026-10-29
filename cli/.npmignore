@@ -6,4 +6,5 @@
 !package.json
 !README.md
 !LICENSE
-
+# Build-time throwaway HOME (Bun cache/config) must never ship, even nested under app/
+**/.build-home/

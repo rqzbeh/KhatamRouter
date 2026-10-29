@@ -105,7 +105,7 @@
 
 ```bash
 # 全局安装
-npm install -g 9router
+bun add -g 9router
 
 # 启动(仪表盘自动打开)
 9router

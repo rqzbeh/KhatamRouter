@@ -6,15 +6,14 @@
 
 ## 📦 安装
 
-通过 npm 全局安装 9Router:
+通过 Bun 全局安装 9Router:
 
 ```bash
-npm install -g 9router
+bun add -g 9router
 ```
 
 **要求:**
-- Node.js 20 或更高
-- npm 9 或更高
+- Bun 1.4.3+ (https://bun.sh)
 
 ---
 
@@ -81,13 +80,13 @@ API 端口(20128)和仪表盘端口(3000)在应用中配置。如需修改,你�
 更新到最新版本:
 
 ```bash
-npm update -g 9router
+bun update -g 9router
 ```
 
 查看当前版本:
 
 ```bash
-npm list -g 9router
+9router --version
 ```
 
 ---
@@ -113,12 +112,10 @@ kill -9 <PID>
 
 ```bash
 # 使用 sudo(不推荐)
-sudo npm install -g 9router
+bun add -g 9router
 
-# 或修复 npm 权限(推荐)
-mkdir ~/.npm-global
-npm config set prefix '~/.npm-global'
-echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.bashrc
+# Ensure ~/.bun/bin is in PATH
+echo 'export PATH=~/.bun/bin:$PATH' >> ~/.bashrc
 source ~/.bashrc
 ```
 

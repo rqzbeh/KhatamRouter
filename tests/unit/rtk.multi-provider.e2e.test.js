@@ -1,6 +1,6 @@
 // E2E test: verify RTK compression runs for every configured provider/route.
 // Each test covers a different source→target translator path.
-// Run with: RUN_E2E=1 RTK_E2E_PORT=... RTK_E2E_KEY=... RTK_E2E_LOG=<server stdout file> npm test rtk.multi-provider.e2e.test.js
+// Run with: RUN_E2E=1 RTK_E2E_PORT=... RTK_E2E_KEY=... RTK_E2E_LOG=<server stdout file> bun run test rtk.multi-provider.e2e.test.js
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 

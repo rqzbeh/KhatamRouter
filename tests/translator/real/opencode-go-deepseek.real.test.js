@@ -12,7 +12,7 @@
 // rejects the routed endpoint+model combination — exactly the 400 that #3332 reported
 // for Claude→deepseek-v4-flash on /messages.
 //
-//   RUN_REAL=1 npx vitest run --config tests/vitest.config.js tests/translator/real/opencode-go-deepseek.real.test.js
+//   RUN_REAL=1 bun x vitest run --config tests/vitest.config.js tests/translator/real/opencode-go-deepseek.real.test.js
 //
 // Requires an active opencode-go credential in the local DB (add via 9router dashboard).
 // Skips (pass) only on credential/quota/plan rejections, mirroring the other .real tests.

@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
 const fs = require('fs');
 const path = require('path');
@@ -24,7 +24,7 @@ if (!API_KEY) {
 
 const targetLangs = process.argv.slice(2);
 if (targetLangs.length === 0) {
-  console.error('Usage: node translate-readme.js <lang1> [lang2] ...');
+  console.error('Usage: bun translate-readme.js <lang1> [lang2] ...');
   console.error(`Supported languages: ${Object.keys(SUPPORTED_LANGUAGES).join(', ')}`);
   process.exit(1);
 }

@@ -309,8 +309,8 @@ cmd_resolve() {
 cmd_sanitize() {
   require_git_repo
   [ -f "$SANITIZER" ] || die "sanitizer not found: $SANITIZER"
-  node "$SANITIZER" fix --root "$(pwd)"
-  node "$SANITIZER" check --root "$(pwd)"
+  bun "$SANITIZER" fix --root "$(pwd)"
+  bun "$SANITIZER" check --root "$(pwd)"
   log "Sanitizer: merged tree contains no upstream OAuth literals."
 }
 

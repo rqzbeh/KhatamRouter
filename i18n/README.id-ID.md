@@ -7,9 +7,8 @@
 
   **Hubungkan semua tool AI coding (Claude Code, Cursor, Antigravity, Copilot, Codex, Gemini, OpenCode, Cline, OpenClaw...) ke 40+ provider AI dan 100+ model.**
 
-  [![npm](https://img.shields.io/npm/v/9router.svg)](https://www.npmjs.com/package/9router)
-  [![Downloads](https://img.shields.io/npm/dm/9router.svg)](https://www.npmjs.com/package/9router)
-  [![License](https://img.shields.io/npm/l/9router.svg)](https://github.com/decolua/9router/blob/main/LICENSE)
+  [![Release](https://img.shields.io/github/v/release/rqzbeh/KhatamRouter)](https://github.com/rqzbeh/KhatamRouter/releases)
+  [![License](https://img.shields.io/github/license/rqzbeh/KhatamRouter.svg)](https://github.com/rqzbeh/KhatamRouter/blob/master/LICENSE)
 
   [🚀 Mulai Cepat](#-mulai-cepat) • [💡 Fitur](#-fitur-utama) • [📖 Setup](#-panduan-setup) • [🌐 Website](https://9router.com)
 
@@ -68,7 +67,7 @@ Hasil: ngoding tanpa berhenti, biaya minimum
 **1. Install secara global:**
 
 ```bash
-npm install -g 9router
+bun add -g 9router
 9router
 ```
 
@@ -95,15 +94,15 @@ Paket repo ini bersifat privat (`9router-app`), jadi menjalankan dari source/Doc
 
 ```bash
 cp .env.example .env
-npm install
-PORT=20128 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run dev
+bun install
+PORT=20128 NEXT_PUBLIC_BASE_URL=http://localhost:20128 bun run dev:bun
 ```
 
 Mode produksi:
 
 ```bash
-npm run build
-PORT=20128 HOSTNAME=0.0.0.0 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run start
+bun run build:bun
+PORT=20128 HOSTNAME=0.0.0.0 NEXT_PUBLIC_BASE_URL=http://localhost:20128 bun run start:bun
 ```
 
 URL default:
@@ -887,7 +886,7 @@ Dashboard: `http://localhost:20128/dashboard`
 <summary><b>VPS / Cloud</b></summary>
 
 ```bash
-npm install -g 9router
+bun add -g 9router
 PORT=20128 HOSTNAME=0.0.0.0 BASE_URL=https://your-domain.com 9router
 ```
 
@@ -899,8 +898,8 @@ Disarankan menaruhnya di belakang reverse proxy (Nginx/Caddy) dengan HTTPS, dan 
 <summary><b>Cloudflare Workers</b></summary>
 
 ```bash
-npm run build
-npx wrangler deploy
+bun run build:bun
+bunx wrangler deploy
 ```
 
 Atur `BASE_URL` dan `CLOUD_URL` sebagai environment variable di dashboard Cloudflare.
@@ -946,6 +945,6 @@ MIT License — lihat [LICENSE](https://github.com/decolua/9router/blob/main/LIC
 
 **Kalau 9Router membantumu, kasih ⭐ di [GitHub](https://github.com/decolua/9router)!**
 
-[🌐 Website](https://9router.com) • [📦 npm](https://www.npmjs.com/package/9router) • [🐛 Laporkan Bug](https://github.com/decolua/9router/issues)
+[🌐 Website](https://9router.com) • [🐛 Laporkan Bug](https://github.com/decolua/9router/issues)
 
 </div>

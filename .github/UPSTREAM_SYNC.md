@@ -93,8 +93,8 @@ Maintainers can run the exact same merge, conflict-resolution, and sanitization 
 bash scripts/upstream-sync-local.sh
 
 # Re-run just the secret scanner/sanitizer on your current worktree
-node scripts/upstream-sync-sanitizer.mjs fix
-node scripts/upstream-sync-sanitizer.mjs check
+bun scripts/upstream-sync-sanitizer.mjs fix
+bun scripts/upstream-sync-sanitizer.mjs check
 
 # Push the sync branch and open the PR using your local gh credentials
 bash scripts/upstream-sync-local.sh pr
@@ -144,7 +144,7 @@ When a sync PR is opened:
    git fetch origin
    git checkout chore/upstream-sync-<short_sha>
    # make adjustments...
-   node scripts/upstream-sync-sanitizer.mjs check   # verify no literals were introduced
+   bun scripts/upstream-sync-sanitizer.mjs check   # verify no literals were introduced
    git commit -m "fix: adjust upstream changes for KhatamRouter compatibility"
    git push origin chore/upstream-sync-<short_sha>
    ```

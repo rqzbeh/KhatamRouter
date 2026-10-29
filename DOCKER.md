@@ -242,7 +242,7 @@ Tagged builds are checked after the manifest is assembled: the workflow boots th
 
 ```bash
 # Use scripts/release.js (recommended)
-node scripts/release.js "Release title" "Notes"
+bun scripts/release.js "Release title" "Notes"
 
 # Or manually
 git tag v0.1.0 && git push origin v0.1.0

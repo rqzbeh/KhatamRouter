@@ -1,7 +1,7 @@
 // E2E: hit live local proxy → verify nvidia MiniMax M2.7 doesn't 400 on
 // unsupported "thinking" param (nvidia NIM is OpenAI-compatible).
 // Requires dev server running on NV_E2E_PORT + an active router API key in DB.
-// RUN_E2E=1 npx vitest run --config tests/vitest.config.js tests/translator/real/nvidia-thinking.e2e.test.js
+// RUN_E2E=1 bun x vitest run --config tests/vitest.config.js tests/translator/real/nvidia-thinking.e2e.test.js
 import { describe, it, expect, beforeAll } from "vitest";
 import { getApiKeys } from "../../../src/lib/db/repos/apiKeysRepo.js";
 

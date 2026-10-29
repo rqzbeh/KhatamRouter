@@ -10,7 +10,7 @@
 //      to /chat/completions do with reasoning items — and does multi-turn survive the
 //      pass-back requirement on the chat endpoint?
 //
-//   RUN_REAL=1 npx vitest run --config tests/vitest.config.js tests/translator/real/deepseek-official-responses.real.test.js
+//   RUN_REAL=1 bun x vitest run --config tests/vitest.config.js tests/translator/real/deepseek-official-responses.real.test.js
 //
 // Reads the DeepSeek API key from the local 9router DB (connection id
 // a91b07f2-878a-45b0-beb5-56981409ab0c). Uses handleChatCore for the 9router half.
