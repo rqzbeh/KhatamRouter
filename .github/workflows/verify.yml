@@ -37,13 +37,23 @@ jobs:
           set -euo pipefail
           bun install --frozen-lockfile
 
-      - name: Syntax check (bun build)
+      - name: Import and syntax check (bun build)
         run: |
           set -euo pipefail
-          # Project is plain JavaScript (no TypeScript). Bun transpiles each file
-          # and fails on syntax errors; --no-bundle skips import resolution.
-          bun build --target=bun --no-bundle --outdir /tmp/syntax-check-out \
-            $(git ls-files "src/lib/**/*.js" "src/shared/**/*.js" "open-sse/**/*.js" "src/app/api/**/*.js")
+          # Plain JavaScript (no TypeScript). Bun parses every file and resolves
+          # relative and @/ (jsconfig.json) imports. Root tree is NOT run with
+          # --packages=external, because that would silently skip @/ aliases.
+          # eslint.config.mjs is excluded: it pulls typescript-eslint, whose peer (typescript) is intentionally absent.
+          # --external next/font/google: Next substitutes this module at build time.
+          # --loader=.css:text: globals.css uses Tailwind v4 source(), not plain CSS.
+          # src/lib/oauth/services/{antigravity,claude,codex,gemini,github,iflow,openai,index}.js and
+          # src/lib/oauth/utils/banner.js import modules that do not exist (../config/index.js, figlet, ...)
+          # and have no importers. Skipped until the owner decides to delete or repair them.
+          ROOT=$(git ls-files src open-sse custom-server.js next.config.mjs postcss.config.mjs ':(glob)scripts/*.mjs' | grep -E '\.(js|mjs)$' | grep -vE '^src/lib/oauth/(services/(antigravity|claude|codex|gemini|github|iflow|openai|index)|utils/banner)\.js$')
+          bun build --target=bun --loader=.css:text --external next/font/google --outdir /tmp/syntax-check-out $ROOT
+          # cli/ has its own package.json deps (not installed at root): packages external.
+          CLI=$(git ls-files cli | grep -E '\.js$')
+          bun build --target=bun --packages=external --outdir /tmp/syntax-check-out-cli $CLI
 
   baselines:
     name: Verify / Baselines
@@ -216,8 +226,9 @@ jobs:
             echo ""
             echo "### Checks that ran across parallel jobs"
             echo ""
-            echo "1. **Syntax check** (\`typecheck\`, plain JavaScript, no TypeScript):"
-            echo "   - \`bun build --target=bun --no-bundle\` over src/lib, src/shared, open-sse, src/app/api"
+            echo "1. **Import and syntax check** (\`typecheck\`, plain JavaScript, no TypeScript):"
+            echo "   - \`bun build\` (resolving relative and @/ imports) over src, open-sse, custom-server.js, root configs, scripts/*.mjs"
+            echo "   - \`bun build --packages=external\` over cli/"
             echo "2. **Baselines** (\`baselines\`):"
             echo "   - \`bun tests/__baseline__/verify-providers.mjs\` (94 providers)"
             echo "   - \`bun tests/__baseline__/verify-alias.mjs\` (132 tokens)"
