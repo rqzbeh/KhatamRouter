@@ -37,15 +37,13 @@ jobs:
           set -euo pipefail
           bun install --frozen-lockfile
 
-      - name: Typecheck core
+      - name: Syntax check (bun build)
         run: |
           set -euo pipefail
-          bun x tsc --noEmit -p tsconfig.typecheck-core.json
-
-      - name: Typecheck API
-        run: |
-          set -euo pipefail
-          bun x tsc --noEmit -p tsconfig.typecheck-api.json
+          # Project is plain JavaScript (no TypeScript). Bun transpiles each file
+          # and fails on syntax errors; --no-bundle skips import resolution.
+          bun build --target=bun --no-bundle --outdir /tmp/syntax-check-out \
+            $(git ls-files "src/lib/**/*.js" "src/shared/**/*.js" "open-sse/**/*.js" "src/app/api/**/*.js")
 
   baselines:
     name: Verify / Baselines
@@ -211,16 +209,15 @@ jobs:
             echo ""
             echo "| Job | Identifier | Result |"
             echo "| --- | --- | --- |"
-            echo "| Verify / Typecheck | \`typecheck\` | \`${{ needs.typecheck.result }}\` |"
+            echo "| Verify / Typecheck (syntax check) | \`typecheck\` | \`${{ needs.typecheck.result }}\` |"
             echo "| Verify / Baselines | \`baselines\` | \`${{ needs.baselines.result }}\` |"
             echo "| Verify / Unit (core) | \`unit-core\` | \`${{ needs.unit-core.result }}\` |"
             echo "| Verify / Unit (waves) | \`unit-wave\` | \`${{ needs.unit-wave.result }}\` |"
             echo ""
             echo "### Checks that ran across parallel jobs"
             echo ""
-            echo "1. **Typecheck** (\`typecheck\`):"
-            echo "   - \`bun x tsc --noEmit -p tsconfig.typecheck-core.json\`"
-            echo "   - \`bun x tsc --noEmit -p tsconfig.typecheck-api.json\`"
+            echo "1. **Syntax check** (\`typecheck\`, plain JavaScript, no TypeScript):"
+            echo "   - \`bun build --target=bun --no-bundle\` over src/lib, src/shared, open-sse, src/app/api"
             echo "2. **Baselines** (\`baselines\`):"
             echo "   - \`bun tests/__baseline__/verify-providers.mjs\` (94 providers)"
             echo "   - \`bun tests/__baseline__/verify-alias.mjs\` (132 tokens)"

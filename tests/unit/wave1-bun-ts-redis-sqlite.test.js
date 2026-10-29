@@ -1,7 +1,7 @@
 // Wave 1 — Leaf 2: bun:sqlite WAL adapter, integrity check & Redis client/pub-sub.
 //
 // Covers the four contracts this leaf owns:
-//   1. tsconfig.json + .env.example (dual-port + Redis namespace)
+//   1. jsconfig.json + .env.example (dual-port + Redis namespace)
 //   2. runtime-secrets.cjs production validation
 //   3. src/lib/db/{driver.js,adapters/bunSqliteAdapter.js,dataDir.js} safety
 //   4. src/lib/redis/{client.js,events.js} prefixing, fail-open, pub/sub
@@ -146,15 +146,12 @@ afterEach(async () => {
 // 1. Runtime & configuration contracts
 // ---------------------------------------------------------------------------
 describe("Wave 1 configuration contracts", () => {
-  it("tsconfig.json parses and maps @/* to ./src/*", () => {
-    const raw = fs.readFileSync(path.join(REPO_ROOT, "tsconfig.json"), "utf8");
-    const tsconfig = JSON.parse(raw);
+  it("jsconfig.json parses and maps @/* to ./src/*", () => {
+    const raw = fs.readFileSync(path.join(REPO_ROOT, "jsconfig.json"), "utf8");
+    const jsconfig = JSON.parse(raw);
 
-    expect(tsconfig.compilerOptions.target).toBe("ES2022");
-    expect(tsconfig.compilerOptions.moduleResolution).toBe("bundler");
-    expect(tsconfig.compilerOptions.skipLibCheck).toBe(true);
-    expect(tsconfig.compilerOptions.isolatedModules).toBe(true);
-    expect(tsconfig.compilerOptions.paths["@/*"]).toEqual(["./src/*"]);
+    expect(jsconfig.compilerOptions.moduleResolution).toBe("bundler");
+    expect(jsconfig.compilerOptions.paths["@/*"]).toEqual(["./src/*"]);
   });
 
   it(".env.example declares the port configuration and the khatam: Redis prefix", () => {
