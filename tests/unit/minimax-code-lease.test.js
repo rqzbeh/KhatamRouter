@@ -534,8 +534,14 @@ describe("minimax-code executor lease wiring", () => {
 });
 
 describe("minimax-code usage service lease wiring", () => {
+  let fetchSpy;
   beforeEach(() => {
     vi.clearAllMocks();
+    // The usage service calls the real MiniMax API after borrowing a token; never hit the network in tests.
+    fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network disabled in test"));
+  });
+  afterEach(() => {
+    fetchSpy.mockRestore();
   });
 
   it("borrows a leased token when accessToken is unset and authType is mcode-lease", async () => {
