@@ -9,7 +9,7 @@
 ### 前置要求
 
 - Ubuntu 20.04+ 或类似 Linux 发行版
-- Bun 1.4.3+ (https://bun.sh)
+- Bun 1.4.4+ (https://bun.sh)
 - Git
 - root 或 sudo 权限
 
