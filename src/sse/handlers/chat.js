@@ -40,6 +40,7 @@ import { gateTarget, observeFailure, observeSuccess, isResilienceEnabled } from 
 import { isStickinessEnabled, computeSessionKey, getStickyConnection, setStickyConnection, clearStickyConnection } from "@/lib/stealth/stickiness.js";
 import { handleIdempotencyPreRequest, handleIdempotencyPostRequest } from "@/lib/idempotency/index.js";
 import { resolveSmartChoice } from "../services/systemoneRouter.js";
+import { rotate, recordUsage, shouldRotateOn } from "@/lib/network/psiphon/psiphonManager.js";
 
 /**
  * Handle chat completion request
@@ -415,6 +416,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   let lastError = null;
   let lastStatus = null;
   let lastHeaders = null;
+  let psiphonRotations = 0;
 
   while (true) {
     const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, {
@@ -531,7 +533,39 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       }
     });
 
-    if (result.success) return result.response;
+    if (result.success) {
+      const psiphonPoolId = credentials?.providerSpecificData?.psiphonPoolId;
+      if (psiphonPoolId) {
+        let tokens = 0;
+        if (result.usage) {
+          tokens = (result.usage.prompt_tokens || result.usage.input_tokens || 0) +
+                   (result.usage.completion_tokens || result.usage.output_tokens || 0) ||
+                   result.usage.total_tokens || 0;
+        }
+        recordUsage(psiphonPoolId, { requests: 1, tokens });
+      }
+      return result.response;
+    }
+
+    // Psiphon burn-signal rotation (FR-014-07):
+    // If request used a Psiphon pool and upstream emitted a burn signal (429, 403 FreeTier, 502/503 transport),
+    // rotate the tunnel (up to 2 times per request) and retry. Applies to noauth as well.
+    const psiphonPoolId = credentials?.providerSpecificData?.psiphonPoolId;
+    const isPsiphonUnavailable = credentials?.providerSpecificData?.psiphonUnavailable === true;
+    if (psiphonPoolId && !isPsiphonUnavailable && shouldRotateOn(result) && psiphonRotations < 2) {
+      psiphonRotations++;
+      const seenGeneration = credentials?.providerSpecificData?.psiphonGeneration;
+      log.warn("PSIPHON", `Burn signal detected (${result.status}) on pool ${psiphonPoolId} (rotation ${psiphonRotations}/2) → rotating tunnel`);
+      try {
+        await rotate(psiphonPoolId, { reason: `burn_${result.status}`, seenGeneration });
+      } catch (rotateErr) {
+        log.warn("PSIPHON", `Tunnel rotation failed: ${rotateErr.message}`);
+      }
+      lastError = result.error;
+      lastStatus = result.status;
+      lastHeaders = upstreamResponseHeaders(result.response?.headers);
+      continue;
+    }
 
     // Antigravity 409/429: refresh live quota to get exact resetAt before locking
     let quotaResetMs = null;

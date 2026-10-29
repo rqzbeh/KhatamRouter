@@ -450,6 +450,8 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     // honored on the Cursor AgentService h2 path and in proxyFetch (#4333).
     proxyPoolId: credentials?.providerSpecificData?.connectionProxyPoolId || null,
     strictProxy: credentials?.providerSpecificData?.strictProxy === true,
+    psiphonPoolId: credentials?.providerSpecificData?.psiphonPoolId || null,
+    psiphonUnavailable: credentials?.providerSpecificData?.psiphonUnavailable === true,
   };
 
   if (proxyOptions.vercelRelayUrl) {
@@ -525,11 +527,12 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
       streamController.handleError(error);
       return createErrorResult(499, "Request aborted");
     }
-    const errMsg = formatProviderError(error, provider, model, HTTP_STATUS.BAD_GATEWAY);
+    const status = error.status || error.statusCode || HTTP_STATUS.BAD_GATEWAY;
+    const errMsg = formatProviderError(error, provider, model, status);
     if (log?.errorLine) {
-      log.errorLine(reqTag, "✗", `ERROR 502 · ${provider}/${model} · ${Date.now() - requestStartTime}ms\n    ${errMsg}${error.stack ? `\n    ${error.stack}` : ""}`);
+      log.errorLine(reqTag, "✗", `ERROR ${status} · ${provider}/${model} · ${Date.now() - requestStartTime}ms\n    ${errMsg}${error.stack ? `\n    ${error.stack}` : ""}`);
     }
-    return createErrorResult(HTTP_STATUS.BAD_GATEWAY, errMsg);
+    return createErrorResult(status, errMsg);
   }
 
   // Handle 401/403 - try token refresh (skip for noAuth providers)
@@ -622,11 +625,14 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     const result = await handleForcedSSEToJson({ ...sharedCtx, providerResponse, sourceFormat, targetFormat: providerResponseFormat, customToolNames, toolNameMap, trackDone, appendLog });
     if (result) {
       streamController.handleComplete();
-      if (result.response && (apiKey || resolvedApiKeyId)) {
+      if (result.response) {
         try {
           const cloned = await result.response.clone().json();
           if (cloned.usage) {
-            recordPostFlightCostLedger({ apiKey, apiKeyId: resolvedApiKeyId, provider, model, tokens: cloned.usage, requestId: sessionSeed, connectionId }).catch(() => {});
+            result.usage = cloned.usage;
+            if (apiKey || resolvedApiKeyId) {
+              recordPostFlightCostLedger({ apiKey, apiKeyId: resolvedApiKeyId, provider, model, tokens: cloned.usage, requestId: sessionSeed, connectionId }).catch(() => {});
+            }
           }
         } catch {}
       }
@@ -638,11 +644,14 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   if (!stream) {
     const result = await handleNonStreamingResponse({ ...sharedCtx, providerResponse, sourceFormat, targetFormat: providerResponseFormat, reqLogger, toolNameMap, customToolNames, trackDone, appendLog });
     streamController.handleComplete();
-    if (result?.response && (apiKey || resolvedApiKeyId)) {
+    if (result?.response) {
       try {
         const cloned = await result.response.clone().json();
         if (cloned.usage) {
-          recordPostFlightCostLedger({ apiKey, apiKeyId: resolvedApiKeyId, provider, model, tokens: cloned.usage, requestId: sessionSeed, connectionId }).catch(() => {});
+          result.usage = cloned.usage;
+          if (apiKey || resolvedApiKeyId) {
+            recordPostFlightCostLedger({ apiKey, apiKeyId: resolvedApiKeyId, provider, model, tokens: cloned.usage, requestId: sessionSeed, connectionId }).catch(() => {});
+          }
         }
       } catch {}
     }

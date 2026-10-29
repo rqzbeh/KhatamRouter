@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createProxyPool, getProviderConnections, getProxyPools } from "@/models";
+import { VALID_PROXY_TYPES, MANAGED_PSIPHON_URL, normalizePsiphonOptions } from "./types.js";
 
 function toBoolean(value) {
   if (value === "true") return true;
@@ -7,11 +8,9 @@ function toBoolean(value) {
   return undefined;
 }
 
-const VALID_PROXY_TYPES = ["http", "vercel", "cloudflare", "deno", "netlify"];
-
 function normalizeProxyPoolInput(body = {}) {
   const name = typeof body?.name === "string" ? body.name.trim() : "";
-  const proxyUrl = typeof body?.proxyUrl === "string" ? body.proxyUrl.trim() : "";
+  let proxyUrl = typeof body?.proxyUrl === "string" ? body.proxyUrl.trim() : "";
   const noProxy = typeof body?.noProxy === "string" ? body.noProxy.trim() : "";
   const isActive = body?.isActive === undefined ? true : body.isActive === true;
   const strictProxy = body?.strictProxy === true;
@@ -19,6 +18,25 @@ function normalizeProxyPoolInput(body = {}) {
 
   if (!name) {
     return { error: "Name is required" };
+  }
+
+  if (type === "psiphon") {
+    if (!proxyUrl) {
+      proxyUrl = MANAGED_PSIPHON_URL;
+    }
+    const psiphonResult = normalizePsiphonOptions(body?.psiphon);
+    if (!psiphonResult.valid) {
+      return { error: psiphonResult.error };
+    }
+    return {
+      name,
+      proxyUrl,
+      noProxy,
+      isActive,
+      strictProxy: true,
+      type,
+      psiphon: psiphonResult.psiphon,
+    };
   }
 
   if (!proxyUrl) {

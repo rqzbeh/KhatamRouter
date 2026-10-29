@@ -7,6 +7,7 @@ function rowToPool(row) {
   const extra = parseJson(row.data, {});
   return {
     ...extra,
+    data: extra,
     id: row.id,
     isActive: row.isActive === 1 || row.isActive === true,
     testStatus: row.testStatus,
@@ -16,7 +17,7 @@ function rowToPool(row) {
 }
 
 function poolToRow(p) {
-  const { id, isActive, testStatus, createdAt, updatedAt, ...rest } = p;
+  const { id, isActive, testStatus, createdAt, updatedAt, data: _ignoredData, ...rest } = p;
   return {
     id,
     isActive: isActive === false ? 0 : 1,
@@ -73,6 +74,11 @@ export async function createProxyPool(data) {
     createdAt: now,
     updatedAt: now,
   };
+  const psiphonData = data.psiphon || data.data?.psiphon;
+  if (psiphonData) {
+    pool.psiphon = psiphonData;
+  }
+  pool.data = { ...pool };
   upsert(db, pool);
   return pool;
 }

@@ -52,7 +52,7 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       let pickedId = override.proxyPoolId || null;
       if (strategy !== "none") {
         const allPools = await getProxyPools({ isActive: true });
-        const poolIds = allPools.filter(p => p.proxyUrl).map(p => p.id);
+        const poolIds = allPools.filter(p => p.proxyUrl || p.type === "psiphon" || p.data?.type === "psiphon").map(p => p.id);
         pickedId = pickProxyPoolId(poolIds, strategy, providerId);
       }
       const resolvedProxy = await resolveConnectionProxyConfig({ proxyPoolId: pickedId || "" });
@@ -68,6 +68,9 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
           connectionProxyPoolId: resolvedProxy.proxyPoolId || null,
           vercelRelayUrl: resolvedProxy.vercelRelayUrl || "",
           strictProxy: resolvedProxy.strictProxy === true,
+          psiphonPoolId: resolvedProxy.psiphonPoolId || null,
+          psiphonGeneration: resolvedProxy.psiphonGeneration ?? null,
+          psiphonUnavailable: resolvedProxy.psiphonUnavailable === true,
         },
       };
     }
@@ -222,6 +225,9 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
         connectionProxyPoolId: resolvedProxy.proxyPoolId || null,
         vercelRelayUrl: resolvedProxy.vercelRelayUrl || "",
         strictProxy: resolvedProxy.strictProxy === true,
+        psiphonPoolId: resolvedProxy.psiphonPoolId || null,
+        psiphonGeneration: resolvedProxy.psiphonGeneration ?? null,
+        psiphonUnavailable: resolvedProxy.psiphonUnavailable === true,
       },
       connectionId: connection.id,
       // Include current status for optimization check

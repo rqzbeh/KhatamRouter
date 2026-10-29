@@ -491,7 +491,7 @@ async function readBoundedText(response, limit = MAX_FREE_TIER_BODY_BYTES) {
  */
 async function replayFreeTierRejectionDirect(url, options, proxyOptions, proxied) {
   if (proxied.status !== 403) return proxied;
-  if (proxyOptions?.strictProxy === true) return proxied;
+  if (proxyOptions?.strictProxy === true || proxyOptions?.psiphonPoolId || proxyOptions?.psiphon) return proxied;
   if (!isOpenCodeHost(url)) return proxied;
 
   const { text, oversized, touched, error } = await readBoundedText(proxied, MAX_FREE_TIER_BODY_BYTES);
@@ -546,6 +546,16 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
   const envProxyUrl = connectionProxyUrl ? null : normalizeProxyUrl(getEnvProxyUrl(targetUrl));
   const proxyUrl = connectionProxyUrl || envProxyUrl;
 
+  // Gate on a proxy being *intended*: callers like the Qoder executor set
+  // strictProxy to mean "do not replay this request directly if the proxy
+  // fails" (a replayed COSY signature returns 403), not "a proxy is required".
+  // With nothing configured they must keep working.
+  const proxyIntended = proxyOptions?.proxyPoolId
+    || proxyOptions?.psiphonPoolId
+    || proxyOptions?.enabled === true
+    || proxyOptions?.connectionProxyEnabled === true
+    || !!normalizeString(proxyOptions?.url ?? proxyOptions?.connectionProxyUrl);
+
   // MITM DNS bypass: for known MITM-intercepted hosts, resolve real IP to avoid DNS spoof
   if (shouldBypassMitmDns(targetUrl)) {
     if (proxyUrl) {
@@ -558,6 +568,12 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
         }
         console.warn(`[ProxyFetch] Proxy failed, falling back to direct bypass: ${proxyError.message}`);
       }
+    }
+    // Strict mode means "never leave over the direct IP". Fail closed before direct DNS-bypass (#4333).
+    if (proxyOptions?.strictProxy === true && proxyIntended) {
+      const err = new Error("[ProxyFetch] Proxy required but none resolved (strictProxy=true)");
+      err.status = 503;
+      throw err;
     }
     // No proxy — manually resolve real IP to bypass DNS spoof
     try {
@@ -590,17 +606,10 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
   // empty pool, or every proxy removed — so refuse instead of silently
   // exposing the real address (#4333). The catch blocks above only cover a
   // proxy that was actually tried.
-  //
-  // Gate on a proxy being *intended*: callers like the Qoder executor set
-  // strictProxy to mean "do not replay this request directly if the proxy
-  // fails" (a replayed COSY signature returns 403), not "a proxy is required".
-  // With nothing configured they must keep working.
-  const proxyIntended = proxyOptions?.proxyPoolId
-    || proxyOptions?.enabled === true
-    || proxyOptions?.connectionProxyEnabled === true
-    || !!normalizeString(proxyOptions?.url ?? proxyOptions?.connectionProxyUrl);
   if (proxyOptions?.strictProxy === true && proxyIntended) {
-    throw new Error("[ProxyFetch] Proxy required but none resolved (strictProxy=true)");
+    const err = new Error("[ProxyFetch] Proxy required but none resolved (strictProxy=true)");
+    err.status = 503;
+    throw err;
   }
 
   // got-scraping disabled — use native fetch directly
