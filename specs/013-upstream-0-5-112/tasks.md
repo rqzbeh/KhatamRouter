@@ -70,7 +70,7 @@
 - **Gate**: `G2`
 - **Oracle / Test Command**:
   ```bash
-  test -s tests/unit/gemini-schema-array-items-predicate.test.js && [ $(grep -c 'expect(' tests/unit/gemini-schema-array-items-predicate.test.js) -ge 6 ] && ! grep -qE "it\.skip|it\.todo|xit|describe\.skip" tests/unit/gemini-schema-array-items-predicate.test.js && cd tests && bun x vitest run unit/gemini-schema-array-items-predicate.test.js && echo T002_PASS
+  test -s tests/unit/gemini-schema-array-items-predicate.test.js && [ $(grep -c 'expect(' tests/unit/gemini-schema-array-items-predicate.test.js) -ge 6 ] && ! grep -qE "\bit\.skip|\bit\.todo|\bxit\(|\bxdescribe\(|describe\.skip" tests/unit/gemini-schema-array-items-predicate.test.js && cd tests && bun x vitest run unit/gemini-schema-array-items-predicate.test.js && echo T002_PASS
   ```
 
 #### T003: Implement Gemini Schema Array Items & Property Constraints
@@ -92,7 +92,7 @@
 - **Gate**: `G2`
 - **Oracle / Test Command**:
   ```bash
-  test -s tests/unit/nonstream-sse-error.test.js && [ $(grep -c 'expect(' tests/unit/nonstream-sse-error.test.js) -ge 12 ] && ! grep -qE "it\.skip|it\.todo|xit|describe\.skip" tests/unit/nonstream-sse-error.test.js && cd tests && bun x vitest run unit/nonstream-sse-error.test.js && echo T004_PASS
+  test -s tests/unit/nonstream-sse-error.test.js && [ $(grep -c 'expect(' tests/unit/nonstream-sse-error.test.js) -ge 12 ] && ! grep -qE "\bit\.skip|\bit\.todo|\bxit\(|\bxdescribe\(|describe\.skip" tests/unit/nonstream-sse-error.test.js && cd tests && bun x vitest run unit/nonstream-sse-error.test.js && echo T004_PASS
   ```
 
 #### T005: Reject Upstream SSE Errors in Non-Streaming Responses
@@ -114,7 +114,7 @@
 - **Gate**: `G2`
 - **Oracle / Test Command**:
   ```bash
-  test -s tests/unit/param-support.test.js && [ $(grep -c 'expect(' tests/unit/param-support.test.js) -ge 8 ] && ! grep -qE "it\.skip|it\.todo|xit|describe\.skip" tests/unit/param-support.test.js && cd tests && bun x vitest run unit/param-support.test.js && echo T006_PASS
+  test -s tests/unit/param-support.test.js && [ $(grep -c 'expect(' tests/unit/param-support.test.js) -ge 8 ] && ! grep -qE "\bit\.skip|\bit\.todo|\bxit\(|\bxdescribe\(|describe\.skip" tests/unit/param-support.test.js && cd tests && bun x vitest run unit/param-support.test.js && echo T006_PASS
   ```
 
 #### T007: Normalize NVIDIA Reasoning Aliases to reasoning_content
@@ -136,7 +136,7 @@
 - **Gate**: `G2`
 - **Oracle / Test Command**:
   ```bash
-  test -s tests/unit/codebuddy-channel-headers.test.js && [ $(grep -c 'expect(' tests/unit/codebuddy-channel-headers.test.js) -ge 8 ] && ! grep -qE "it\.skip|it\.todo|xit|describe\.skip" tests/unit/codebuddy-channel-headers.test.js && cd tests && bun x vitest run unit/codebuddy-channel-headers.test.js unit/codebuddy-intl-backoff.test.js && echo T008_PASS
+  test -s tests/unit/codebuddy-channel-headers.test.js && [ $(grep -c 'expect(' tests/unit/codebuddy-channel-headers.test.js) -ge 8 ] && ! grep -qE "\bit\.skip|\bit\.todo|\bxit\(|\bxdescribe\(|describe\.skip" tests/unit/codebuddy-channel-headers.test.js && cd tests && bun x vitest run unit/codebuddy-channel-headers.test.js unit/codebuddy-intl-backoff.test.js && echo T008_PASS
   ```
 
 #### T009: Implement CodeBuddy Channel Headers Hook and Register in Auth
@@ -158,7 +158,7 @@
 - **Gate**: `G2`
 - **Oracle / Test Command**:
   ```bash
-  test -s tests/unit/bulk-add-names.test.js && [ $(grep -c 'expect(' tests/unit/bulk-add-names.test.js) -ge 10 ] && ! grep -qE "it\.skip|it\.todo|xit|describe\.skip" tests/unit/bulk-add-names.test.js && cd tests && bun x vitest run unit/bulk-add-names.test.js && echo T010_PASS
+  test -s tests/unit/bulk-add-names.test.js && [ $(grep -c 'expect(' tests/unit/bulk-add-names.test.js) -ge 10 ] && ! grep -qE "\bit\.skip|\bit\.todo|\bxit\(|\bxdescribe\(|describe\.skip" tests/unit/bulk-add-names.test.js && cd tests && bun x vitest run unit/bulk-add-names.test.js && echo T010_PASS
   ```
 
 #### T011: Preserve Opaque LLM|id|secret Tokens in Bulk Import
@@ -184,7 +184,7 @@
 - **Gate**: `G3`
 - **Oracle / Test Command**:
   ```bash
-  test -s tests/unit/deepseek-pow-hash.test.js && [ $(grep -c 'expect(' tests/unit/deepseek-pow-hash.test.js) -ge 8 ] && ! grep -qE "it\.skip|it\.todo|xit|describe\.skip" tests/unit/deepseek-pow-hash.test.js && cd tests && bun x vitest run unit/deepseek-pow-hash.test.js && echo T012_PASS
+  test -s tests/unit/deepseek-pow-hash.test.js && [ $(grep -c 'expect(' tests/unit/deepseek-pow-hash.test.js) -ge 8 ] && ! grep -qE "\bit\.skip|\bit\.todo|\bxit\(|\bxdescribe\(|describe\.skip" tests/unit/deepseek-pow-hash.test.js && cd tests && bun x vitest run unit/deepseek-pow-hash.test.js && echo T012_PASS
   ```
 
 #### T013: Implement Pure-JS Keccak DeepSeek PoW Solver with Validation
@@ -210,7 +210,7 @@
 - **Gate**: `G4`
 - **Oracle / Test Command**:
   ```bash
-  test -s tests/unit/codex-gpt6-lite.test.js && test -s tests/unit/qoder-frontier-models.test.js && [ $(grep -c 'expect(' tests/unit/codex-gpt6-lite.test.js) -ge 6 ] && [ $(grep -c 'expect(' tests/unit/qoder-frontier-models.test.js) -ge 4 ] && ! grep -qE "it\.skip|it\.todo|xit|describe\.skip" tests/unit/codex-gpt6-lite.test.js tests/unit/qoder-frontier-models.test.js && cd tests && bun x vitest run unit/codex-gpt6-lite.test.js unit/qoder-frontier-models.test.js && echo T014_PASS
+  test -s tests/unit/codex-gpt6-lite.test.js && test -s tests/unit/qoder-frontier-models.test.js && [ $(grep -c 'expect(' tests/unit/codex-gpt6-lite.test.js) -ge 6 ] && [ $(grep -c 'expect(' tests/unit/qoder-frontier-models.test.js) -ge 4 ] && ! grep -qE "\bit\.skip|\bit\.todo|\bxit\(|\bxdescribe\(|describe\.skip" tests/unit/codex-gpt6-lite.test.js tests/unit/qoder-frontier-models.test.js && cd tests && bun x vitest run unit/codex-gpt6-lite.test.js unit/qoder-frontier-models.test.js && echo T014_PASS
   ```
 
 #### T015: Add Codex Terra & Qoder Sonus/Cantus to Registries & Pricing
@@ -232,7 +232,7 @@
 - **Gate**: `G4`
 - **Oracle / Test Command**:
   ```bash
-  test -s tests/unit/github-claude-5-5-thinking.test.js && [ $(grep -c 'expect(' tests/unit/github-claude-5-5-thinking.test.js) -ge 12 ] && ! grep -qE "it\.skip|it\.todo|xit|describe\.skip" tests/unit/github-claude-5-5-thinking.test.js && cd tests && bun x vitest run unit/github-claude-5-5-thinking.test.js && echo T016_PASS
+  test -s tests/unit/github-claude-5-5-thinking.test.js && [ $(grep -c 'expect(' tests/unit/github-claude-5-5-thinking.test.js) -ge 12 ] && ! grep -qE "\bit\.skip|\bit\.todo|\bxit\(|\bxdescribe\(|describe\.skip" tests/unit/github-claude-5-5-thinking.test.js && cd tests && bun x vitest run unit/github-claude-5-5-thinking.test.js && echo T016_PASS
   ```
 
 #### T017: Implement Claude 5.5 Thinking Rules & Display Preservation
@@ -254,7 +254,7 @@
 - **Gate**: `G5`
 - **Oracle / Test Command**:
   ```bash
-  test -s tests/unit/commandcode-headers.test.js && test -s tests/unit/commandcode-usage.test.js && [ $(grep -c 'expect(' tests/unit/commandcode-headers.test.js) -ge 10 ] && [ $(grep -c 'expect(' tests/unit/commandcode-usage.test.js) -ge 6 ] && ! grep -qE "it\.skip|it\.todo|xit|describe\.skip" tests/unit/commandcode-headers.test.js tests/unit/commandcode-usage.test.js && cd tests && bun x vitest run unit/commandcode-headers.test.js unit/commandcode-usage.test.js && echo T018_PASS
+  test -s tests/unit/commandcode-headers.test.js && test -s tests/unit/commandcode-usage.test.js && [ $(grep -c 'expect(' tests/unit/commandcode-headers.test.js) -ge 10 ] && [ $(grep -c 'expect(' tests/unit/commandcode-usage.test.js) -ge 6 ] && ! grep -qE "\bit\.skip|\bit\.todo|\bxit\(|\bxdescribe\(|describe\.skip" tests/unit/commandcode-headers.test.js tests/unit/commandcode-usage.test.js && cd tests && bun x vitest run unit/commandcode-headers.test.js unit/commandcode-usage.test.js && echo T018_PASS
   ```
 
 #### T019: Implement CommandCode Shared Headers, Slugify & Session UUID
@@ -276,7 +276,7 @@
 - **Gate**: `G5`
 - **Oracle / Test Command**:
   ```bash
-  test -s tests/unit/nace-systemone-provider.test.js && [ $(grep -c 'expect(' tests/unit/nace-systemone-provider.test.js) -ge 10 ] && ! grep -qE "it\.skip|it\.todo|xit|describe\.skip" tests/unit/nace-systemone-provider.test.js && cd tests && bun x vitest run unit/nace-systemone-provider.test.js && echo T020_PASS
+  test -s tests/unit/nace-systemone-provider.test.js && [ $(grep -c 'expect(' tests/unit/nace-systemone-provider.test.js) -ge 10 ] && ! grep -qE "\bit\.skip|\bit\.todo|\bxit\(|\bxdescribe\(|describe\.skip" tests/unit/nace-systemone-provider.test.js && cd tests && bun x vitest run unit/nace-systemone-provider.test.js && echo T020_PASS
   ```
 
 #### T021: Register Nace Provider, Add Icon Asset, and Regenerate Index
@@ -302,7 +302,7 @@
 - **Gate**: `G6`
 - **Oracle / Test Command**:
   ```bash
-  test -s tests/unit/minimax-code-lease.test.js && [ $(grep -c 'expect(' tests/unit/minimax-code-lease.test.js) -ge 12 ] && ! grep -qE "it\.skip|it\.todo|xit|describe\.skip" tests/unit/minimax-code-lease.test.js && cd tests && bun x vitest run unit/minimax-code-lease.test.js && echo T022_PASS
+  test -s tests/unit/minimax-code-lease.test.js && [ $(grep -c 'expect(' tests/unit/minimax-code-lease.test.js) -ge 12 ] && ! grep -qE "\bit\.skip|\bit\.todo|\bxit\(|\bxdescribe\(|describe\.skip" tests/unit/minimax-code-lease.test.js && cd tests && bun x vitest run unit/minimax-code-lease.test.js && echo T022_PASS
   ```
 
 #### T023: Implement MiniMax Desktop Broker Client & Redis Cache/Lock
@@ -361,7 +361,7 @@
 - **Gate**: `G7`
 - **Oracle / Test Command**:
   ```bash
-  test -s tests/unit/opencode-tls-client.test.js && [ $(grep -c 'expect(' tests/unit/opencode-tls-client.test.js) -ge 6 ] && ! grep -qE "it\.skip|it\.todo|xit|describe\.skip" tests/unit/opencode-tls-client.test.js && cd tests && bun x vitest run unit/opencode-tls-client.test.js && cd .. && cmp Dockerfile Dockerfile.bun > specs/013-upstream-0-5-112/results/dockerfile-identity.txt && echo "DOCKERFILES_IDENTICAL" >> specs/013-upstream-0-5-112/results/dockerfile-identity.txt && echo T027_PASS
+  test -s tests/unit/opencode-tls-client.test.js && [ $(grep -c 'expect(' tests/unit/opencode-tls-client.test.js) -ge 6 ] && ! grep -qE "\bit\.skip|\bit\.todo|\bxit\(|\bxdescribe\(|describe\.skip" tests/unit/opencode-tls-client.test.js && cd tests && bun x vitest run unit/opencode-tls-client.test.js && cd .. && cmp Dockerfile Dockerfile.bun > specs/013-upstream-0-5-112/results/dockerfile-identity.txt && echo "DOCKERFILES_IDENTICAL" >> specs/013-upstream-0-5-112/results/dockerfile-identity.txt && echo T027_PASS
   ```
 
 #### T028: Bump Version 0.5.112, Update CHANGELOG and UPSTREAM-PORTS

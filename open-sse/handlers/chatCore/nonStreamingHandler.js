@@ -243,6 +243,15 @@ export function translateNonStreamingResponse(responseBody, targetFormat, source
   return responseBody;
 }
 
+function sanitizeErrorMessage(msg, apiKey) {
+  if (!msg) return "Upstream SSE stream failed";
+  let sanitized = String(msg).replace(/Bearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, "Bearer [redacted]");
+  if (typeof apiKey === "string" && apiKey.length >= 8) {
+    sanitized = sanitized.split(apiKey).join("[redacted]");
+  }
+  return sanitized;
+}
+
 /**
  * Handle non-streaming response from provider.
  */
@@ -257,6 +266,14 @@ export async function handleNonStreamingResponse({ providerResponse, provider, m
     if (!parsed) {
       appendLog({ status: `FAILED ${HTTP_STATUS.BAD_GATEWAY}` });
       return createErrorResult(HTTP_STATUS.BAD_GATEWAY, "Invalid SSE response for non-streaming request");
+    }
+    if (parsed.error) {
+      const upstreamStatus = Number(parsed.error.status);
+      const status = Number.isInteger(upstreamStatus) && upstreamStatus >= 400 && upstreamStatus <= 599
+        ? upstreamStatus
+        : HTTP_STATUS.BAD_GATEWAY;
+      appendLog({ status: `FAILED ${status}` });
+      return createErrorResult(status, sanitizeErrorMessage(parsed.error.message, apiKey));
     }
     responseBody = parsed;
   } else {
