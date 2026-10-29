@@ -1,0 +1,58 @@
+# Prebuilt image, nothing to build:
+#   docker compose -f docker-compose-prod.yml up -d
+# Dashboard: http://localhost:20128/dashboard
+# Pin a release instead of the moving edge tag with KHATAM_IMAGE=ghcr.io/rqzbeh/khatamrouter:<tag>
+services:
+  9router:
+    image: ${KHATAM_IMAGE:-ghcr.io/rqzbeh/khatamrouter:edge}
+    pull_policy: always
+    container_name: 9router
+    restart: always
+    ports:
+      - "20128:20128"
+    volumes:
+      - 9router-data:/app/data
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATA_DIR: /app/data
+      PORT: "20128"
+      DASHBOARD_PORT: "20128"
+      HOSTNAME: "0.0.0.0"
+      NODE_ENV: production
+      REDIS_URL: redis://redis:6379
+      REDIS_KEY_PREFIX: "khatam:"
+      HEADROOM_URL: http://headroom:8787
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:8.2-alpine
+    container_name: 9router-redis
+    restart: always
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 2s
+
+  headroom:
+    image: ghcr.io/chopratejas/headroom:latest
+    container_name: headroom
+    restart: always
+    ports:
+      - "127.0.0.1:8787:8787"
+
+volumes:
+  9router-data:
+    name: 9router-data
+  redis-data:
+    name: redis-data
