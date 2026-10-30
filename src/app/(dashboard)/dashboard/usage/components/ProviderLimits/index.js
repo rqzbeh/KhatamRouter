@@ -17,6 +17,8 @@ import {
   sortVisibleConnections,
   buildLoadingState,
   filterQuotaStateByConnections,
+  scopeConnectionsToProvider,
+  createLatestRequestTracker,
   getConnectionsEmptyMessage,
   getPageSizeLabel,
   getConnectionsPaginationSummary,
@@ -224,9 +226,12 @@ export default function ProviderLimits() {
   const intervalRef = useRef(null);
   const countdownRef = useRef(null);
   const tickCountRef = useRef(0);
+  const connectionsRequestsRef = useRef(createLatestRequestTracker());
+  const refreshingAllRef = useRef(false);
 
   const fetchConnections = useCallback(
     async (targetPage = page) => {
+      const requestToken = connectionsRequestsRef.current.begin();
       try {
         const params = new URLSearchParams({
           page: String(targetPage),
@@ -241,10 +246,13 @@ export default function ProviderLimits() {
 
         const response = await fetch(
           `/api/providers/client?${params.toString()}`,
+          { cache: "no-store" },
         );
         if (!response.ok) throw new Error("Failed to fetch connections");
 
         const data = await response.json();
+        if (!connectionsRequestsRef.current.isLatest(requestToken)) return null;
+
         const connectionList = data.connections || [];
         const nextPagination = getSafePagination(data.pagination, pageSize);
         const nextTotals = getSafeTotals(data.totals, connectionList.length);
@@ -256,6 +264,7 @@ export default function ProviderLimits() {
         setPage(getPaginationPageValue(data.pagination, targetPage));
         return connectionList;
       } catch (error) {
+        if (!connectionsRequestsRef.current.isLatest(requestToken)) return null;
         console.error("Error fetching connections:", error);
         setConnections([]);
         setProviderOptions([]);
@@ -264,7 +273,7 @@ export default function ProviderLimits() {
         return [];
       }
     },
-    [accountFilter, expiringFirst, page, pageSize, providerFilter],
+    [accountFilter, page, pageSize, providerFilter],
   );
 
   // Fetch quota for a specific connection
@@ -782,7 +791,7 @@ export default function ProviderLimits() {
   const sortedConnections = useMemo(
     () =>
       sortVisibleConnections(
-        connections,
+        scopeConnectionsToProvider(connections, providerFilter),
         quotaData,
         expiringFirst,
         providerFilter,

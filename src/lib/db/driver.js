@@ -8,6 +8,7 @@
 // per US7 Acceptance Scenario 14 to prevent duplicate migration passes if legacy JSON files exist.
 import fs from "node:fs";
 import { ensureDirs, DATA_FILE } from "./paths.js";
+import { stripNullBytes } from "./helpers/nullBytes.js";
 
 // Use global to survive Next.js dev hot-reload (module state resets on reload)
 function getState() {
@@ -67,6 +68,22 @@ export async function verifyDatabaseIntegrity(file) {
   return true;
 }
 
+/**
+ * Make every bound string NUL-safe, once, for all drivers.
+ * SQLite binds TEXT as a NUL-terminated C string, so a bound string that
+ * contains an embedded NUL cannot survive the write cleanly. Sanitising at the
+ * binding boundary covers every column type with a single rule.
+ */
+function withNullByteSafeParams(adapter) {
+  const clean = (params) => (Array.isArray(params) ? params.map(stripNullBytes) : params);
+  return {
+    ...adapter,
+    run: (sql, params = []) => adapter.run(sql, clean(params)),
+    get: (sql, params = []) => adapter.get(sql, clean(params)),
+    all: (sql, params = []) => adapter.all(sql, clean(params)),
+  };
+}
+
 async function initAdapter() {
   if (!process.versions.bun) {
     throw new Error("[DB] KhatamRouter requires the Bun runtime (bun:sqlite). Please run with 'bun'.");
@@ -79,7 +96,8 @@ async function initAdapter() {
   await verifyDatabaseIntegrity(DATA_FILE);
 
   const { createBunSqliteAdapter } = await import("./adapters/bunSqliteAdapter.js");
-  const adapter = await createBunSqliteAdapter(DATA_FILE);
+  let adapter = await createBunSqliteAdapter(DATA_FILE);
+  adapter = withNullByteSafeParams(adapter);
 
   const state = getState();
   if (!state.logged) {
