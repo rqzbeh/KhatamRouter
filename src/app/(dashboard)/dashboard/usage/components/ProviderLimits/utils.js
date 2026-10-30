@@ -158,6 +158,32 @@ export function getConnectionsPaginationSummary(pagination) {
   return `Showing ${start}-${end} of ${pagination.total}`;
 }
 
+/**
+ * Keep only connections from the selected provider. The API already filters,
+ * but a late response from a previous filter must not put another provider's
+ * accounts back on screen.
+ */
+export function scopeConnectionsToProvider(connections, providerFilter) {
+  if (providerFilter === "all") return connections;
+  return connections.filter((connection) => connection.provider === providerFilter);
+}
+
+/**
+ * Latest-wins token for overlapping async requests. Only the most recently
+ * started request may commit its result.
+ */
+export function createLatestRequestTracker() {
+  let latest = 0;
+  return {
+    begin() {
+      return ++latest;
+    },
+    isLatest(token) {
+      return token === latest;
+    },
+  };
+}
+
 export function getSafePagination(pagination, fallbackPageSize) {
   return (
     pagination || {

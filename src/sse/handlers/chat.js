@@ -568,6 +568,12 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       log.warn("PSIPHON", `Burn signal detected (${result.status}) on pool ${psiphonPoolId} (rotation ${psiphonRotations}/2) → rotating tunnel`);
       try {
         await rotate(psiphonPoolId, { reason: `burn_${result.status}`, seenGeneration });
+        if (provider === "opencode") {
+          try {
+            const { invalidateOpencodeSession } = await import("open-sse/executors/opencode.js");
+            invalidateOpencodeSession(credentials, body);
+          } catch {}
+        }
       } catch (rotateErr) {
         log.warn("PSIPHON", `Tunnel rotation failed: ${rotateErr.message}`);
       }

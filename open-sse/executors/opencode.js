@@ -236,6 +236,14 @@ export function stableSessionId(credentials) {
   return sessionId;
 }
 
+export function invalidateOpencodeSession(credentials, body) {
+  if (credentials) {
+    const key = identityKey(credentials);
+    stableOpencodeSessions.delete(key);
+    delete credentials[SESSION_FIELD];
+  }
+}
+
 function bodyHasSessionHints(body) {
   try {
     if (!body || typeof body !== "object") return false;
