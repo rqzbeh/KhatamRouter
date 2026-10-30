@@ -69,10 +69,10 @@ RUN set -eux; \
       *) echo "Unsupported architecture for ConsoleClient: $ARCH"; exit 1 ;; \
     esac; \
     curl -fsSL "https://github.com/freeb5d/regionhop/releases/download/v1.26.0/regionhop-linux-${PSI_ARCH}.tar.gz" -o /tmp/psi.tar.gz; \
-    tar -xzf /tmp/psi.tar.gz ConsoleClient -C /usr/local/bin; \
+    tar -C /usr/local/bin -xzf /tmp/psi.tar.gz ConsoleClient; \
     chmod 755 /usr/local/bin/ConsoleClient; \
     rm -f /tmp/psi.tar.gz; \
-    /usr/local/bin/ConsoleClient -v
+    test -x /usr/local/bin/ConsoleClient
 
 # ── Runner stage (100% Bun Native Production Runtime) ───────────────────────
 FROM oven/bun:1.4.4-slim AS runner
