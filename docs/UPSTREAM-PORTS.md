@@ -311,3 +311,21 @@ This section records the upstream porting and synchronization audit for `decolua
 ### Commit `f7f6f5ed`: Nace Drex Provider
 - **Upstream Strategy**: Upstream registered `nace` directly and manually updated registries.
 - **KhatamRouter Resolution (Ported with Hardening)**: Registered `open-sse/providers/registry/nace.js`, added asset `public/providers/nace.png`, and regenerated `open-sse/providers/registry/index.js` using `scripts/migrate-registry.mjs`, ensuring provider baseline snapshots match committed registries.
+
+---
+
+# Upstream Ports & Audit Ledger: VansRouter Sync Window v0.91.81 → v0.91.89 (PR #122)
+
+This section records the synchronization of upstream enhancements from `Vanszs/VansRouter` through `v0.91.89` (merged via PR #122), along with the critical OpenCode session cache invalidation fix.
+
+## 1. Summary & Ported Commits Matrix
+
+| Area / Feature | VansRouter Commits | Our Files Changed | Tests | Architectural Hardening & Fork Resolution |
+|---|---|---|---|---|
+| **OpenCode 429 Session Invalidation** | N/A (KhatamRouter fix) | `open-sse/executors/opencode.js`<br>`src/sse/handlers/chat.js` | `tests/unit/psiphon-rotation.test.js` | **Fresh Session on Rotate**: Added `invalidateOpencodeSession` to `open-sse/executors/opencode.js` and wired it into `src/sse/handlers/chat.js` during Psiphon burn rotations. Retrying requests now get a fresh session ID on the fresh IP, preventing OpenCode backend from repeating 429 due to flagged session reuse. |
+| **CodeBuddy Intl Stable UUID & Channel Headers** | `2c7b2527`<br>`a01e86f8` | `open-sse/executors/codebuddy-intl.js` | `tests/unit/codebuddy-intl-conversation-headers.test.js` | Generates deterministic RFC-4122-v5-shaped UUIDs from session/conversation keys (`stableUuidFrom`), keeping `X-Conversation-ID` stable across retries and reusing the channel's `X-Request-ID`. |
+| **SQLite NUL Byte Stripping** | `c8d3d31b` | `src/lib/db/driver.js`<br>`src/lib/db/helpers/nullBytes.js` | `tests/unit/db-null-byte-params.test.js` | Wraps database statements (`run`/`get`/`all`) to automatically strip embedded NUL (`\0`) bytes in bound parameters across all SQLite adapters. Prevents unexpected string truncations. |
+| **ProviderLimits Race & Provider Scoping** | `f1d824b0` | `src/app/(dashboard)/dashboard/usage/components/ProviderLimits/index.js`<br>`src/app/(dashboard)/dashboard/usage/components/ProviderLimits/utils.js` | `tests/unit/quota-tracker-request-race.test.js` | Adds `createLatestRequestTracker` to reject superseded asynchronous connection fetches (latest-wins) and `scopeConnectionsToProvider` to strictly scope rendered connection rows to the active provider filter. |
+| **Streaming Tool Name Restoration & ID Synthesis** | `1d480a2d` | `open-sse/utils/stream.js`<br>`open-sse/utils/streamHelpers.js` | `tests/unit/opencode-fingerprint-passthrough-restore.test.js`<br>`tests/unit/stream-tool-call-id.test.js` | In `stream.js`, restored caller tool names on passthrough streams when renamed by OpenCode fingerprint tools (`toolNameMap`), and supported 9-argument signature for passthrough logging. |
+| **Kiro Model Normalization & Grok 4.7 Window** | `6f6f2a61`<br>`bbad970b`<br>`d261f6f3` | `open-sse/config/kiroConstants.js`<br>`open-sse/providers/capabilities.js` | `tests/unit/kiro-model-normalization.test.js`<br>`tests/unit/grok-4.7-context-window.test.js` | Normalized Anthropic model IDs to Kiro upstream aliases in `kiroConstants.js`, and pinned Grok 4.7 context window to 500,000 tokens. |
+
