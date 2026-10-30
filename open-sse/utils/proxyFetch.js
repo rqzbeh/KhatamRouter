@@ -542,8 +542,12 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
     return originalFetch(vercelRelayUrl, { ...options, headers: relayHeaders });
   }
 
+  const poolOrConnDesignated = proxyOptions?.proxyPoolId
+    || proxyOptions?.psiphonPoolId
+    || proxyOptions?.connectionProxyEnabled === true;
+
   const connectionProxyUrl = resolveConnectionProxyUrl(targetUrl, proxyOptions);
-  const envProxyUrl = connectionProxyUrl ? null : normalizeProxyUrl(getEnvProxyUrl(targetUrl));
+  const envProxyUrl = (connectionProxyUrl || poolOrConnDesignated) ? null : normalizeProxyUrl(getEnvProxyUrl(targetUrl));
   const proxyUrl = connectionProxyUrl || envProxyUrl;
 
   // Gate on a proxy being *intended*: callers like the Qoder executor set

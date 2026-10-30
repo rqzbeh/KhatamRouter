@@ -59,6 +59,21 @@ ENV DATA_DIR_ALLOW_TEMP=1
 # Next.js build execution under Bun
 RUN bun run build
 
+# Download prebuilt Psiphon ConsoleClient sidecar (regionhop release)
+ARG TARGETARCH
+RUN set -eux; \
+    ARCH="${TARGETARCH:-amd64}"; \
+    case "$ARCH" in \
+      amd64) PSI_ARCH="amd64" ;; \
+      arm64) PSI_ARCH="arm64" ;; \
+      *) echo "Unsupported architecture for ConsoleClient: $ARCH"; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://github.com/freeb5d/regionhop/releases/download/v1.26.0/regionhop-linux-${PSI_ARCH}.tar.gz" -o /tmp/psi.tar.gz; \
+    tar -C /usr/local/bin -xzf /tmp/psi.tar.gz ConsoleClient; \
+    chmod 755 /usr/local/bin/ConsoleClient; \
+    rm -f /tmp/psi.tar.gz; \
+    test -x /usr/local/bin/ConsoleClient
+
 # ── Runner stage (100% Bun Native Production Runtime) ───────────────────────
 FROM oven/bun:1.4.4-slim AS runner
 
@@ -101,6 +116,9 @@ RUN test -z "$(find /app -type f -name 'better_sqlite3.node' -print -quit 2>/dev
 
 # Smoke check that wreq-js native binding resolves under Bun in production runner
 RUN bun -e "import('wreq-js').then(w => { if (typeof w.createSession !== 'function') throw new Error('createSession missing'); console.log('wreq-js runner smoke: OK'); });"
+
+# Prebuilt Psiphon ConsoleClient sidecar
+COPY --from=builder /usr/local/bin/ConsoleClient /usr/local/bin/ConsoleClient
 
 RUN chown -R bun:bun /app /app/data
 

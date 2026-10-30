@@ -86,10 +86,28 @@ export function validatePsiphonConfig(config) {
   return { valid: true };
 }
 
+export const DEFAULT_PSIPHON_DEPLOYMENT_CONFIG = {
+  PropagationChannelId: "FFFFFFFFFFFFFFFF",
+  SponsorId: "FFFFFFFFFFFFFFFF",
+  RemoteServerListUrl: "https://s3.amazonaws.com//psiphon/web/mjr4-p23r-puwl/server_list_compressed",
+  RemoteServerListSignaturePublicKey: "MIICIDANBgkqhkiG9w0BAQEFAAOCAg0AMIICCAKCAgEAt7Ls+/39r+T6zNW7GiVpJfzq/xvL9SBH5rIFnk0RXYEYavax3WS6HOD35eTAqn8AniOwiH+DOkvgSKF2caqk/y1dfq47Pdymtwzp9ikpB1C5OfAysXzBiwVJlCdajBKvBZDerV1cMvRzCKvKwRmvDmHgphQQ7WfXIGbRbmmk6opMBh3roE42KcotLFtqp0RRwLtcBRNtCdsrVsjiI1Lqz/lH+T61sGjSjQ3CHMuZYSQJZo/KrvzgQXpkaCTdbObxHqb6/+i1qaVOfEsvjoiyzTxJADvSytVtcTjijhPEV6XskJVHE1Zgl+7rATr/pDQkw6DPCNBS1+Y6fy7GstZALQXwEDN/qhQI9kWkHijT8ns+i1vGg00Mk/6J75arLhqcodWsdeG/M/moWgqQAnlZAGVtJI1OgeF5fsPpXu4kctOfuZlGjVZXQNW34aOzm8r8S0eVZitPlbhcPiR4gT/aSMz/wd8lZlzZYsje/Jr8u/YtlwjjreZrGRmG8KMOzukV3lLmMppXFMvl4bxv6YFEmIuTsOhbLTwFgh7KYNjodLj/LsqRVfwz31PgWQFTEPICV7GCvgVlPRxnofqKSjgTWI4mxDhBpVcATvaoBl1L/6WLbFvBsoAUBItWwctO2xalKxF5szhGm8lccoc5MZr8kfE0uxMgsxz4er68iCID+rsCAQM=",
+  RemoteServerListDownloadFilename: "remote_server_list",
+  UseIndistinguishableTLS: true,
+  EmitDiagnosticNotices: true,
+};
+
 export function getPsiphonBinPath() {
   if (process.env.PSIPHON_BIN) return process.env.PSIPHON_BIN;
-  const dataDir = getDataDir();
-  return path.join(dataDir, "bin", "ConsoleClient");
+  const standardLocations = [
+    "/usr/local/bin/ConsoleClient",
+    "/usr/bin/ConsoleClient",
+    "/app/bin/ConsoleClient",
+    path.join(getDataDir(), "bin", "ConsoleClient"),
+  ];
+  for (const loc of standardLocations) {
+    if (fs.existsSync(loc)) return loc;
+  }
+  return path.join(getDataDir(), "bin", "ConsoleClient");
 }
 
 export function getPsiphonConfigPath() {
@@ -101,30 +119,29 @@ export function getPsiphonConfigPath() {
 /**
  * Creates a temporary 0600 config file for a ConsoleClient child instance.
  * @param {object} params
- * @param {string} params.baseConfigFile
+ * @param {string} [params.baseConfigFile]
  * @param {string} params.dataRootDir
  * @param {string} [params.egressRegion]
  * @returns {string} Path to temporary config file
  */
 export function createTempConfigFile({ baseConfigFile, dataRootDir, egressRegion }) {
-  if (!fs.existsSync(baseConfigFile)) {
-    throw new PsiphonUnavailableError(
-      `Psiphon base config file missing: ${baseConfigFile}. Configure PSIPHON_CONFIG_FILE or provide client.config.json`
-    );
-  }
-
   let baseContent = {};
-  try {
-    const raw = fs.readFileSync(baseConfigFile, "utf-8");
-    baseContent = JSON.parse(raw);
-  } catch (err) {
-    throw new PsiphonUnavailableError(`Invalid Psiphon base config JSON: ${err.message}`);
+  if (baseConfigFile && fs.existsSync(baseConfigFile)) {
+    try {
+      const raw = fs.readFileSync(baseConfigFile, "utf-8");
+      baseContent = JSON.parse(raw);
+    } catch (err) {
+      throw new PsiphonUnavailableError(`Invalid Psiphon base config JSON: ${err.message}`);
+    }
+  } else {
+    // Zero-config default: standard public Psiphon deployment configuration
+    baseContent = { ...DEFAULT_PSIPHON_DEPLOYMENT_CONFIG };
   }
 
   const merged = {
     ...baseContent,
     DataRootDirectory: dataRootDir,
-    ListenInterface: "127.0.0.1",
+    ListenInterface: process.platform === "win32" ? "any" : "lo",
     LocalHttpProxyPort: 0,
     DisableLocalSocksProxy: true,
     EmitDiagnosticNotices: true,

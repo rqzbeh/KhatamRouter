@@ -10,6 +10,7 @@ import {
   createTempConfigFile,
   cleanTempConfigFile,
 } from "./config.js";
+import { ensurePsiphonBinary } from "./downloader.js";
 import { createNoticeAccumulator } from "./notices.js";
 import { probeLatency, probeExitIp } from "./probe.js";
 import { shouldRotateOn } from "./classify.js";
@@ -341,7 +342,12 @@ function pickCandidateRegions({ poolRegions, recentRegions, availableRegions, ex
  * and terminating the rest.
  */
 async function establishBestTunnel({ pool, state, excludedRegions }) {
-  const binPath = getPsiphonBinPath();
+  let binPath = getPsiphonBinPath();
+  if (!fs.existsSync(binPath)) {
+    // Attempt auto-download for Linux hosts (e.g. Docker container or native host)
+    binPath = await ensurePsiphonBinary();
+  }
+
   if (!fs.existsSync(binPath)) {
     state.state = "failed";
     state.lastError = new PsiphonUnavailableError(`Psiphon binary not found at: ${binPath}`);
@@ -349,11 +355,6 @@ async function establishBestTunnel({ pool, state, excludedRegions }) {
   }
 
   const baseConfigFile = getPsiphonConfigPath();
-  if (!fs.existsSync(baseConfigFile)) {
-    state.state = "failed";
-    state.lastError = new PsiphonUnavailableError(`Psiphon base config not found at: ${baseConfigFile}`);
-    throw state.lastError;
-  }
 
   const poolRegions = pool.data?.psiphon?.regions || [];
   const candidateCount = Math.max(1, Math.min(5, pool.data?.psiphon?.probeCandidates || DEFAULT_PROBE_CANDIDATES));
