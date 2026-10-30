@@ -78,10 +78,10 @@ Psiphon proxy pools enforce strict operational isolation to prevent accidental l
 `psiphon-tunnel-core` is licensed under the **GNU General Public License v3.0 (GPL-3.0)**.
 
 To maintain clean architectural boundaries:
-- **No Bundling**: KhatamRouter does not include, distribute, or vendor `ConsoleClient` binaries or source code.
-- **No Automated Downloading**: KhatamRouter never downloads or pulls the Psiphon binary at runtime.
-- **Process Boundary**: KhatamRouter communicates with `ConsoleClient` exclusively as an external subprocess over standard operating system IPC: reading JSON notices from `stderr` pipes and routing HTTP requests through an ephemeral loopback HTTP proxy listener (`127.0.0.1`).
-- **Operator Responsibility**: The server operator must independently build or obtain the binary, supply valid configuration parameters, and verify compliance with Psiphon terms of service and relevant regulatory requirements.
+- **Sidecar Execution**: `ConsoleClient` runs as an isolated external sidecar process. KhatamRouter communicates with it strictly over standard operating system IPC: reading JSON notices from `stderr` pipes and routing HTTP requests through an ephemeral loopback HTTP proxy listener (`lo` / `127.0.0.1`).
+- **Binary Provisioning**: The official container builds download and place prebuilt `ConsoleClient` binaries from `freeb5d/regionhop` releases during Docker build (`/usr/local/bin/ConsoleClient`). For non-container environments, KhatamRouter automatically downloads the appropriate architecture binary (`amd64` / `arm64`) to `$DATA_DIR/bin/ConsoleClient` on first use if not present, or operators can supply their own via `PSIPHON_BIN`.
+- **Zero-Config Default**: A standard public Psiphon deployment configuration is built-in. Operators can override it anytime by placing `client.config.json` in `$DATA_DIR/psiphon/` or pointing `PSIPHON_CONFIG_FILE` to a custom file.
+- **Operator Responsibility**: Operators are responsible for their network traffic and compliance with Psiphon terms of service and relevant regulatory requirements.
 
 ---
 
