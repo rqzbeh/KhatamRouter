@@ -1,0 +1,112 @@
+{
+  "rateLimitSeconds": {
+    "status": 429,
+    "headers": {
+      "content-type": "application/json",
+      "retry-after": "120"
+    },
+    "body": {
+      "error": {
+        "message": "Rate limit exceeded. Try again in 120 seconds.",
+        "type": "insufficient_quota",
+        "code": "rate_limit_exceeded"
+      }
+    }
+  },
+  "rateLimitDate": {
+    "status": 429,
+    "headers": {
+      "content-type": "application/json",
+      "retry-after": "Wed, 21 Oct 2026 07:28:00 GMT"
+    },
+    "body": {
+      "error": {
+        "message": "Rate limit exceeded. Please wait until scheduled reset.",
+        "type": "tokens_exceeded"
+      }
+    }
+  },
+  "rateLimitExtremeSeconds": {
+    "status": 429,
+    "headers": {
+      "content-type": "application/json",
+      "retry-after": "9999999999999999"
+    },
+    "body": {
+      "error": {
+        "message": "Rate limit exceeded: extreme retry backoff",
+        "type": "insufficient_quota"
+      }
+    }
+  },
+  "rateLimitUint64": {
+    "status": 429,
+    "headers": {
+      "content-type": "application/json",
+      "retry-after": "18446744073709551615"
+    },
+    "body": {
+      "error": {
+        "message": "Rate limit exceeded: UINT64_MAX delay",
+        "type": "insufficient_quota"
+      }
+    }
+  },
+  "rateLimitMalformedResets": {
+    "status": 429,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "error": {
+        "message": "Rate limit reset far future",
+        "type": "tokens_exceeded"
+      },
+      "resetsAtMs": 1e25
+    }
+  },
+  "serviceUnavailable": {
+    "status": 503,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "error": {
+        "message": "Service Temporarily Unavailable",
+        "type": "service_unavailable"
+      }
+    }
+  },
+  "requestScopedError": {
+    "status": 400,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "error": {
+        "message": "Invalid parameter: context window exceeded for model",
+        "type": "invalid_request_error"
+      }
+    }
+  },
+  "successChat": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "id": "chatcmpl-test",
+      "object": "chat.completion",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "Hello! How can I assist you today?"
+          },
+          "finish_reason": "stop"
+        }
+      ]
+    }
+  }
+}

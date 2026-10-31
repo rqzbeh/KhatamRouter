@@ -17,27 +17,185 @@ import {
   orderModelsByChoice,
 } from "./systemoneRouter.js";
 
-// --- 429 storm cooldown -----------------------------------------------------
-// A combo member whose executor just exhausted its 429 retry budget is quota-
-// blocked upstream for minutes. Remember that for a short window so the NEXT
-// request skips straight to healthy members instead of re-paying this member's
-// full retry budget before failing over again.
+// --- 429 storm cooldown & scoped circuit breaking ---------------------------
+// A combo member whose executor just exhausted its 429 retry budget or hit a 5xx
+// outage can be cooled down within its caller context so subsequent requests
+// skip straight to healthy members.
+// Cross-client isolation: cooldowns are isolated by opt-in opaque scope (e.g.
+// credential / tenant / request context). By default (null scope), no cross-request
+// suppression occurs to avoid cross-tenant quota denial-of-service.
 const COMBO_STORM_COOLDOWN_MS = 90 * 1000;
-const comboModelCooldownUntil = new Map(); // `${comboName}::${modelStr}` -> epoch ms
+const TRANSIENT_5XX_COOLDOWN_MS = 45 * 1000;
+const MAX_COOLDOWN_ENTRIES = 1000;
+const MAX_DATE_EPOCH = 8640000000000000;
+const comboModelCooldownMap = new Map(); // `${scope}::${comboName}::${modelStr}` -> entry
 
-function isComboModelCooling(comboName, modelStr) {
-  const key = `${comboName || "*"}::${modelStr}`;
-  const until = comboModelCooldownUntil.get(key);
-  if (!until) return false;
-  if (until <= Date.now()) {
-    comboModelCooldownUntil.delete(key);
-    return false;
-  }
-  return true;
+function isValidDateEpoch(epochMs) {
+  return typeof epochMs === "number" && Number.isFinite(epochMs) && Math.abs(epochMs) <= MAX_DATE_EPOCH;
 }
 
-function markComboModelCooldown(comboName, modelStr, ms = COMBO_STORM_COOLDOWN_MS) {
-  comboModelCooldownUntil.set(`${comboName || "*"}::${modelStr}`, Date.now() + ms);
+function toSafeIsoString(epochMs) {
+  if (!isValidDateEpoch(epochMs)) return null;
+  try {
+    return new Date(epochMs).toISOString();
+  } catch {
+    return null;
+  }
+}
+
+function isValidHttpRetryAfterGrammar(val) {
+  if (val === null || val === undefined) return false;
+  const str = String(val).trim();
+  if (!str) return false;
+  if (/^\d+$/.test(str)) return true;
+  // RFC 9110 HTTP-date grammar check
+  if (/^[a-z]{3},/i.test(str) || /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(str)) {
+    const parsed = Date.parse(str);
+    return !Number.isNaN(parsed) && Number.isFinite(parsed) && Math.abs(parsed) <= MAX_DATE_EPOCH;
+  }
+  return false;
+}
+
+export function parseRetryAfter(value) {
+  if (value === null || value === undefined) return null;
+  const str = String(value).trim();
+  if (!str) return null;
+
+  if (/^\d+$/.test(str)) {
+    const sec = parseInt(str, 10);
+    if (!Number.isFinite(sec) || sec < 0) return null;
+    const now = Date.now();
+    const durationMs = sec * 1000;
+    const untilEpochMs = now + durationMs;
+    const isRepresentable = isValidDateEpoch(untilEpochMs);
+    return {
+      raw: str,
+      seconds: sec,
+      durationMs: Number.isFinite(durationMs) ? durationMs : null,
+      untilEpochMs: isRepresentable ? untilEpochMs : null,
+      iso: isRepresentable ? toSafeIsoString(untilEpochMs) : null,
+    };
+  }
+
+  if (isValidHttpRetryAfterGrammar(str)) {
+    const parsedEpoch = Date.parse(str);
+    if (!Number.isNaN(parsedEpoch) && Number.isFinite(parsedEpoch) && Math.abs(parsedEpoch) <= MAX_DATE_EPOCH) {
+      const now = Date.now();
+      const durationMs = Math.max(0, parsedEpoch - now);
+      const sec = Math.ceil(durationMs / 1000);
+      const untilEpochMs = Math.max(now, parsedEpoch);
+      return {
+        raw: str,
+        seconds: sec,
+        durationMs,
+        untilEpochMs,
+        iso: toSafeIsoString(untilEpochMs),
+      };
+    }
+  }
+
+  return null;
+}
+
+export function pruneExpiredCooldowns(now = Date.now()) {
+  for (const [key, entry] of comboModelCooldownMap.entries()) {
+    if (!entry || entry.until <= now) {
+      comboModelCooldownMap.delete(key);
+    }
+  }
+}
+
+export function getComboCooldownMapSize() {
+  return comboModelCooldownMap.size;
+}
+
+export function clearComboCooldowns() {
+  comboModelCooldownMap.clear();
+}
+
+export function getCooldownEntry(key, now = Date.now()) {
+  const entry = comboModelCooldownMap.get(key);
+  if (!entry) return null;
+  if (entry.until <= now) {
+    comboModelCooldownMap.delete(key);
+    return null;
+  }
+  return entry;
+}
+
+export function setCooldownEntry(key, entry) {
+  const now = Date.now();
+  if (comboModelCooldownMap.size >= MAX_COOLDOWN_ENTRIES) {
+    pruneExpiredCooldowns(now);
+  }
+  if (comboModelCooldownMap.size >= MAX_COOLDOWN_ENTRIES) {
+    const firstKey = comboModelCooldownMap.keys().next().value;
+    if (firstKey !== undefined) {
+      comboModelCooldownMap.delete(firstKey);
+    }
+  }
+  comboModelCooldownMap.set(key, entry);
+}
+
+export function isComboModelCooling(scopeOrCombo, comboOrModel, maybeModel) {
+  let scope = null;
+  let combo = null;
+  let model = null;
+
+  if (maybeModel !== undefined) {
+    scope = scopeOrCombo;
+    combo = comboOrModel;
+    model = maybeModel;
+  } else {
+    scope = null;
+    combo = scopeOrCombo;
+    model = comboOrModel;
+  }
+
+  if (!scope || !model) return false;
+  const key = `${scope}::${combo || "*"}::${model}`;
+  const entry = getCooldownEntry(key);
+  return entry !== null;
+}
+
+export function markComboModelCooldown(scopeOrCombo, comboOrModel, modelOrStatus, maybeStatusOrMs, maybeMsOrErr, maybeErr) {
+  let scope = null;
+  let combo = null;
+  let model = null;
+  let status = 429;
+  let durationMs = COMBO_STORM_COOLDOWN_MS;
+  let errorText = "";
+
+  if (typeof modelOrStatus === "string") {
+    scope = scopeOrCombo;
+    combo = comboOrModel;
+    model = modelOrStatus;
+    if (typeof maybeStatusOrMs === "number") status = maybeStatusOrMs;
+    if (typeof maybeMsOrErr === "number") durationMs = maybeMsOrErr;
+    if (typeof maybeErr === "string") errorText = maybeErr;
+    else if (typeof maybeMsOrErr === "string") errorText = maybeMsOrErr;
+  } else {
+    scope = null;
+    combo = scopeOrCombo;
+    model = comboOrModel;
+    if (typeof modelOrStatus === "number") durationMs = modelOrStatus;
+  }
+
+  if (!scope || !model) return;
+  const now = Date.now();
+  const safeMs = (typeof durationMs === "number" && Number.isFinite(durationMs) && durationMs > 0)
+    ? durationMs
+    : COMBO_STORM_COOLDOWN_MS;
+  const rawUntil = now + safeMs;
+  const until = (Number.isFinite(rawUntil) && rawUntil <= MAX_DATE_EPOCH) ? rawUntil : MAX_DATE_EPOCH;
+  const key = `${scope}::${combo || "*"}::${model}`;
+  setCooldownEntry(key, {
+    until,
+    status,
+    errorText: String(errorText || ""),
+    durationMs: safeMs,
+    iso: toSafeIsoString(until),
+  });
 }
 
 // Peek a 2xx combo response for real content. Returns null for non-SSE responses (leave
@@ -445,7 +603,17 @@ export async function handleComboChat({
   sessionSticky = true,
   confidenceThreshold = 0.8,
   resolveSmartChoice = null,
+  cooldownScope = null,
+  signal = null,
 }) {
+  const clientSignal = signal || body?.signal || null;
+  if (clientSignal?.aborted) {
+    return new Response(
+      JSON.stringify({ error: { message: "Request aborted by client" } }),
+      { status: 499, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
   let rotatedModels = models;
   let activeStickyModel = null;
 
@@ -580,9 +748,10 @@ export async function handleComboChat({
   let lastError = null;
   let earliestRetryAfter = null;
   let lastStatus = null;
+  let lastRawRetryAfter = null;
   let requestScopedResult = null;
 
-  const coolingCount = rotatedModels.filter((m) => isComboModelCooling(comboName, m)).length;
+  const coolingCount = rotatedModels.filter((m) => isComboModelCooling(cooldownScope, comboName, m)).length;
   const skipCooling = coolingCount > 0;
 
   const COMBO_RIDE_THROUGH_MS = 45 * 1000;
@@ -590,9 +759,17 @@ export async function handleComboChat({
   let comboTried = 0;
 
   for (let i = 0; i < rotatedModels.length; i++) {
+    if (clientSignal?.aborted) {
+      log.warn("COMBO", "Client aborted request during combo fallback");
+      return new Response(
+        JSON.stringify({ error: { message: "Request aborted by client" } }),
+        { status: 499, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
     const modelStr = rotatedModels[i];
-    if (skipCooling && isComboModelCooling(comboName, modelStr)) {
-      log.info("COMBO", `Skipping ${modelStr} (429 storm cooldown)`);
+    if (skipCooling && isComboModelCooling(cooldownScope, comboName, modelStr)) {
+      log.info("COMBO", `Skipping ${modelStr} (cooldown)`);
       continue;
     }
     if (comboTried > 0 && Date.now() - comboT0 > COMBO_RIDE_THROUGH_MS) {
@@ -639,6 +816,7 @@ export async function handleComboChat({
                   if (comboStrategy === "smart" && sessionId && modelStr === activeStickyModel) {
                     await clearStickyComboSession(comboName, sessionId);
                   }
+                  result.body?.cancel?.().catch(() => {});
                   lastError = "Zero usable content";
                   lastStatus = 200;
                   continue;
@@ -686,18 +864,55 @@ export async function handleComboChat({
 
       // Extract error info from response
       let errorText = result.statusText || "";
-      let retryAfter = null;
+      let retryAfterParsed = null;
+      let errorBody = null;
       try {
-        const errorBody = await result.clone().json();
+        errorBody = await result.clone().json();
         errorText = errorBody?.error?.message || errorBody?.error || errorBody?.message || errorText;
-        retryAfter = errorBody?.retryAfter || null;
       } catch {
         // Ignore JSON parse errors
       }
 
-      // Track earliest retryAfter across all combo models
-      if (retryAfter && (!earliestRetryAfter || new Date(retryAfter) < new Date(earliestRetryAfter))) {
-        earliestRetryAfter = retryAfter;
+      let rawRetryAfter = null;
+      const retryHeader = result.headers?.get?.("retry-after") || result.headers?.get?.("Retry-After");
+      if (retryHeader) {
+        const trimmed = String(retryHeader).trim();
+        if (/^\d+$/.test(trimmed)) {
+          rawRetryAfter = trimmed;
+          retryAfterParsed = parseRetryAfter(trimmed);
+        } else if (isValidHttpRetryAfterGrammar(trimmed)) {
+          retryAfterParsed = parseRetryAfter(trimmed);
+          if (retryAfterParsed) rawRetryAfter = trimmed;
+        }
+      }
+      if (!retryAfterParsed && errorBody) {
+        const bodyRetry = errorBody?.retryAfter || errorBody?.retry_after || errorBody?.error?.retryAfter || errorBody?.error?.retry_after;
+        if (bodyRetry) {
+          retryAfterParsed = parseRetryAfter(bodyRetry);
+          if (retryAfterParsed && !rawRetryAfter) rawRetryAfter = String(bodyRetry).trim();
+        } else if (errorBody?.resetsAtMs !== undefined && errorBody?.resetsAtMs !== null) {
+          const rawResets = Number(errorBody.resetsAtMs);
+          if (Number.isFinite(rawResets) && rawResets > 0) {
+            const now = Date.now();
+            const durMs = Math.max(0, rawResets - now);
+            const isRepresentable = isValidDateEpoch(rawResets);
+            retryAfterParsed = {
+              raw: String(errorBody.resetsAtMs),
+              seconds: Number.isSafeInteger(Math.ceil(durMs / 1000)) ? Math.ceil(durMs / 1000) : (Number.isFinite(durMs) ? Math.floor(durMs / 1000) : null),
+              durationMs: durMs,
+              untilEpochMs: isRepresentable ? rawResets : null,
+              iso: isRepresentable ? toSafeIsoString(rawResets) : null,
+            };
+            if (!rawRetryAfter && isRepresentable) rawRetryAfter = String(Math.ceil(durMs / 1000));
+          }
+        }
+      }
+
+      if (rawRetryAfter) {
+        lastRawRetryAfter = rawRetryAfter;
+      }
+      if (retryAfterParsed?.iso && (!earliestRetryAfter || new Date(retryAfterParsed.iso) < new Date(earliestRetryAfter))) {
+        earliestRetryAfter = retryAfterParsed.iso;
       }
 
       // Normalize error text to string (Worker-safe)
@@ -719,13 +934,15 @@ export async function handleComboChat({
       // credential is unhealthy. Members run on different providers with
       // different validation, so the next member may well serve it. Advance
       // without a cooldown, and without waiting: there is nothing to recover.
-      // checkFallbackError() reports no account fallback here on purpose (a
-      // request-scoped fault must not evict a healthy account from rotation).
       if (requestScoped) {
         log.warn("COMBO", `Model ${modelStr} rejected the request (${result.status}), trying next`, { status: result.status });
         lastError = errorText || String(result.status);
         if (!lastStatus) lastStatus = result.status;
-        if (!requestScopedResult) requestScopedResult = result;
+        if (!requestScopedResult) {
+          requestScopedResult = result;
+        } else {
+          result.body?.cancel?.().catch(() => {});
+        }
         continue;
       }
 
@@ -735,19 +952,74 @@ export async function handleComboChat({
       if (cooldownMs && cooldownMs > 0 && cooldownMs <= 5000 &&
           (result.status === 503 || result.status === 502 || result.status === 504)) {
         log.info("COMBO", `Model ${modelStr} transient ${result.status}, waiting ${cooldownMs}ms before next`);
-        await new Promise(r => setTimeout(r, cooldownMs));
+        if (clientSignal) {
+          if (clientSignal.aborted) {
+            result.body?.cancel?.().catch(() => {});
+            log.warn("COMBO", "Client aborted request before transient delay");
+            return new Response(
+              JSON.stringify({ error: { message: "Request aborted by client" } }),
+              { status: 499, headers: { "Content-Type": "application/json" } }
+            );
+          }
+
+          let timer = null;
+          let onAbort = null;
+          let abortedDuringWait = false;
+
+          try {
+            await new Promise((resolve) => {
+              onAbort = () => {
+                abortedDuringWait = true;
+                if (timer) {
+                  clearTimeout(timer);
+                  timer = null;
+                }
+                resolve();
+              };
+              timer = setTimeout(() => {
+                timer = null;
+                resolve();
+              }, cooldownMs);
+
+              clientSignal.addEventListener("abort", onAbort, { once: true });
+            });
+          } finally {
+            if (onAbort) {
+              clientSignal.removeEventListener("abort", onAbort);
+            }
+            if (timer) {
+              clearTimeout(timer);
+              timer = null;
+            }
+          }
+
+          if (abortedDuringWait || clientSignal.aborted) {
+            result.body?.cancel?.().catch(() => {});
+            log.warn("COMBO", "Client aborted request during transient delay");
+            return new Response(
+              JSON.stringify({ error: { message: "Request aborted by client" } }),
+              { status: 499, headers: { "Content-Type": "application/json" } }
+            );
+          }
+        } else {
+          await new Promise((r) => setTimeout(r, cooldownMs));
+        }
       }
 
       // Fallback to next model
-      if (result.status === 429) {
-        markComboModelCooldown(comboName, modelStr, COMBO_STORM_COOLDOWN_MS);
-      }
-      if (result.status === 502 || result.status === 503 || result.status === 504) {
-        markComboModelCooldown(comboName, modelStr, 45 * 1000);
+      const cooldownDuration = retryAfterParsed?.durationMs !== undefined
+        ? retryAfterParsed.durationMs
+        : (result.status === 429 ? COMBO_STORM_COOLDOWN_MS : TRANSIENT_5XX_COOLDOWN_MS);
+
+      if (result.status === 429 || result.status === 502 || result.status === 503 || result.status === 504) {
+        markComboModelCooldown(cooldownScope, comboName, modelStr, result.status, cooldownDuration, errorText);
       }
 
+      // Drain/cancel discarded response body
+      result.body?.cancel?.().catch(() => {});
+
       lastError = errorText || String(result.status);
-      if (!lastStatus) lastStatus = result.status;
+      lastStatus = result.status;
       log.warn("COMBO", `Model ${modelStr} failed, trying next`, { status: result.status });
     } catch (error) {
       // Catch unexpected exceptions to ensure fallback continues
@@ -760,18 +1032,51 @@ export async function handleComboChat({
     }
   }
 
-  // Every member skipped as quota-cooling: stay silent and fail fast.
+  // Every member skipped as cooling: stay silent and fail fast.
   if (comboTried === 0 && coolingCount > 0) {
     let earliest = Infinity;
+    let all5xx = true;
+    let maxStatus = 503;
+    let cachedError = "";
+
     for (const m of rotatedModels) {
-      const until = comboModelCooldownUntil.get(`${comboName || "*"}::${m}`);
-      if (until && until < earliest) earliest = until;
+      const entry = getCooldownEntry(`${cooldownScope}::${comboName || "*"}::${m}`);
+      if (entry) {
+        if (entry.until < earliest) earliest = entry.until;
+        if (entry.status < 500 || entry.status >= 600) {
+          all5xx = false;
+        } else {
+          maxStatus = entry.status;
+        }
+        if (entry.errorText && !cachedError) {
+          cachedError = entry.errorText;
+        }
+      }
     }
+
     if (Number.isFinite(earliest)) {
-      const iso = new Date(earliest).toISOString();
-      const human = formatRetryAfter(iso);
-      log.warn("COMBO", `All ${coolingCount} members in quota cooldown; failing fast until ${iso}`);
-      return unavailableResponse(429, lastError || "All combo models in cooldown", iso, human);
+      const iso = toSafeIsoString(earliest);
+      const human = iso ? formatRetryAfter(iso) : "";
+      if (all5xx) {
+        log.warn("COMBO", `All ${coolingCount} members in 5xx outage cooldown; failing fast with ${maxStatus}`);
+        return new Response(
+          JSON.stringify({
+            error: {
+              message: cachedError || "All combo models temporarily unavailable due to upstream outage",
+            },
+          }),
+          {
+            status: maxStatus || 503,
+            headers: {
+              "Content-Type": "application/json",
+              "retry-after": String(Math.max(1, Math.ceil((earliest - Date.now()) / 1000))),
+            },
+          }
+        );
+      }
+
+      log.warn("COMBO", `All ${coolingCount} members in quota cooldown; failing fast until ${iso || earliest}`);
+      return unavailableResponse(429, cachedError || lastError || "All combo models in cooldown", iso || earliest, human);
     }
   }
 
@@ -792,6 +1097,36 @@ export async function handleComboChat({
   const allDisabled = lastError && lastError.toLowerCase().includes("no credentials");
   const status = allDisabled ? 503 : (lastStatus || 503);
   const msg = lastError || "All combo models unavailable";
+
+  if (lastRawRetryAfter) {
+    if (/^\d+$/.test(lastRawRetryAfter)) {
+      const headers = {
+        "Content-Type": "application/json",
+        "retry-after": String(lastRawRetryAfter),
+      };
+      const retryHuman = earliestRetryAfter ? formatRetryAfter(earliestRetryAfter) : "";
+      const displayMsg = retryHuman ? `${msg} (${retryHuman})` : msg;
+      log.warn("COMBO", `All models failed | ${displayMsg}`);
+      return new Response(
+        JSON.stringify({ error: { message: displayMsg } }),
+        { status, headers }
+      );
+    }
+    if (earliestRetryAfter) {
+      const retryHuman = formatRetryAfter(earliestRetryAfter);
+      log.warn("COMBO", `All models failed | ${msg} (${retryHuman})`);
+      return unavailableResponse(status, msg, earliestRetryAfter, retryHuman);
+    }
+    const headers = {
+      "Content-Type": "application/json",
+      "retry-after": String(lastRawRetryAfter),
+    };
+    log.warn("COMBO", `All models failed | ${msg}`);
+    return new Response(
+      JSON.stringify({ error: { message: msg } }),
+      { status, headers }
+    );
+  }
 
   if (earliestRetryAfter) {
     const retryHuman = formatRetryAfter(earliestRetryAfter);
