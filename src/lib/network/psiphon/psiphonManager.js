@@ -78,6 +78,7 @@ export async function terminateProcess(child, sigkillTimeoutMs = 1500) {
 
 export async function __resetForTests() {
   testSpawnFn = null;
+  teardownPromise = null;
   for (const state of poolsState.values()) {
     state.intentionalStop = true;
     if (state.abortController) {
@@ -181,33 +182,90 @@ export function sweepStaleRunDirs() {
 
 sweepStaleRunDirs();
 
+// Teardown all tunnels cleanly awaiting process death before directory cleanup
+let teardownPromise = null;
+export async function teardownAllTunnels(sigkillTimeoutMs = 1500) {
+  if (teardownPromise) return teardownPromise;
+  teardownPromise = (async () => {
+    const promises = [];
+    for (const state of poolsState.values()) {
+      state.intentionalStop = true;
+      if (state.abortController) {
+        state.abortController.abort();
+        state.abortController = null;
+      }
+      const child = state.activeChild;
+      // Keep the child reachable by the synchronous exit hook while graceful
+      // teardown is pending; another shutdown listener may exit first.
+      const dataDir = state.dataDir;
+      state.dataDir = null;
+      const tempConfig = state.tempConfigFile;
+      state.tempConfigFile = null;
+
+      promises.push((async () => {
+        if (child) {
+          await terminateProcess(child, sigkillTimeoutMs);
+          if (state.activeChild === child) state.activeChild = null;
+        }
+        if (tempConfig) {
+          cleanTempConfigFile(tempConfig);
+        }
+        if (dataDir) {
+          try {
+            fs.rmSync(dataDir, { recursive: true, force: true });
+          } catch {}
+        }
+      })());
+    }
+    await Promise.all(promises);
+  })();
+  return teardownPromise;
+}
+
 // Register graceful exit handlers once
 let exitHooksRegistered = false;
 function registerExitHooks() {
   if (exitHooksRegistered) return;
   exitHooksRegistered = true;
 
-  const cleanup = () => {
+  const onProcessExit = () => {
+    // Process is exiting synchronously. No async operations can be awaited here.
     for (const state of poolsState.values()) {
       state.intentionalStop = true;
       if (state.activeChild) {
-        terminateProcess(state.activeChild);
+        const child = state.activeChild;
         state.activeChild = null;
+        if (child.pid && child.exitCode === null && child.signalCode === null) {
+          try {
+            process.kill(child.pid, "SIGKILL");
+          } catch {}
+        }
       }
       if (state.tempConfigFile) {
         cleanTempConfigFile(state.tempConfigFile);
+        state.tempConfigFile = null;
       }
-      if (state.dataDir) {
-        try {
-          fs.rmSync(state.dataDir, { recursive: true, force: true });
-        } catch {}
-      }
+      // Note: Do NOT perform premature rmSync on dataDir here if the child was just sent SIGKILL;
+      // OS needs time to reap the process. sweepStaleRunDirs() cleans it safely on startup/restart.
     }
   };
 
-  process.once("exit", cleanup);
-  process.once("SIGTERM", cleanup);
-  process.once("SIGINT", cleanup);
+  const onSignal = async (sig) => {
+    try {
+      await teardownAllTunnels();
+    } catch {}
+    // If there are other SIGTERM/SIGINT listeners (e.g. custom-server, cluster worker),
+    // do not exit early — allow cluster drain to complete gracefully.
+    // If this process has no other listeners for the signal, exit with standard exit code.
+    const remainingListeners = process.listenerCount(sig);
+    if (remainingListeners === 0) {
+      process.exit(sig === "SIGINT" ? 130 : 143);
+    }
+  };
+
+  process.once("exit", onProcessExit);
+  process.once("SIGTERM", () => onSignal("SIGTERM"));
+  process.once("SIGINT", () => onSignal("SIGINT"));
 }
 
 registerExitHooks();
@@ -230,6 +288,7 @@ const ALLOWED_ENV_VARS = new Set([
   "FAKE_PSIPHON_IGNORE_SIGTERM",
   "FAKE_PSIPHON_FLOOD_STDOUT",
   "FAKE_PSIPHON_CRASH_AFTER_READY",
+  "FAKE_PSIPHON_ORIGIN_PORT",
 ]);
 
 function buildScrubbedEnv() {

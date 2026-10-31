@@ -11,6 +11,8 @@
 // wreq-js is an optional dependency; when absent or failing to build a session,
 // opencodeDirectFetch logs a single warning and fails open to native Bun fetch.
 
+import { scrubProxyCredentials } from "../utils/proxyFetch.js";
+
 // BoringSSL/Chrome-family cipher list the upstream accepts, in the order Bun
 // sends it. Only the list's hash is compared, so this must stay verbatim.
 export const OPENCODE_CIPHER_LIST = [
@@ -34,7 +36,7 @@ export const OPENCODE_CIPHER_LIST = [
 ].join(":");
 
 const MAX_SESSIONS = 16;
-// Map of cacheKey -> { sessionPromise, session, inFlight: 0, closing: false, lastUsed: number }
+// Map of cacheKey -> { sessionPromise, session, inFlight: number, closing: boolean, lastUsed: number }
 const sessionsMap = new Map();
 let fallbackWarnLogged = false;
 
@@ -58,23 +60,33 @@ export function isOpencodeHost(url) {
   }
 }
 
-function getSessionKey(proxy, insecure) {
-  return `${proxy || "direct"}::${insecure ? "insecure" : "secure"}`;
+function getSessionKey(proxy) {
+  return proxy || "direct";
 }
 
 function evictOldestSession() {
   if (sessionsMap.size < MAX_SESSIONS) return;
+  let oldestIdleKey = null;
+  let oldestIdleTime = Infinity;
   let oldestKey = null;
   let oldestTime = Infinity;
+
   for (const [key, entry] of sessionsMap.entries()) {
     if (entry.lastUsed < oldestTime) {
       oldestTime = entry.lastUsed;
       oldestKey = key;
     }
+    if (entry.inFlight === 0 && entry.lastUsed < oldestIdleTime) {
+      oldestIdleTime = entry.lastUsed;
+      oldestIdleKey = key;
+    }
   }
-  if (oldestKey) {
-    const entry = sessionsMap.get(oldestKey);
-    sessionsMap.delete(oldestKey);
+
+  // Prioritize evicting idle sessions over sessions currently in-flight
+  const keyToEvict = oldestIdleKey || oldestKey;
+  if (keyToEvict) {
+    const entry = sessionsMap.get(keyToEvict);
+    sessionsMap.delete(keyToEvict);
     entry.closing = true;
     if (entry.inFlight === 0) {
       entry.sessionPromise?.then((s) => s?.close?.()).catch(() => {});
@@ -82,11 +94,13 @@ function evictOldestSession() {
   }
 }
 
-async function loadSessionEntry({ proxy = null, insecure = false } = {}) {
-  const key = getSessionKey(proxy, insecure);
+function acquireSessionEntry(proxy = null) {
+  const key = getSessionKey(proxy);
   let entry = sessionsMap.get(key);
   if (entry && !entry.closing) {
     entry.lastUsed = Date.now();
+    // Increment inFlight synchronously upon acquisition to prevent premature closing
+    entry.inFlight++;
     return entry;
   }
 
@@ -95,7 +109,7 @@ async function loadSessionEntry({ proxy = null, insecure = false } = {}) {
   entry = {
     sessionPromise: null,
     session: null,
-    inFlight: 0,
+    inFlight: 1, // Marked in-flight synchronously before async session construction
     closing: false,
     lastUsed: Date.now(),
   };
@@ -112,9 +126,7 @@ async function loadSessionEntry({ proxy = null, insecure = false } = {}) {
     if (proxy) {
       config.proxy = proxy;
     }
-    if (insecure) {
-      config.insecure = true;
-    }
+    // Note: Certificate verification is strictly enforced. No insecure: true is accepted.
     const session = await createSession(config);
     entry.session = session;
     return session;
@@ -125,11 +137,6 @@ async function loadSessionEntry({ proxy = null, insecure = false } = {}) {
 
   sessionsMap.set(key, entry);
   return entry;
-}
-
-async function loadSession() {
-  const entry = await loadSessionEntry();
-  return entry.sessionPromise;
 }
 
 /** Drop the cached sessions so subsequent calls build fresh ones. */
@@ -155,6 +162,14 @@ function trackStream(stream, onDone) {
       onDone();
     }
   };
+
+  // Node.js Readable stream tracking
+  if (typeof stream.on === "function") {
+    stream.once("close", finish);
+    stream.once("end", finish);
+    stream.once("error", finish);
+  }
+
   if (typeof stream.cancel === "function") {
     const origCancel = stream.cancel.bind(stream);
     stream.cancel = function(...args) {
@@ -162,11 +177,25 @@ function trackStream(stream, onDone) {
       return origCancel(...args);
     };
   }
+
   if (typeof stream.getReader === "function") {
     const origGetReader = stream.getReader.bind(stream);
     stream.getReader = function(...args) {
       const reader = origGetReader(...args);
       reader.closed?.then(finish, finish);
+      if (reader && typeof reader.read === "function") {
+        const origRead = reader.read.bind(reader);
+        reader.read = async function() {
+          try {
+            const res = await origRead();
+            if (res?.done) finish();
+            return res;
+          } catch (err) {
+            finish();
+            throw err;
+          }
+        };
+      }
       return reader;
     };
   }
@@ -181,8 +210,9 @@ function trackStream(stream, onDone) {
  * ReadableStream, never buffered.
  *
  * Foreign hosts (outside https://opencode.ai or https://*.opencode.ai) are refused.
+ * Certificate validation is strictly enforced; no insecure TLS fallback.
  */
-export async function opencodeTlsFetch(url, init = {}, { signal, timeoutMs, proxy = null, insecure = false } = {}) {
+export async function opencodeTlsFetch(url, init = {}, { signal, timeoutMs, proxy = null } = {}) {
   if (!isOpencodeHost(url)) {
     throw new Error(`opencodeTlsFetch refused: host is not opencode.ai or *.opencode.ai over https (${url})`);
   }
@@ -190,15 +220,21 @@ export async function opencodeTlsFetch(url, init = {}, { signal, timeoutMs, prox
   let entry;
   let session;
   try {
-    entry = await loadSessionEntry({ proxy, insecure });
+    entry = acquireSessionEntry(proxy);
     session = await entry.sessionPromise;
   } catch (error) {
+    if (entry) {
+      entry.inFlight = Math.max(0, entry.inFlight - 1);
+      if (entry.closing && entry.inFlight === 0) {
+        entry.session?.close?.().catch(() => {});
+      }
+    }
+    const scrubbed = scrubProxyCredentials(error instanceof Error ? error.message : "unknown");
     throw new OpencodeTlsUnavailableError(
-      `wreq-js unavailable (${error instanceof Error ? error.message : "unknown"}) — install the optional wreq-js dependency to reach the OpenCode free tier`
+      `wreq-js unavailable (${scrubbed}) — install the optional wreq-js dependency to reach the OpenCode free tier`
     );
   }
 
-  entry.inFlight++;
   let inFlightDecremented = false;
   const decrementInFlight = () => {
     if (!inFlightDecremented) {
@@ -261,13 +297,12 @@ export async function opencodeTlsFetch(url, init = {}, { signal, timeoutMs, prox
  * - When a proxy is provided, routes through the impersonating wreq session with that proxy.
  * - When strictProxy is true, fails closed on native init failure or proxy error.
  * - NEVER falls back to global fetch without proxy.
- * - NEVER enables insecure TLS fallback in production (only explicit test harness insecure config).
+ * - Enforces TLS certificate validation (no insecure option).
  * - Preserves manual redirect, signal, and host allowlist.
  */
 export async function opencodeAdapterFetch(url, options = {}, config = {}) {
   const proxyUrl = config?.proxyUrl ?? null;
   const strictProxy = config?.strictProxy === true;
-  const insecure = config?.insecure === true;
   const signal = options?.signal || config?.signal;
   const timeoutMs = options?.timeoutMs || options?.timeout || config?.timeoutMs || config?.timeout;
 
@@ -281,7 +316,6 @@ export async function opencodeAdapterFetch(url, options = {}, config = {}) {
         signal,
         timeoutMs,
         proxy: proxyUrl,
-        insecure,
       });
     } catch (error) {
       if (strictProxy) {
@@ -331,4 +365,6 @@ export const __test__ = {
   OPENCODE_CIPHER_LIST,
   resetWarnLogged: () => { fallbackWarnLogged = false; },
   sessionsMap,
+  acquireSessionEntry,
+  evictOldestSession,
 };

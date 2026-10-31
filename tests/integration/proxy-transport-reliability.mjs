@@ -1,6 +1,11 @@
 #!/usr/bin/env bun
 import assert from "node:assert/strict";
-import { createTestOriginServer, createTestConnectProxy } from "./fixtures/proxy-reliability/testServer.js";
+import {
+  createEphemeralCA,
+  createTestOriginServer,
+  createUntrustedOriginServer,
+  createTestConnectProxy,
+} from "./fixtures/proxy-reliability/testServer.js";
 import {
   opencodeAdapterFetch,
   opencodeTlsFetch,
@@ -8,24 +13,59 @@ import {
   isOpencodeHost,
   __test__ as tlsTest,
 } from "../../open-sse/services/opencodeTlsClient.js";
-import { proxyAwareFetch } from "../../open-sse/utils/proxyFetch.js";
+import { proxyAwareFetch, scrubProxyCredentials } from "../../open-sse/utils/proxyFetch.js";
 
 async function run() {
   console.log("=== Starting G1: Proxy Transport Reliability Integration Test ===");
 
-  const origin = await createTestOriginServer({ hostname: "opencode.ai" });
+  // Create ephemeral local CA and set SSL_CERT_FILE for native BoringSSL validation
+  const ca = await createEphemeralCA();
+  const origin = await createTestOriginServer({
+    hostname: "opencode.ai",
+    caCert: ca.caCert,
+    caKey: ca.caKey,
+  });
   const proxy = await createTestConnectProxy({ targetPort: origin.port, targetHostname: "opencode.ai" });
 
   try {
     // --------------------------------------------------------------------------
-    // Test 1: Direct Native wreq-js Session through CONNECT Proxy
+    // Test 0: Untrusted Certificate Rejection (Enforce Certificate Validation)
     // --------------------------------------------------------------------------
-    console.log("Testing Step 1: Direct native wreq-js session through CONNECT proxy...");
+    console.log("Testing Step 0: Untrusted certificate rejection (certificate validation enforced)...");
+    const untrustedOrigin = await createUntrustedOriginServer({ hostname: "opencode.ai" });
+    const untrustedProxy = await createTestConnectProxy({
+      targetPort: untrustedOrigin.port,
+      targetHostname: "opencode.ai",
+    });
+
+    let untrustedRejected = false;
+    try {
+      await opencodeAdapterFetch("https://opencode.ai/test", {}, {
+        proxyUrl: untrustedProxy.url,
+        strictProxy: true,
+      });
+    } catch (err) {
+      untrustedRejected = true;
+      assert.ok(
+        err.message.includes("CERTIFICATE_VERIFY_FAILED") ||
+        err.message.includes("certificate") ||
+        err.message.includes("handshake"),
+        `Expected certificate verification failure, got: ${err.message}`
+      );
+    }
+    assert.ok(untrustedRejected, "Untrusted certificate must be rejected with TLS verification error");
+    await untrustedProxy.close();
+    await untrustedOrigin.close();
+    console.log("Step 0 passed: Untrusted certificate was rejected (no insecure:true bypass).");
+
+    // --------------------------------------------------------------------------
+    // Test 1: Direct Native wreq-js Session with Trusted Ephemeral CA
+    // --------------------------------------------------------------------------
+    console.log("Testing Step 1: Direct native wreq-js session through CONNECT proxy with trusted CA...");
     const { createSession } = await import("wreq-js");
     const nativeSession = await createSession({
       proxy: proxy.url,
       emulation: { tlsOptions: { cipherList: tlsTest.OPENCODE_CIPHER_LIST } },
-      insecure: true,
     });
 
     const nativeRes = await nativeSession.fetch("https://opencode.ai/test", { method: "GET" });
@@ -33,11 +73,11 @@ async function run() {
     const nativeJson = await nativeRes.json();
     assert.equal(nativeJson.ok, true, "Response body ok must be true");
     await nativeSession.close();
-    assert.equal(proxy.getConnectCount(), 1, "Proxy CONNECT count must be 1");
-    console.log("Step 1 passed: Native wreq-js successfully traversed CONNECT proxy.");
+    assert.equal(proxy.getConnectCount(), 1, "Proxy CONNECT count must be 1 for test 1");
+    console.log("Step 1 passed: Native wreq-js successfully traversed CONNECT proxy with verified CA.");
 
     // --------------------------------------------------------------------------
-    // Test 2: opencodeAdapterFetch through CONNECT Proxy
+    // Test 2: opencodeAdapterFetch through CONNECT Proxy (No insecure:true)
     // --------------------------------------------------------------------------
     console.log("Testing Step 2: Full opencodeAdapterFetch path through proxy...");
     const connectBefore = proxy.getConnectCount();
@@ -47,7 +87,6 @@ async function run() {
       body: JSON.stringify({ prompt: "hello" }),
     }, {
       proxyUrl: proxy.url,
-      insecure: true,
       strictProxy: true,
     });
 
@@ -55,7 +94,7 @@ async function run() {
     const adapterJson = await adapterRes.json();
     assert.equal(adapterJson.ok, true, "Adapter response must be ok");
     assert.equal(proxy.getConnectCount(), connectBefore + 1, "Proxy CONNECT count must increment by 1");
-    console.log("Step 2 passed: opencodeAdapterFetch routed through CONNECT proxy.");
+    console.log("Step 2 passed: opencodeAdapterFetch routed through CONNECT proxy with valid TLS.");
 
     // --------------------------------------------------------------------------
     // Test 3: Streaming Transfer Isolation through Proxy
@@ -63,7 +102,6 @@ async function run() {
     console.log("Testing Step 3: Streaming transfer through proxy...");
     const streamRes = await opencodeAdapterFetch("https://opencode.ai/stream", {}, {
       proxyUrl: proxy.url,
-      insecure: true,
       strictProxy: true,
     });
     assert.equal(streamRes.status, 200, "Stream status must be 200");
@@ -92,7 +130,6 @@ async function run() {
     try {
       await opencodeAdapterFetch("https://opencode.ai/slow", {}, {
         proxyUrl: proxy.url,
-        insecure: true,
         strictProxy: true,
         signal: abortCtrl.signal,
       });
@@ -114,7 +151,6 @@ async function run() {
       headers: { Authorization: "Bearer secret-token" },
     }, {
       proxyUrl: proxy.url,
-      insecure: true,
       strictProxy: true,
     });
     assert.equal(redirectRes.status, 302, "Redirect status must remain 302 (manual redirect)");
@@ -137,7 +173,6 @@ async function run() {
     try {
       await opencodeAdapterFetch("https://opencode.ai/test", {}, {
         proxyUrl: proxy.url,
-        insecure: true,
         strictProxy: true,
       });
     } catch (err) {
@@ -164,7 +199,6 @@ async function run() {
         body: JSON.stringify({ query: "ping" }),
         adapterFetch: (url, opts, pUrl) => opencodeAdapterFetch(url, opts, {
           proxyUrl: pUrl,
-          insecure: true,
           strictProxy: true,
         }),
       },
@@ -196,6 +230,61 @@ async function run() {
     assert.ok(foreignHostBlocked, "Foreign host must be rejected");
     console.log("Step 8 passed: Foreign host allowlist strictly enforced.");
 
+    // --------------------------------------------------------------------------
+    // Test 9: Concurrency, sessionMap pending creation race & stream ref counting
+    // --------------------------------------------------------------------------
+    console.log("Testing Step 9: Concurrency, sessionMap pending creation race & stream ref counting...");
+    resetOpencodeTlsSession();
+
+    // Launch 10 concurrent requests to the same proxy
+    const concurrentRequests = Array.from({ length: 10 }, (_, i) =>
+      opencodeAdapterFetch("https://opencode.ai/stream", {}, {
+        proxyUrl: proxy.url,
+        strictProxy: true,
+      }).then(async (res) => {
+        assert.equal(res.status, 200);
+        // Consume stream completely
+        const r = res.body.getReader();
+        while (true) {
+          const { done } = await r.read();
+          if (done) break;
+        }
+        return i;
+      })
+    );
+
+    const completed = await Promise.all(concurrentRequests);
+    assert.equal(completed.length, 10, "All 10 concurrent requests must complete successfully");
+
+    // Verify session inFlight is decremented back to 0
+    const sessionEntry = tlsTest.sessionsMap.get(proxy.url);
+    assert.ok(sessionEntry, "Session entry must exist in cache");
+    assert.equal(sessionEntry.inFlight, 0, "inFlight count must be 0 after all streams consumed");
+    console.log("Step 9 passed: Concurrency and stream ref-counting verified without race conditions.");
+
+    // --------------------------------------------------------------------------
+    // Test 10: Error Logs Scrub Proxy Credentials
+    // --------------------------------------------------------------------------
+    console.log("Testing Step 10: Error logs scrub proxy credentials...");
+    const sensitiveProxy = "http://secretUser:superSecretPass@127.0.0.1:59998";
+    let caughtProxyErr = null;
+    try {
+      await opencodeAdapterFetch("https://opencode.ai/test", {}, {
+        proxyUrl: sensitiveProxy,
+        strictProxy: true,
+      });
+    } catch (err) {
+      caughtProxyErr = err;
+    }
+    assert.ok(caughtProxyErr, "Request to dead proxy must throw");
+    const errMsg = caughtProxyErr.message;
+    assert.equal(errMsg.includes("superSecretPass"), false, "Error message MUST NOT contain proxy password");
+    assert.equal(errMsg.includes("secretUser:"), false, "Error message MUST NOT contain proxy username");
+
+    const scrubbedStr = scrubProxyCredentials("Error connecting to http://myuser:mypassword@example.com:8080/path");
+    assert.equal(scrubbedStr, "Error connecting to http://***:***@example.com:8080/path");
+    console.log("Step 10 passed: Proxy credentials strictly scrubbed from error logs and exceptions.");
+
     // Clean up cached sessions
     resetOpencodeTlsSession();
 
@@ -206,6 +295,7 @@ async function run() {
   } finally {
     await proxy.close();
     await origin.close();
+    ca.cleanup();
   }
 }
 

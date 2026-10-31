@@ -126,6 +126,11 @@ const HTTPS_PORT = 443;
 const HTTP_SUCCESS_MIN = 200;
 const HTTP_SUCCESS_MAX = 300;
 
+export function scrubProxyCredentials(str) {
+  if (typeof str !== "string") return str;
+  return str.replace(/(https?:\/\/)([^:\s\/@]+):([^@\s\/]+)@/gi, "$1***:***@");
+}
+
 function normalizeString(value) {
   if (value === undefined || value === null) return "";
   return String(value).trim();
@@ -274,12 +279,6 @@ async function fetchWithTlsFallback(url, options, proxyUrl, proxyOptions = null)
   );
 
   try {
-    // If originalFetch is an explicit test mock (e.g. vi.fn()), allow the test mock to intercept
-    if (originalFetch?._isMockFunction && !options?.forceNativeAdapter) {
-      const dispatcher = proxyUrl ? await getDispatcher(proxyUrl) : undefined;
-      return await originalFetch(url, dispatcher ? { ...options, dispatcher } : options);
-    }
-
     const adapterFetch = options?.adapterFetch
       || (typeof options?.directFetch?.adapterFetch === "function" ? options.directFetch.adapterFetch : null)
       || proxyOptions?.adapterFetch;
@@ -594,10 +593,11 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
       try {
         return await fetchWithTlsFallback(url, options, proxyUrl, proxyOptions);
       } catch (proxyError) {
+        const safeMsg = scrubProxyCredentials(proxyError.message);
         if (proxyOptions?.strictProxy === true) {
-          throw new Error(`[ProxyFetch] Proxy required but failed (strictProxy=true): ${proxyError.message}`);
+          throw new Error(`[ProxyFetch] Proxy required but failed (strictProxy=true): ${safeMsg}`);
         }
-        console.warn(`[ProxyFetch] Proxy failed, falling back to direct bypass: ${proxyError.message}`);
+        console.warn(`[ProxyFetch] Proxy failed, falling back to direct bypass: ${safeMsg}`);
       }
     }
     // Strict mode means "never leave over the direct IP". Fail closed before direct DNS-bypass (#4333).
@@ -623,9 +623,10 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
       if (proxyOptions?.strictProxy === true) return proxied;
       return await replayFreeTierRejectionDirect(url, options, proxyOptions, proxied);
     } catch (proxyError) {
+      const safeMsg = scrubProxyCredentials(proxyError.message);
       // If strictProxy is enabled, fail hard instead of falling back to direct
       if (proxyOptions?.strictProxy === true) {
-        throw new Error(`[ProxyFetch] Proxy required but failed (strictProxy=true): ${proxyError.message}`);
+        throw new Error(`[ProxyFetch] Proxy required but failed (strictProxy=true): ${safeMsg}`);
       }
       const isSpecializedOpencode = isOpenCodeHost(targetUrl) && (
         typeof options?.adapterFetch === "function" ||
@@ -636,7 +637,7 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
         // Specialized OpenCode path: NEVER global fetch without proxy!
         throw proxyError;
       }
-      console.warn(`[ProxyFetch] Proxy failed, falling back to direct: ${proxyError.message}`);
+      console.warn(`[ProxyFetch] Proxy failed, falling back to direct: ${safeMsg}`);
       return fetchWithTlsFallback(url, options, null, proxyOptions);
     }
   }

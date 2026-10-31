@@ -1,11 +1,11 @@
-import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, afterAll } from "vitest";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const FAKE_BIN = path.resolve(__dirname, "../fixtures/fake-psiphon.mjs");
+const FAKE_BIN = path.resolve(__dirname, "../integration/fixtures/proxy-reliability/fakePsiphonConnect.mjs");
 
 // Module mocks for chat.js dependencies
 const mockSettings = {
@@ -74,6 +74,12 @@ const {
 const { handleChat } = await import("../../src/sse/handlers/chat.js");
 const { getProviderCredentials } = await import("../../src/sse/services/auth.js");
 const { getExecutor } = await import("../../open-sse/executors/index.js");
+const {
+  createEphemeralCA,
+  createTestOriginServer,
+  createTestConnectProxy,
+} = await import("../integration/fixtures/proxy-reliability/testServer.js");
+const { resetOpencodeTlsSession } = await import("../../open-sse/services/opencodeTlsClient.js");
 
 function makePostRequest(url, body) {
   return new Request(`http://localhost${url}`, {
@@ -89,9 +95,27 @@ const SUCCESS_SSE =
 describe("Psiphon Integration & Rotation (T3)", () => {
   let tmpDataDir;
   let baseConfigFile;
+  let ca;
+  let originServer;
+  let staticProxy;
+
+  beforeAll(async () => {
+    ca = await createEphemeralCA();
+    originServer = await createTestOriginServer({
+      hostname: "opencode.ai",
+      caCert: ca.caCert,
+      caKey: ca.caKey,
+    });
+    staticProxy = await createTestConnectProxy({
+      targetPort: originServer.port,
+      targetHostname: "opencode.ai",
+    });
+    process.env.FAKE_PSIPHON_ORIGIN_PORT = String(originServer.port);
+  });
 
   beforeEach(() => {
     fetchMock.mockReset();
+    resetOpencodeTlsSession();
     tmpDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "psiphon-test-t3-"));
     baseConfigFile = path.join(tmpDataDir, "client.config.json");
     fs.writeFileSync(
@@ -140,12 +164,13 @@ describe("Psiphon Integration & Rotation (T3)", () => {
       name: "Static Pool",
       type: "http",
       isActive: true,
-      proxyUrl: "http://127.0.0.1:8888",
+      proxyUrl: staticProxy ? staticProxy.url : "http://127.0.0.1:8888",
       strictProxy: false,
     });
   });
 
   afterEach(async () => {
+    resetOpencodeTlsSession();
     await stopAll();
     __resetForTests();
     try {
@@ -153,8 +178,11 @@ describe("Psiphon Integration & Rotation (T3)", () => {
     } catch {}
   });
 
-  afterAll(() => {
+  afterAll(async () => {
     globalThis.fetch = realFetch;
+    if (staticProxy) await staticProxy.close();
+    if (originServer) await originServer.close();
+    if (ca) ca.cleanup();
   });
 
   describe("resolveConnectionProxyConfig for Psiphon", () => {
@@ -254,19 +282,15 @@ describe("Psiphon Integration & Rotation (T3)", () => {
       const initialTunnel = await ensureTunnel(mockPools.get("pool-psiphon-1"));
       const initialGen = initialTunnel.generation;
 
-      fetchMock.mockImplementation(async (url, opts = {}) => {
-        expect(opts.dispatcher).toBeDefined();
+      originServer.setOnRequest((req, res) => {
         upstreamChatCalls++;
         if (upstreamChatCalls === 1) {
-          return new Response(JSON.stringify({ error: { message: "rate limited" } }), {
-            status: 429,
-            headers: { "Content-Type": "application/json" },
-          });
+          res.writeHead(429, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: { message: "rate limited" } }));
+          return;
         }
-        return new Response(SUCCESS_SSE, {
-          status: 200,
-          headers: { "Content-Type": "text/event-stream" },
-        });
+        res.writeHead(200, { "Content-Type": "text/event-stream" });
+        res.end(SUCCESS_SSE);
       });
 
       const req = makePostRequest("/v1/chat/completions", {
@@ -289,19 +313,15 @@ describe("Psiphon Integration & Rotation (T3)", () => {
       const initialTunnel = await ensureTunnel(mockPools.get("pool-psiphon-1"));
       const initialGen = initialTunnel.generation;
 
-      fetchMock.mockImplementation(async (url, opts = {}) => {
-        expect(opts.dispatcher).toBeDefined();
+      originServer.setOnRequest((req, res) => {
         upstreamChatCalls++;
         if (upstreamChatCalls === 1) {
-          return new Response(JSON.stringify({ error: { type: "FreeTierError", message: "Flagged IP" } }), {
-            status: 403,
-            headers: { "Content-Type": "application/json" },
-          });
+          res.writeHead(403, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: { type: "FreeTierError", message: "Flagged IP" } }));
+          return;
         }
-        return new Response(SUCCESS_SSE, {
-          status: 200,
-          headers: { "Content-Type": "text/event-stream" },
-        });
+        res.writeHead(200, { "Content-Type": "text/event-stream" });
+        res.end(SUCCESS_SSE);
       });
 
       const req = makePostRequest("/v1/chat/completions", {
@@ -321,19 +341,15 @@ describe("Psiphon Integration & Rotation (T3)", () => {
       const initialTunnel = await ensureTunnel(mockPools.get("pool-psiphon-1"));
       const initialGen = initialTunnel.generation;
 
-      fetchMock.mockImplementation(async (url, opts = {}) => {
-        expect(opts.dispatcher).toBeDefined();
+      originServer.setOnRequest((req, res) => {
         upstreamChatCalls++;
         if (upstreamChatCalls === 1) {
-          return new Response(JSON.stringify({ error: { message: "Proxy error: connect timeout (ECONNRESET)" } }), {
-            status: 502,
-            headers: { "Content-Type": "application/json" },
-          });
+          res.writeHead(502, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: { message: "Proxy error: connect timeout (ECONNRESET)" } }));
+          return;
         }
-        return new Response(SUCCESS_SSE, {
-          status: 200,
-          headers: { "Content-Type": "text/event-stream" },
-        });
+        res.writeHead(200, { "Content-Type": "text/event-stream" });
+        res.end(SUCCESS_SSE);
       });
 
       const req = makePostRequest("/v1/chat/completions", {
@@ -353,13 +369,10 @@ describe("Psiphon Integration & Rotation (T3)", () => {
       const initialTunnel = await ensureTunnel(mockPools.get("pool-psiphon-1"));
       const initialGen = initialTunnel.generation;
 
-      fetchMock.mockImplementation(async (url, opts = {}) => {
-        expect(opts.dispatcher).toBeDefined();
+      originServer.setOnRequest((req, res) => {
         upstreamChatCalls++;
-        return new Response(JSON.stringify({ error: { message: "Invalid request" } }), {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
-        });
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: { message: "Invalid request" } }));
       });
 
       const req = makePostRequest("/v1/chat/completions", {
@@ -379,13 +392,10 @@ describe("Psiphon Integration & Rotation (T3)", () => {
       const initialTunnel = await ensureTunnel(mockPools.get("pool-psiphon-1"));
       const initialGen = initialTunnel.generation;
 
-      fetchMock.mockImplementation(async (url, opts = {}) => {
-        expect(opts.dispatcher).toBeDefined();
+      originServer.setOnRequest((req, res) => {
         upstreamChatCalls++;
-        return new Response(JSON.stringify({ error: { message: "persistent rate limit" } }), {
-          status: 429,
-          headers: { "Content-Type": "application/json" },
-        });
+        res.writeHead(429, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: { message: "persistent rate limit" } }));
       });
 
       const req = makePostRequest("/v1/chat/completions", {
@@ -405,13 +415,10 @@ describe("Psiphon Integration & Rotation (T3)", () => {
       mockSettings.providerStrategies.opencode.proxyPoolId = "pool-static-1";
       let upstreamChatCalls = 0;
 
-      fetchMock.mockImplementation(async (url, opts = {}) => {
-        expect(opts.dispatcher).toBeDefined();
+      originServer.setOnRequest((req, res) => {
         upstreamChatCalls++;
-        return new Response(JSON.stringify({ error: { message: "static pool rate limit" } }), {
-          status: 429,
-          headers: { "Content-Type": "application/json" },
-        });
+        res.writeHead(429, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: { message: "static pool rate limit" } }));
       });
 
       const req = makePostRequest("/v1/chat/completions", {
@@ -473,6 +480,21 @@ describe("Psiphon Integration & Rotation (T3)", () => {
         return Promise.reject(new Error("DNS probe intercepted for test"));
       };
 
+      const savedEnv = {
+        HTTPS_PROXY: process.env.HTTPS_PROXY,
+        https_proxy: process.env.https_proxy,
+        HTTP_PROXY: process.env.HTTP_PROXY,
+        http_proxy: process.env.http_proxy,
+        ALL_PROXY: process.env.ALL_PROXY,
+        all_proxy: process.env.all_proxy,
+      };
+      delete process.env.HTTPS_PROXY;
+      delete process.env.https_proxy;
+      delete process.env.HTTP_PROXY;
+      delete process.env.http_proxy;
+      delete process.env.ALL_PROXY;
+      delete process.env.all_proxy;
+
       try {
         let caughtErr;
         try {
@@ -502,6 +524,9 @@ describe("Psiphon Integration & Rotation (T3)", () => {
         expect(resolve4Called).toBe(true);
       } finally {
         dns.Resolver.prototype.resolve4 = originalResolve4;
+        for (const [k, v] of Object.entries(savedEnv)) {
+          if (v !== undefined) process.env[k] = v;
+        }
       }
     });
   });

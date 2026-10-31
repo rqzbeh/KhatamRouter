@@ -485,7 +485,6 @@ export class OpenCodeExecutor extends BaseExecutor {
     const credentials = this.prepareRequestCredentials(args);
     const proxyUrl = args.proxyOptions?.url || args.proxyOptions?.connectionProxyUrl || null;
     const strictProxy = args.proxyOptions?.strictProxy === true;
-    const insecure = args.proxyOptions?.insecure === true;
 
     const adapterFetch = (url, options, proxy) => opencodeAdapterFetch(url, {
       method: options.method,
@@ -496,7 +495,6 @@ export class OpenCodeExecutor extends BaseExecutor {
     }, {
       proxyUrl: proxy || proxyUrl,
       strictProxy,
-      insecure,
     });
 
     const directFetch = (url, options) => opencodeDirectFetch(url, {
