@@ -21,6 +21,16 @@
 /** Names required by the upstream free-tier gate. */
 export const OPENCODE_FINGERPRINT_TOOLS = ["read", "shell"];
 
+// A second, purely textual gate on the same route: a declared tool name
+// containing "terminal" (case-insensitive substring) is answered 429
+// FreeUsageLimitError regardless of quota, IP, session or payload size, while
+// the same body with only that name changed answers normally
+// (decolua/9router#5319). Only `tools[]` is inspected — history and system
+// prompt are not — so the declaration travels under an alias and the caller's
+// name is restored on the way back, like a fingerprint-name collision.
+export const GATED_TOOL_NAME_RE = /terminal/i;
+const GATED_TOOL_ALIAS = "run_command";
+
 // Verbatim sentence chains from the OpenCode v2 CLI tool builders
 // (tool/plugin/read.ts, tool/plugin/shell.ts). Upstream compares description and
 // parameters, so do not reword or reformat these.
@@ -181,7 +191,17 @@ export function concealFingerprintToolNames(tools) {
       continue;
     }
 
-    const key = fingerprintToolKey(toolNameOf(tool));
+    const name = toolNameOf(tool);
+    if (GATED_TOOL_NAME_RE.test(name)) {
+      let alias = GATED_TOOL_ALIAS;
+      for (let i = 2; taken.has(alias); i++) alias = `${GATED_TOOL_ALIAS}${i}`;
+      taken.add(alias);
+      map.set(alias, name);
+      out.push(withToolName(tool, alias));
+      continue;
+    }
+
+    const key = fingerprintToolKey(name);
     if (!key) {
       out.push(tool);
       continue;
@@ -276,14 +296,26 @@ export function aliasHistoryToolCalls(body, map) {
 
   if (Array.isArray(body.messages)) {
     body.messages = body.messages.map((msg) => {
-      if (!Array.isArray(msg?.tool_calls)) return msg;
-      return {
-        ...msg,
-        tool_calls: msg.tool_calls.map((call) =>
-          aliases.has(call?.function?.name)
-            ? { ...call, function: { ...call.function, name: aliases.get(call.function.name) } }
-            : call),
-      };
+      let updated = msg;
+      if (Array.isArray(msg?.tool_calls)) {
+        updated = {
+          ...updated,
+          tool_calls: msg.tool_calls.map((call) =>
+            aliases.has(call?.function?.name)
+              ? { ...call, function: { ...call.function, name: aliases.get(call.function.name) } }
+              : call),
+        };
+      }
+      if (Array.isArray(msg?.content)) {
+        updated = {
+          ...updated,
+          content: msg.content.map((block) =>
+            block?.type === "tool_use" && aliases.has(block.name)
+              ? { ...block, name: aliases.get(block.name) }
+              : block),
+        };
+      }
+      return updated;
     });
   }
 }

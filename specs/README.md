@@ -19,3 +19,4 @@ This directory contains Spec-Kit specifications, implementation plans, and tasks
 | [012-opencode-wreq-bun](012-opencode-wreq-bun/) | OpenCode Free TLS Client (wreq-js) under Bun | Merged (PR #78) | `port/opencode-bun-native` |
 | [013-upstream-0-5-112](013-upstream-0-5-112/) | Wave 13 — Upstream v0.5.112 Port (14 Commits, Core Routing, MiniMax Named-Pipe Lease Broker, DeepSeek PoW Boundary) | Merged (PR #119) | `spec/013-upstream-0-5-112` |
 | [014-psiphon-proxy-pool](014-psiphon-proxy-pool/) | Wave 14 — Psiphon rotating proxy pool for OpenCode Free (best-ping country, rotate on 429/FreeTierError) | Merged (PR #117) | `spec/014-psiphon-proxy-pool` |
+| [016-opencode-interoperability](016-opencode-interoperability/) | Wave 16 — OpenCode Interoperability & Transport Polish (terminal tool aliasing, combo storm cooldowns, keep-alive tuning) | In progress | `feat/opencode-interoperability-ports` |

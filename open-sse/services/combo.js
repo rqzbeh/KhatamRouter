@@ -17,6 +17,29 @@ import {
   orderModelsByChoice,
 } from "./systemoneRouter.js";
 
+// --- 429 storm cooldown -----------------------------------------------------
+// A combo member whose executor just exhausted its 429 retry budget is quota-
+// blocked upstream for minutes. Remember that for a short window so the NEXT
+// request skips straight to healthy members instead of re-paying this member's
+// full retry budget before failing over again.
+const COMBO_STORM_COOLDOWN_MS = 90 * 1000;
+const comboModelCooldownUntil = new Map(); // `${comboName}::${modelStr}` -> epoch ms
+
+function isComboModelCooling(comboName, modelStr) {
+  const key = `${comboName || "*"}::${modelStr}`;
+  const until = comboModelCooldownUntil.get(key);
+  if (!until) return false;
+  if (until <= Date.now()) {
+    comboModelCooldownUntil.delete(key);
+    return false;
+  }
+  return true;
+}
+
+function markComboModelCooldown(comboName, modelStr, ms = COMBO_STORM_COOLDOWN_MS) {
+  comboModelCooldownUntil.set(`${comboName || "*"}::${modelStr}`, Date.now() + ms);
+}
+
 // Peek a 2xx combo response for real content. Returns null for non-SSE responses (leave
 // them untouched). For SSE, returns { outcome: "content"|"empty", finishReason, response }
 // where `response` is a faithful replay of the original stream (head buffer + live reader).
@@ -559,8 +582,24 @@ export async function handleComboChat({
   let lastStatus = null;
   let requestScopedResult = null;
 
+  const coolingCount = rotatedModels.filter((m) => isComboModelCooling(comboName, m)).length;
+  const skipCooling = coolingCount > 0;
+
+  const COMBO_RIDE_THROUGH_MS = 45 * 1000;
+  const comboT0 = Date.now();
+  let comboTried = 0;
+
   for (let i = 0; i < rotatedModels.length; i++) {
     const modelStr = rotatedModels[i];
+    if (skipCooling && isComboModelCooling(comboName, modelStr)) {
+      log.info("COMBO", `Skipping ${modelStr} (429 storm cooldown)`);
+      continue;
+    }
+    if (comboTried > 0 && Date.now() - comboT0 > COMBO_RIDE_THROUGH_MS) {
+      log.warn("COMBO", `Ride-through budget ${COMBO_RIDE_THROUGH_MS / 1000}s exhausted after ${comboTried} member(s); returning last explicit error`);
+      break;
+    }
+    comboTried++;
     log.info("COMBO", `Trying model ${i + 1}/${rotatedModels.length}: ${modelStr}`);
 
     try {
@@ -700,6 +739,13 @@ export async function handleComboChat({
       }
 
       // Fallback to next model
+      if (result.status === 429) {
+        markComboModelCooldown(comboName, modelStr, COMBO_STORM_COOLDOWN_MS);
+      }
+      if (result.status === 502 || result.status === 503 || result.status === 504) {
+        markComboModelCooldown(comboName, modelStr, 45 * 1000);
+      }
+
       lastError = errorText || String(result.status);
       if (!lastStatus) lastStatus = result.status;
       log.warn("COMBO", `Model ${modelStr} failed, trying next`, { status: result.status });
@@ -711,6 +757,21 @@ export async function handleComboChat({
       lastError = error.message || String(error);
       if (!lastStatus) lastStatus = 500;
       log.warn("COMBO", `Model ${modelStr} threw error, trying next`, { error: lastError });
+    }
+  }
+
+  // Every member skipped as quota-cooling: stay silent and fail fast.
+  if (comboTried === 0 && coolingCount > 0) {
+    let earliest = Infinity;
+    for (const m of rotatedModels) {
+      const until = comboModelCooldownUntil.get(`${comboName || "*"}::${m}`);
+      if (until && until < earliest) earliest = until;
+    }
+    if (Number.isFinite(earliest)) {
+      const iso = new Date(earliest).toISOString();
+      const human = formatRetryAfter(iso);
+      log.warn("COMBO", `All ${coolingCount} members in quota cooldown; failing fast until ${iso}`);
+      return unavailableResponse(429, lastError || "All combo models in cooldown", iso, human);
     }
   }
 
