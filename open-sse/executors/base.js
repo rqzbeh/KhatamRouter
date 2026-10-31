@@ -180,6 +180,9 @@ export class BaseExecutor {
         lastError = error;
         const isConnectTimeout = connectCtrl.signal.aborted && error.name === "AbortError";
         dbg("FETCH", `${this.provider.toUpperCase()} ✖ ${error.name}: ${error.message}${isConnectTimeout ? " (connect timeout)" : ""}`);
+        // Client is already gone (agent timeout / cancel): retrying would only
+        // burn budget against nobody and spam the log. Propagate immediately.
+        if (signal?.aborted) throw error;
         // Connect timeout is internal — convert to retryable network error, don't propagate AbortError
         if (error.name === "AbortError" && !isConnectTimeout) throw error;
 

@@ -49,6 +49,10 @@ export default {
     { id: "muse-spark-1.3-contributor-free", name: "Muse Spark 1.3 Contributor Free", targetFormat: "openai-responses" },
     { id: "union-alpha", name: "Union Alpha Free", targetFormat: "claude" },
     { id: "jev-1.13-free", name: "Jev 1.13 Free", kind: "systemone" },
+    { id: "gpt-4o-mini-free", name: "GPT-4o Mini Free", targetFormat: "openai" },
+    { id: "claude-3-haiku-free", name: "Claude 3 Haiku Free", targetFormat: "claude" },
+    { id: "llama-3.1-8b-free", name: "Llama 3.1 8B Instruct Free", targetFormat: "openai" },
+    { id: "mixtral-8x7b-free", name: "Mixtral 8x7B Instruct Free", targetFormat: "openai" },
   ],
   serviceKinds: ["llm", "systemone"],
   systemoneConfig: {

@@ -263,6 +263,12 @@ http.createServer = (...args) => {
     return handler(req, res);
   };
   const server = origCreate(...rest, wrapped);
+  // Keep-alive timeouts: Node/Bun defaults (keepAliveTimeout=5s) close idle
+  // pooled client connections aggressively; clients racing onto those dead
+  // sockets get instant ECONNRESET -> LiteLLM 'Connection error'. 72s keeps
+  // connections usable across normal idle gaps. headersTimeout must exceed it.
+  server.keepAliveTimeout = 72000;
+  server.headersTimeout = 76000;
   // Pre-listen EADDRINUSE: exit 1 with a stable message. Any other error keeps the default
   // uncaught-throw behaviour when nothing else listens for it.
   server.prependListener("error", (err) => {
