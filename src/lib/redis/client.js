@@ -123,6 +123,30 @@ export function isRedisAvailable() {
   }
 }
 
+/**
+ * True only when the command/publisher Redis client exists and is in 'ready' status.
+ * Publishing readiness MUST depend strictly on publisher client.status === "ready"
+ * rather than either publisher or subscriber. Never throws.
+ */
+export function isRedisPublisherReady() {
+  try {
+    if (!isRedisConfigured()) return false;
+    return Boolean(client && client.status === "ready");
+  } catch {
+    return false;
+  }
+}
+
+/** True only when the subscriber Redis client exists and is in 'ready' status. Never throws. */
+export function isRedisSubscriberReady() {
+  try {
+    if (!isRedisConfigured()) return false;
+    return Boolean(subscriber && subscriber.status === "ready");
+  } catch {
+    return false;
+  }
+}
+
 async function closeInstance(instance) {
   if (!instance) return;
   try {

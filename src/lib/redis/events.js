@@ -11,12 +11,22 @@
  */
 
 import { EventEmitter } from "node:events";
-import {
-  getRedisClient,
-  getRedisSubscriber,
-  isRedisConfigured,
-  isRedisAvailable,
-} from "./client.js";
+import * as redisClient from "./client.js";
+
+const getRedisClient = () => redisClient.getRedisClient?.();
+const getRedisSubscriber = () => redisClient.getRedisSubscriber?.();
+const isRedisConfigured = () => redisClient.isRedisConfigured?.() ?? false;
+const isRedisAvailable = () => redisClient.isRedisAvailable?.() ?? false;
+const isRedisPublisherReady = () => {
+  try {
+    if (typeof redisClient.isRedisPublisherReady === "function") {
+      return redisClient.isRedisPublisherReady();
+    }
+  } catch {
+    // Fall back to isRedisAvailable when mocked without isRedisPublisherReady
+  }
+  return isRedisAvailable();
+};
 
 /** Canonical channel names — already fully qualified under the khatam: namespace. */
 export const KHATAM_EVENTS = Object.freeze({
@@ -46,6 +56,87 @@ function warnPublish(message) {
 const IPC_RELOAD_SCOPES = Object.freeze(["aliases", "combos", "nodes", "settings", "all"]);
 const IPC_LISTENER_KEY = Symbol.for("khatam.events.ipcListener");
 let applyingPrimaryMessage = false;
+
+// Bounded startup and reconnect coalescing for CONFIG_RELOAD invalidations.
+const pendingReloads = new Map();
+const MAX_PENDING_RELOADS = 20;
+
+function queueConfigReload(payload) {
+  const scope = (payload && typeof payload === "object" && typeof payload.scope === "string")
+    ? payload.scope
+    : null;
+
+  if (scope === "all" || pendingReloads.has("all")) {
+    pendingReloads.clear();
+    pendingReloads.set("all", payload || { scope: "all", timestamp: Date.now() });
+    return;
+  }
+
+  const key = scope || "__default__";
+  pendingReloads.set(key, payload ?? null);
+
+  if (pendingReloads.size >= MAX_PENDING_RELOADS) {
+    pendingReloads.clear();
+    pendingReloads.set("all", { scope: "all", timestamp: Date.now() });
+  }
+}
+
+const clientHooked = new WeakSet();
+
+async function publishCoalescedWithRetry(client, payload, maxRetries = 4) {
+  const channel = KHATAM_EVENTS.CONFIG_RELOAD;
+  const raw = JSON.stringify({
+    source: INSTANCE_ID,
+    payload: payload ?? null,
+  });
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (!client || client.status !== "ready") {
+      queueConfigReload(payload);
+      return;
+    }
+    try {
+      const subscribers = await client.publish(channel, raw);
+      if (subscribers > 0 || attempt === maxRetries) {
+        return;
+      }
+      // If 0 subscribers reached, remote replicas might still be reconnecting.
+      // Wait briefly (100ms, 250ms, 500ms, 750ms) and retry.
+      await new Promise((resolve) => setTimeout(resolve, Math.min(100 * (attempt + 1) ** 1.5, 750)));
+    } catch (err) {
+      warnPublish(`publish coalesced config_reload failed: ${err?.message ?? err}`);
+      queueConfigReload(payload);
+      return;
+    }
+  }
+}
+
+function flushPendingReloads(client) {
+  if (pendingReloads.size === 0) return;
+  if (!client || client.status !== "ready") return;
+
+  const entries = Array.from(pendingReloads.entries());
+  pendingReloads.clear();
+
+  for (const [, payload] of entries) {
+    publishCoalescedWithRetry(client, payload).catch((err) => {
+      warnPublish(`publish coalesced config_reload unhandled: ${err?.message ?? err}`);
+    });
+  }
+}
+
+function ensurePublisherReadyHook(client) {
+  if (!client || typeof client.on !== "function" || clientHooked.has(client)) return;
+  clientHooked.add(client);
+  client.on("ready", () => {
+    flushPendingReloads(client);
+  });
+}
+
+/** Clear pending coalesced events (diagnostics / tests). */
+export function clearPendingKhatamEvents() {
+  pendingReloads.clear();
+}
 
 /** The supervisor sets KHATAM_WORKER_ROLE on every worker and provides an IPC channel. */
 function isIpcWorker() {
@@ -115,12 +206,15 @@ function subscribeOnRedis(channel) {
   const sub = getRedisSubscriber();
   if (!sub) return;
 
-  redisSubscriptions.set(channel, { status: "pending" });
   ensureMessageHook(sub);
 
   const doSubscribe = () => {
+    if (sub.status !== "ready") return;
     sub.subscribe(channel)
-      .then(() => { redisSubscriptions.set(channel, { status: "ready" }); })
+      .then(() => {
+        const current = redisSubscriptions.get(channel);
+        if (current) current.status = "ready";
+      })
       .catch(() => {
         // Fail open: drop the pending attempt so a later subscribe can retry;
         // local delivery is unaffected.
@@ -128,17 +222,24 @@ function subscribeOnRedis(channel) {
       });
   };
 
-  if (sub.status === "ready") doSubscribe();
-  else sub.once("ready", doSubscribe);
+  redisSubscriptions.set(channel, { status: "pending", onReady: doSubscribe });
+
+  if (sub.status === "ready") {
+    doSubscribe();
+  }
+  if (typeof sub.on === "function") {
+    sub.on("ready", doSubscribe);
+  }
 }
 
 function unsubscribeOnRedis(channel) {
   const sub = getRedisSubscriber();
-  if (!sub) {
-    redisSubscriptions.delete(channel);
-    return;
-  }
+  const state = redisSubscriptions.get(channel);
   redisSubscriptions.delete(channel);
+  if (!sub) return;
+  if (state?.onReady && typeof sub.off === "function") {
+    sub.off("ready", state.onReady);
+  }
   if (sub.status !== "ready") return;
   sub.unsubscribe(channel).catch(() => {});
 }
@@ -163,7 +264,26 @@ export function publishKhatamEvent(channel, payload) {
     return false;
   }
   const client = getRedisClient();
-  if (!client || !isRedisAvailable()) return false;
+  if (client) {
+    ensurePublisherReadyHook(client);
+  }
+
+  // Publishing readiness must depend strictly on publisher client.status === "ready"
+  // rather than either publisher/subscriber, preventing "Stream isn't writeable"
+  // errors when enableOfflineQueue is false.
+  const isReady = typeof isRedisPublisherReady === "function"
+    ? isRedisPublisherReady()
+    : Boolean(client && client.status === "ready");
+
+  if (!isReady) {
+    if (channel === KHATAM_EVENTS.CONFIG_RELOAD) {
+      queueConfigReload(payload);
+    }
+    return false;
+  }
+
+  // Flush any previously coalesced invalidations first
+  flushPendingReloads(client);
 
   try {
     const raw = JSON.stringify({ source: INSTANCE_ID, payload: payload ?? null });
@@ -171,11 +291,17 @@ export function publishKhatamEvent(channel, payload) {
     if (published && typeof published.catch === "function") {
       published.catch((error) => {
         warnPublish(`publish to ${channel} failed: ${error?.message ?? error}`);
+        if (channel === KHATAM_EVENTS.CONFIG_RELOAD) {
+          queueConfigReload(payload);
+        }
       });
     }
     return true;
   } catch (error) {
     warnPublish(`publish to ${channel} failed: ${error?.message ?? error}`);
+    if (channel === KHATAM_EVENTS.CONFIG_RELOAD) {
+      queueConfigReload(payload);
+    }
     return false;
   }
 }

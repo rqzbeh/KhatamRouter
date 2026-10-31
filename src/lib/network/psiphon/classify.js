@@ -6,9 +6,11 @@
  * - 429 (rate-limited / quota)
  * - 403 containing "FreeTierError" or "FreeUsageLimit"
  * - 502 / 503 caused by transport/proxy failure (connect timeout, ECONNRESET, ETIMEDOUT, ECONNREFUSED, Proxy)
+ * - Raw network exceptions without HTTP status (ECONNRESET, ETIMEDOUT, connect timeout, etc.)
  *
- * Negative cases (must return false):
- * - 400, 401, 404, other 403, success (status < 400), non-transport 502/503.
+ * Non-rotation triggers (must return false):
+ * - Client aborts (AbortError without connect timeout)
+ * - 400, 401, 404, success (status < 400), non-transport 502/503.
  *
  * @param {object} params
  * @param {number} [params.status]
@@ -44,44 +46,46 @@ function extractErrorText(error, body) {
   return parts.join(" ");
 }
 
+function isTransportError(errorText) {
+  const transportMarkers = [
+    "connect timeout",
+    "ECONNRESET",
+    "ETIMEDOUT",
+    "ECONNREFUSED",
+    "Proxy",
+    "proxy",
+    "UND_ERR_CONNECT_TIMEOUT",
+    "fetch connect timeout",
+  ];
+  return transportMarkers.some((marker) => errorText.includes(marker));
+}
+
 export function shouldRotateOn({ status, error, body } = {}) {
   const statusCode = typeof status === "number" ? status : parseInt(status, 10);
 
+  // 429 rate-limited / quota burn signal warrants rotation
   if (statusCode === 429) {
     return true;
   }
 
   const errorText = extractErrorText(error, body);
 
+  // Client aborts must NOT trigger rotation or retry
+  if (error && typeof error === "object" && error.name === "AbortError" && !errorText.includes("connect timeout")) {
+    return false;
+  }
+
+  // 403 FreeTierError / FreeUsageLimit: flagged IP
   if (statusCode === 403) {
     return errorText.includes("FreeTierError") || errorText.includes("FreeUsageLimit");
   }
 
   if (statusCode === 502 || statusCode === 503) {
-    const transportMarkers = [
-      "connect timeout",
-      "ECONNRESET",
-      "ETIMEDOUT",
-      "ECONNREFUSED",
-      "Proxy",
-      "proxy",
-      "UND_ERR_CONNECT_TIMEOUT",
-      "fetch connect timeout",
-    ];
-    return transportMarkers.some((marker) => errorText.includes(marker));
+    return isTransportError(errorText);
   }
 
-  // Network transport failure without status (e.g. fetch exception thrown)
-  if (!statusCode && errorText) {
-    const transportMarkers = [
-      "connect timeout",
-      "ECONNRESET",
-      "ETIMEDOUT",
-      "ECONNREFUSED",
-      "Proxy",
-      "UND_ERR_CONNECT_TIMEOUT",
-    ];
-    return transportMarkers.some((marker) => errorText.includes(marker));
+  if (statusCode === undefined || statusCode === null || Number.isNaN(statusCode)) {
+    return isTransportError(errorText);
   }
 
   return false;

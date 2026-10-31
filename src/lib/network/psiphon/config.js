@@ -141,7 +141,8 @@ export function createTempConfigFile({ baseConfigFile, dataRootDir, egressRegion
   const merged = {
     ...baseContent,
     DataRootDirectory: dataRootDir,
-    ListenInterface: process.platform === "win32" ? "any" : "lo",
+    // Bind strictly to loopback: "lo" on POSIX, "127.0.0.1" on Windows (never "any" which would expose an unauthenticated open proxy)
+    ListenInterface: process.platform === "win32" ? "127.0.0.1" : "lo",
     LocalHttpProxyPort: 0,
     DisableLocalSocksProxy: true,
     EmitDiagnosticNotices: true,
