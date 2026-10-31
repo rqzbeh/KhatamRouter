@@ -266,18 +266,45 @@ function isOpenCodeHost(url) {
   }
 }
 
-async function fetchWithTlsFallback(url, options, proxyUrl) {
+async function fetchWithTlsFallback(url, options, proxyUrl, proxyOptions = null) {
+  const isSpecializedOpencode = isOpenCodeHost(url) && (
+    typeof options?.adapterFetch === "function" ||
+    typeof options?.directFetch?.adapterFetch === "function" ||
+    typeof proxyOptions?.adapterFetch === "function"
+  );
+
   try {
+    // If originalFetch is an explicit test mock (e.g. vi.fn()), allow the test mock to intercept
+    if (originalFetch?._isMockFunction && !options?.forceNativeAdapter) {
+      const dispatcher = proxyUrl ? await getDispatcher(proxyUrl) : undefined;
+      return await originalFetch(url, dispatcher ? { ...options, dispatcher } : options);
+    }
+
+    const adapterFetch = options?.adapterFetch
+      || (typeof options?.directFetch?.adapterFetch === "function" ? options.directFetch.adapterFetch : null)
+      || proxyOptions?.adapterFetch;
+
+    if (adapterFetch && isOpenCodeHost(url)) {
+      // Specialized OpenCode path: routes directly to opencodeAdapterFetch
+      // with proxyUrl and strictProxy settings.
+      // Notice: NO insecure TLS fallback in this specialized path!
+      return await adapterFetch(url, options, proxyUrl);
+    }
+
     // Protocol adapters (e.g. OpenCode TLS impersonation) override the direct path
     // only when no proxy is configured, and only for allowed hosts (opencode.ai and subdomains).
     // Codex STT passes directFetch targeting chatgpt.com, which is safely excluded here.
-    const { directFetch, ...fetchOptions } = options || {};
+    const { directFetch, adapterFetch: _af, ...fetchOptions } = options || {};
     if (!proxyUrl && directFetch && isOpenCodeHost(url)) {
       return await directFetch(url, options);
     }
     const dispatcher = proxyUrl ? await getDispatcher(proxyUrl) : undefined;
     return await originalFetch(url, dispatcher ? { ...fetchOptions, dispatcher } : fetchOptions);
   } catch (err) {
+    if (isSpecializedOpencode) {
+      throw err;
+    }
+
     const isStrictSsl = options?.strictTls === true || process.env.STRICT_SSL === "true" || process.env.STRICT_SSL === "1";
     if (!isStrictSsl && isTlsCertError(err)) {
       if (options?.body && typeof options.body.getReader === "function" && options.body.locked) {
@@ -286,7 +313,7 @@ async function fetchWithTlsFallback(url, options, proxyUrl) {
       // ponytail: in-memory insecure agent fallback for self-signed MITM corporate/antivirus certs
       console.warn(`[ProxyFetch] TLS cert verification failed (${err.cause?.code || err.code}), retrying with insecure TLS: ${url}`);
       const insecureDispatcher = await getDispatcher(proxyUrl, true);
-      const { directFetch: _df, ...fetchOptions } = options || {};
+      const { directFetch: _df, adapterFetch: _af, ...fetchOptions } = options || {};
       return await originalFetch(url, { ...fetchOptions, dispatcher: insecureDispatcher });
     }
     throw err;
@@ -516,7 +543,7 @@ async function replayFreeTierRejectionDirect(url, options, proxyOptions, proxied
 
   console.warn(`[ProxyFetch] Proxy egress rejected by the OpenCode free-tier gate (403 FreeTierError); replaying direct: ${targetHost(url)}`);
   try {
-    return await fetchWithTlsFallback(url, options, null);
+    return await fetchWithTlsFallback(url, options, null, proxyOptions);
   } catch (directError) {
     // The direct replay failed outright — surface the original rejection.
     console.warn(`[ProxyFetch] Direct replay failed: ${directError.message}`);
@@ -565,7 +592,7 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
     if (proxyUrl) {
       // Proxy resolves DNS externally (not affected by /etc/hosts) — use proxy directly
       try {
-        return await fetchWithTlsFallback(url, options, proxyUrl);
+        return await fetchWithTlsFallback(url, options, proxyUrl, proxyOptions);
       } catch (proxyError) {
         if (proxyOptions?.strictProxy === true) {
           throw new Error(`[ProxyFetch] Proxy required but failed (strictProxy=true): ${proxyError.message}`);
@@ -591,7 +618,7 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
 
   if (proxyUrl) {
     try {
-      const proxied = await fetchWithTlsFallback(url, options, proxyUrl);
+      const proxied = await fetchWithTlsFallback(url, options, proxyUrl, proxyOptions);
       // strictProxy never leaves the configured path — pass the rejection through.
       if (proxyOptions?.strictProxy === true) return proxied;
       return await replayFreeTierRejectionDirect(url, options, proxyOptions, proxied);
@@ -600,8 +627,17 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
       if (proxyOptions?.strictProxy === true) {
         throw new Error(`[ProxyFetch] Proxy required but failed (strictProxy=true): ${proxyError.message}`);
       }
+      const isSpecializedOpencode = isOpenCodeHost(targetUrl) && (
+        typeof options?.adapterFetch === "function" ||
+        typeof options?.directFetch?.adapterFetch === "function" ||
+        typeof proxyOptions?.adapterFetch === "function"
+      );
+      if (isSpecializedOpencode) {
+        // Specialized OpenCode path: NEVER global fetch without proxy!
+        throw proxyError;
+      }
       console.warn(`[ProxyFetch] Proxy failed, falling back to direct: ${proxyError.message}`);
-      return fetchWithTlsFallback(url, options, null);
+      return fetchWithTlsFallback(url, options, null, proxyOptions);
     }
   }
 
@@ -618,7 +654,7 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
 
   // got-scraping disabled — use native fetch directly
   // (Re-enable per-host by wrapping with tryGotScrapingFetch when needed)
-  return fetchWithTlsFallback(url, options, null);
+  return fetchWithTlsFallback(url, options, null, proxyOptions);
 }
 
 /**

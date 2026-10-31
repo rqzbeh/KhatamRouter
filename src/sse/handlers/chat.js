@@ -557,23 +557,18 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       return result.response;
     }
 
-    // Psiphon burn-signal rotation (FR-014-07):
-    // If request used a Psiphon pool and upstream emitted a burn signal (429, 403 FreeTier, 502/503 transport),
-    // rotate the tunnel (up to 2 times per request) and retry. Applies to noauth as well.
+    // Psiphon transport failure rotation:
+    // If request used a Psiphon pool and upstream emitted a transport/proxy failure (502/503 connect timeout/reset),
+    // rotate the tunnel (up to 2 times per request) and retry. Does NOT rotate on quota (429/403) or client abort.
     const psiphonPoolId = credentials?.providerSpecificData?.psiphonPoolId;
     const isPsiphonUnavailable = credentials?.providerSpecificData?.psiphonUnavailable === true;
-    if (psiphonPoolId && !isPsiphonUnavailable && shouldRotateOn(result) && psiphonRotations < 2) {
+    const isClientAborted = Boolean(request?.signal?.aborted);
+    if (psiphonPoolId && !isPsiphonUnavailable && !isClientAborted && shouldRotateOn(result) && psiphonRotations < 2) {
       psiphonRotations++;
       const seenGeneration = credentials?.providerSpecificData?.psiphonGeneration;
-      log.warn("PSIPHON", `Burn signal detected (${result.status}) on pool ${psiphonPoolId} (rotation ${psiphonRotations}/2) → rotating tunnel`);
+      log.warn("PSIPHON", `Transport failure detected (${result.status}) on pool ${psiphonPoolId} (rotation ${psiphonRotations}/2) → rotating tunnel`);
       try {
-        await rotate(psiphonPoolId, { reason: `burn_${result.status}`, seenGeneration });
-        if (provider === "opencode") {
-          try {
-            const { invalidateOpencodeSession } = await import("open-sse/executors/opencode.js");
-            invalidateOpencodeSession(credentials, body);
-          } catch {}
-        }
+        await rotate(psiphonPoolId, { reason: `transport_${result.status}`, seenGeneration });
       } catch (rotateErr) {
         log.warn("PSIPHON", `Tunnel rotation failed: ${rotateErr.message}`);
       }

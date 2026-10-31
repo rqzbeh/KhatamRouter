@@ -34,30 +34,49 @@ export function __getActiveChildForTests(poolId) {
   return poolsState.get(poolId)?.activeChild || null;
 }
 
-export function terminateProcess(child) {
+export async function terminateProcess(child, sigkillTimeoutMs = 1500) {
   if (!child) return;
-  let exited = false;
-  let killTimer = null;
-  try {
-    child.once("exit", () => {
-      exited = true;
+  if (child.exitCode !== null || child.signalCode !== null) return;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let killTimer = null;
+    let fallbackTimer = null;
+
+    const onExit = () => {
+      if (settled) return;
+      settled = true;
       if (killTimer) clearTimeout(killTimer);
-    });
+      if (fallbackTimer) clearTimeout(fallbackTimer);
+      resolve();
+    };
+
+    child.once("exit", onExit);
+    child.once("close", onExit);
 
     killTimer = setTimeout(() => {
       try {
-        if (!exited && child.exitCode === null && child.signalCode === null) {
+        if (!settled && child.exitCode === null && child.signalCode === null) {
           child.kill("SIGKILL");
         }
       } catch {}
-    }, 1500);
+    }, sigkillTimeoutMs);
     if (killTimer.unref) killTimer.unref();
 
-    child.kill("SIGTERM");
-  } catch {}
+    fallbackTimer = setTimeout(() => {
+      onExit();
+    }, sigkillTimeoutMs + 3000);
+    if (fallbackTimer.unref) fallbackTimer.unref();
+
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      onExit();
+    }
+  });
 }
 
-export function __resetForTests() {
+export async function __resetForTests() {
   testSpawnFn = null;
   for (const state of poolsState.values()) {
     state.intentionalStop = true;
@@ -66,8 +85,9 @@ export function __resetForTests() {
       state.abortController = null;
     }
     if (state.activeChild) {
-      terminateProcess(state.activeChild);
+      const child = state.activeChild;
       state.activeChild = null;
+      await terminateProcess(child);
     }
     if (state.tempConfigFile) {
       cleanTempConfigFile(state.tempConfigFile);
@@ -267,19 +287,19 @@ async function launchCandidate({ binPath, baseConfigFile, dataRootDir, egressReg
       if (timer) clearTimeout(timer);
     };
 
-    timer = setTimeout(() => {
+    timer = setTimeout(async () => {
       if (settled) return;
       settled = true;
-      terminateProcess(child);
+      await terminateProcess(child);
       cleanTempConfigFile(tempConfigFile);
       reject(new PsiphonUnavailableError(`Psiphon instance readiness timed out after ${timeoutMs}ms`));
     }, timeoutMs);
 
-    child.on("error", (err) => {
+    child.on("error", async (err) => {
       if (settled) return;
       settled = true;
       cleanup();
-      terminateProcess(child);
+      await terminateProcess(child);
       cleanTempConfigFile(tempConfigFile);
       reject(new PsiphonUnavailableError(`Psiphon child process error: ${err.message}`));
     });
@@ -419,7 +439,7 @@ async function establishBestTunnel({ pool, state, excludedRegions }) {
 
     // Terminate losers and clean up their files
     for (const loser of losers) {
-      terminateProcess(loser.child);
+      await terminateProcess(loser.child);
       cleanTempConfigFile(loser.tempConfigFile);
       try {
         fs.rmSync(loser.dataRootDir, { recursive: true, force: true });
@@ -428,7 +448,7 @@ async function establishBestTunnel({ pool, state, excludedRegions }) {
 
     // Check if winner is reachable through proxy
     if (winner.latency === Infinity && process.env.NODE_ENV !== "test") {
-      terminateProcess(winner.child);
+      await terminateProcess(winner.child);
       cleanTempConfigFile(winner.tempConfigFile);
       try {
         fs.rmSync(winner.dataRootDir, { recursive: true, force: true });
@@ -440,6 +460,20 @@ async function establishBestTunnel({ pool, state, excludedRegions }) {
 
     // Probe exit IP through winner's proxy
     const exitIp = await probeExitIp(`http://127.0.0.1:${winner.port}`);
+    const egressVerified = Boolean(exitIp);
+
+    if (!egressVerified) {
+      await terminateProcess(winner.child);
+      cleanTempConfigFile(winner.tempConfigFile);
+      try {
+        fs.rmSync(winner.dataRootDir, { recursive: true, force: true });
+      } catch {}
+      state.state = "failed";
+      state.lastError = new PsiphonUnavailableError(
+        "Psiphon candidate failed egress IP verification probe; missing egress evidence cannot be reported as verified readiness"
+      );
+      throw state.lastError;
+    }
 
     // Winner's temp config is deleted once ready
     cleanTempConfigFile(winner.tempConfigFile);
@@ -454,12 +488,13 @@ async function establishBestTunnel({ pool, state, excludedRegions }) {
       region: winner.region,
       dataDir: winner.dataRootDir,
       exitIp,
+      egressVerified: true,
       generation: targetGen,
     };
   } catch (err) {
     // If any error occurs during probing/setup, terminate all remaining candidates
     for (const cand of readyCandidates) {
-      terminateProcess(cand.child);
+      await terminateProcess(cand.child);
       cleanTempConfigFile(cand.tempConfigFile);
       try {
         fs.rmSync(cand.dataRootDir, { recursive: true, force: true });
@@ -537,6 +572,7 @@ export async function ensureTunnel(pool) {
       state.region = established.region;
       state.dataDir = established.dataDir;
       state.exitIp = established.exitIp;
+      state.egressVerified = established.egressVerified;
       state.generation = established.generation;
       state.requests = 0;
       state.tokens = 0;
@@ -600,8 +636,8 @@ export async function rotate(poolId, { reason = "manual", seenGeneration } = {})
     };
   }
 
-  // If a rotation is already in flight, await it and return without starting another
-  if (state.inFlightPromise && state.inFlightType === "rotate") {
+  // If any rotation or ensure is already in flight, await it and return without starting another
+  if (state.inFlightPromise) {
     await state.inFlightPromise;
     return {
       rotated: false,
@@ -646,65 +682,52 @@ export async function rotate(poolId, { reason = "manual", seenGeneration } = {})
         exitIp: state.exitIp,
       };
     }
-
-    // Apply backoff: min(500 * 2^n, 5000) ms, or env override PSIPHON_CRASH_BACKOFF_MS
-    const n = Math.max(0, state.processExitTimestamps.length - 1);
-    const envBackoff = process.env.PSIPHON_CRASH_BACKOFF_MS;
-    const backoffMs = envBackoff !== undefined
-      ? parseInt(envBackoff, 10)
-      : Math.min(500 * Math.pow(2, n), 5000);
-
-    if (backoffMs > 0) {
-      await new Promise((r) => setTimeout(r, backoffMs));
-    }
-  }
-
-  // If an ensureTunnel is in flight, await it first
-  if (state.inFlightPromise && state.inFlightType === "ensure") {
-    try {
-      await state.inFlightPromise;
-    } catch {}
-    if (seenGeneration !== undefined && seenGeneration < state.generation) {
-      return {
-        rotated: false,
-        generation: state.generation,
-        region: state.region,
-        exitIp: state.exitIp,
-      };
-    }
-  }
-
-  const minInterval = parseInt(process.env.PSIPHON_MIN_ROTATE_INTERVAL_MS ?? "5000", 10);
-  const now = Date.now();
-  if (minInterval > 0 && reason !== "process_exit" && reason !== "force") {
-    const elapsed = now - state.lastRotateTime;
-    if (elapsed < minInterval) {
-      await new Promise((r) => setTimeout(r, minInterval - elapsed));
-    }
   }
 
   state.state = "rotating";
   state.inFlightType = "rotate";
 
-  // Mark intentional stop so unexpected exit watcher does not trigger recursive rotation
-  state.intentionalStop = true;
-  if (state.activeChild) {
-    terminateProcess(state.activeChild);
-    state.activeChild = null;
-  }
-  if (state.tempConfigFile) {
-    cleanTempConfigFile(state.tempConfigFile);
-    state.tempConfigFile = null;
-  }
-  if (state.dataDir) {
-    try {
-      fs.rmSync(state.dataDir, { recursive: true, force: true });
-    } catch {}
-    state.dataDir = null;
-  }
-
   state.inFlightPromise = (async () => {
     try {
+      // Apply crash backoff if needed
+      if (reason === "process_exit") {
+        const n = Math.max(0, state.processExitTimestamps.length - 1);
+        const envBackoff = process.env.PSIPHON_CRASH_BACKOFF_MS;
+        const backoffMs = envBackoff !== undefined
+          ? parseInt(envBackoff, 10)
+          : Math.min(500 * Math.pow(2, n), 5000);
+
+        if (backoffMs > 0) {
+          await new Promise((r) => setTimeout(r, backoffMs));
+        }
+      }
+
+      const minInterval = parseInt(process.env.PSIPHON_MIN_ROTATE_INTERVAL_MS ?? "5000", 10);
+      const now = Date.now();
+      if (minInterval > 0 && reason !== "process_exit" && reason !== "force") {
+        const elapsed = now - state.lastRotateTime;
+        if (elapsed < minInterval) {
+          await new Promise((r) => setTimeout(r, minInterval - elapsed));
+        }
+      }
+
+      // Mark intentional stop so unexpected exit watcher does not trigger recursive rotation
+      state.intentionalStop = true;
+      if (state.activeChild) {
+        const prevChild = state.activeChild;
+        state.activeChild = null;
+        await terminateProcess(prevChild);
+      }
+      if (state.tempConfigFile) {
+        cleanTempConfigFile(state.tempConfigFile);
+        state.tempConfigFile = null;
+      }
+      if (state.dataDir) {
+        try {
+          fs.rmSync(state.dataDir, { recursive: true, force: true });
+        } catch {}
+        state.dataDir = null;
+      }
       const pool = state.poolConfig || { id: poolId, type: "psiphon" };
       const previousIp = state.exitIp;
       let established = null;
@@ -719,15 +742,24 @@ export async function rotate(poolId, { reason = "manual", seenGeneration } = {})
           excludedRegions: retryExcludedRegions,
         });
 
-        if (attempt < 3 && previousIp && established.exitIp && established.exitIp === previousIp) {
+        if (previousIp && established.exitIp && established.exitIp === previousIp) {
           // IP did not change! Tear down and retry with fresh data dir + different region
           if (established.region) {
             retryExcludedRegions.push(established.region);
           }
-          terminateProcess(established.child);
+          await terminateProcess(established.child);
           try {
             fs.rmSync(established.dataDir, { recursive: true, force: true });
           } catch {}
+
+          if (attempt === 3) {
+            // Truthful routing verification: no same-IP verification success after final attempt
+            state.state = "failed";
+            state.lastError = new PsiphonUnavailableError(
+              `Rotation failed: egress IP remained identical (${previousIp}) after ${attempt} attempts`
+            );
+            throw state.lastError;
+          }
           continue;
         }
         break;
@@ -738,6 +770,7 @@ export async function rotate(poolId, { reason = "manual", seenGeneration } = {})
       state.region = established.region;
       state.dataDir = established.dataDir;
       state.exitIp = established.exitIp;
+      state.egressVerified = established.egressVerified;
       state.generation = established.generation;
       state.requests = 0;
       state.tokens = 0;
@@ -830,6 +863,7 @@ export function getStatus(poolId) {
     region: state.region,
     generation: state.generation,
     exitIp: state.exitIp,
+    egressVerified: Boolean(state.exitIp && state.egressVerified && state.state === "ready"),
     requests: state.requests,
     tokens: state.tokens,
     lastError: state.lastError ? state.lastError.message || String(state.lastError) : null,
@@ -848,8 +882,9 @@ export async function stopTunnel(poolId) {
   state.intentionalStop = true;
 
   if (state.activeChild) {
-    terminateProcess(state.activeChild);
+    const child = state.activeChild;
     state.activeChild = null;
+    await terminateProcess(child);
   }
 
   if (state.tempConfigFile) {
@@ -868,6 +903,7 @@ export async function stopTunnel(poolId) {
   state.proxyUrl = null;
   state.region = null;
   state.exitIp = null;
+  state.egressVerified = false;
   state.thresholdExceeded = false;
   state.processExitTimestamps = [];
   state.crashLoopFailed = false;

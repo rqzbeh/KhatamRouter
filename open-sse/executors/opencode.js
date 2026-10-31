@@ -7,7 +7,7 @@ import { injectReasoningContent } from "../utils/reasoningContentInjector.js";
 import { resolveSessionId } from "../utils/sessionManager.js";
 import { isMuseSparkModel } from "../providers/models/helpers.js";
 import { applyFingerprintTools } from "../utils/opencodeFingerprint.js";
-import { opencodeDirectFetch } from "../services/opencodeTlsClient.js";
+import { opencodeDirectFetch, opencodeAdapterFetch } from "../services/opencodeTlsClient.js";
 import { ANTHROPIC_API_VERSION } from "../providers/shared.js";
 import {
   normalizeResponsesInput,
@@ -479,20 +479,43 @@ export class OpenCodeExecutor extends BaseExecutor {
 
   // The free gate keys on the TLS ClientHello, so a native standard fetch is refused
   // no matter how faithful the body is. Route through the impersonating client
-  // and keep proxy handling on the existing path (proxyAwareFetch delegates to
-  // `directFetch` when no proxy is configured). Fail-open: without wreq-js the
-  // request still goes out on native Bun fetch instead of erroring here.
+  // with explicit proxy-capable adapter support. Fail-open: without wreq-js and without
+  // proxy, requests still proceed on native Bun fetch.
   async execute(args) {
     const credentials = this.prepareRequestCredentials(args);
+    const proxyUrl = args.proxyOptions?.url || args.proxyOptions?.connectionProxyUrl || null;
+    const strictProxy = args.proxyOptions?.strictProxy === true;
+    const insecure = args.proxyOptions?.insecure === true;
+
+    const adapterFetch = (url, options, proxy) => opencodeAdapterFetch(url, {
+      method: options.method,
+      headers: options.headers,
+      body: options.body,
+      signal: options.signal,
+      timeout: options.timeout,
+    }, {
+      proxyUrl: proxy || proxyUrl,
+      strictProxy,
+      insecure,
+    });
+
+    const directFetch = (url, options) => opencodeDirectFetch(url, {
+      method: options.method,
+      headers: options.headers,
+      body: options.body,
+      signal: options.signal,
+    });
+    directFetch.adapterFetch = adapterFetch;
+
+    const proxyOptions = args.proxyOptions
+      ? { ...args.proxyOptions, adapterFetch }
+      : { adapterFetch };
+
     return super.execute({
       ...args,
       credentials,
-      directFetch: (url, options) => opencodeDirectFetch(url, {
-        method: options.method,
-        headers: options.headers,
-        body: options.body,
-        signal: options.signal,
-      }),
+      proxyOptions,
+      directFetch,
     });
   }
 

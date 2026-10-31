@@ -36,18 +36,22 @@ When a request targets a provider connection bound to a `psiphon` pool, `psiphon
 ### 2. Sticky Hold
 While requests succeed and configured thresholds are not met, the active tunnel remains open and is reused for subsequent requests without introducing connection setup latency.
 
-### 3. Burn Classification and Automatic Rotation
-The router inspects upstream responses with `shouldRotateOn()`. A rotation is triggered on:
-- HTTP `429` (rate limits).
-- HTTP `403` with body containing `FreeTierError` or `FreeUsageLimit`.
+### 3. Transport Failure Classification and Automatic Recovery
+The router inspects upstream responses with `shouldRotateOn()`. Rotation is triggered exclusively on authentic network and transport failures:
 - HTTP `502` or `503` caused by transport/proxy connectivity failures (`connect timeout`, `ECONNRESET`, `ETIMEDOUT`, `ECONNREFUSED`, `Proxy`, `fetch connect timeout`).
+- Unhandled network transport exceptions without an HTTP status.
 
-When a burn signal is detected during a request in `src/sse/handlers/chat.js`:
+**Truthful Quota Handling**:
+- HTTP `429` (rate limits, `FreeUsageLimitError`) and HTTP `403` (`FreeTierError`, flagged IP) **do NOT** trigger automatic tunnel rotation or session churn. The router preserves the upstream response and its `Retry-After` header faithfully, preventing IP churn and retry storms.
+- Client aborts (`AbortError`, disconnected requests) never trigger rotation or retries.
+
+When a transport failure is detected during a request in `src/sse/handlers/chat.js`:
 - The tunnel manager executes `rotate()`:
-  - Terminates the current child process and cleans up its data directory.
+  - Awaits actual process exit (with `SIGTERM` escalating to `SIGKILL` after 1500ms) before deleting temporary working directories across all candidate failure and teardown paths.
   - Excludes the current region and the last 3 recently used regions (maintaining a 4-region history buffer) to ensure geographic rotation.
   - Launches fresh candidates with new isolated directories to clear BoltDB affinity cache.
-  - Verifies that the new exit IP differs from the previous exit IP. If the provider assigns the identical exit IP, it retries up to 3 times with different candidate regions and directories.
+  - Verifies that the new exit IP differs from the previous exit IP. If the provider assigns the identical exit IP, it retries up to 3 times with different candidate regions and directories. If identical exit IP persists after the final (3rd) attempt, the rotation fails closed and does not report false success.
+  - Egress is only marked verified (`egressVerified: true`) when an external exit IP lookup successfully returns a valid IP.
 - The request handler retries the original request against the rotated tunnel (up to a maximum of 2 rotations per request).
 
 ### 4. Proactive Threshold Rotation
