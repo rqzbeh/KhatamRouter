@@ -60,7 +60,7 @@
   "comment_aws_sdk_credential_providers": "kept in optionalDependencies (npm still installs these by default) and imported lazily in shared/awsCredentials.js — only AWS Bedrock connections using profile/SSO mode need it; static accessKeyId/secretAccessKey connections never load it",
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
-    "eslint": "^9.39.5",
+    "eslint": "^10.14.0",
     "eslint-config-next": "16.4.3",
     "postcss": "^8.5.32",
     "tailwindcss": "^4.3.3"
