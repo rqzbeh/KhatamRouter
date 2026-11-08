@@ -12,6 +12,8 @@ const CODEX_RESPONSES_URL = PROVIDERS["codex"].baseUrl;
 // so preserve Responses for those requests, edits, and older virtual models.
 const CODEX_IMAGES_GENERATIONS_URL = PROVIDER_MEDIA.codex.imageConfig.baseUrl;
 const CODEX_USER_AGENT = `codex_cli_rs/${CODEX_CLI_VERSION}`;
+// Upper bound on buffered assistant text when Codex answers with text instead of an image.
+const ASSISTANT_TEXT_MAX_CHARS = 4096;
 const CODEX_ORIGINATOR = "codex_cli_rs";
 const CODEX_MODEL_SUFFIX = "-image";
 const CODEX_REF_DETAIL = "high";
@@ -214,9 +216,10 @@ async function parseStream(response, log, callbacks = {}) {
           } catch {}
         }
 
-        if (eventName === "response.output_text.delta" && dataStr) {
+        // Only a short excerpt is ever reported, so stop buffering text past the cap.
+        if (eventName === "response.output_text.delta" && dataStr && assistantText.length < ASSISTANT_TEXT_MAX_CHARS) {
           try {
-            assistantText += JSON.parse(dataStr)?.delta || "";
+            assistantText = (assistantText + (JSON.parse(dataStr)?.delta || "")).slice(0, ASSISTANT_TEXT_MAX_CHARS);
           } catch {}
         }
 
@@ -228,10 +231,10 @@ async function parseStream(response, log, callbacks = {}) {
               if (item.result) imageB64 = item.result;
               else upstreamError = extractStreamError(item) || upstreamError;
             } else if (item?.type === "message") {
-              assistantText = item.content
+              assistantText = (item.content
                 ?.map((part) => (typeof part === "string" ? part : part?.text || part?.output_text))
                 .filter(Boolean)
-                .join(" ") || assistantText;
+                .join(" ") || assistantText).slice(0, ASSISTANT_TEXT_MAX_CHARS);
             }
           } catch {}
         }
