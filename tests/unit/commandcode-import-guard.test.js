@@ -35,18 +35,14 @@ vi.mock("@/lib/auth/dashboardSession", () => ({
   verifyDashboardAuthToken: guardMocks.verifyDashboardAuthToken,
 }));
 
-// Mock fs/promises
+// Mock fs/promises with truthful open/stat/read/close descriptors
 const mockFs = vi.hoisted(() => ({
-  access: vi.fn(),
-  readFile: vi.fn(),
-  stat: vi.fn(),
-  constants: { R_OK: 4 },
+  open: vi.fn(),
+  constants: { O_RDONLY: 0, O_NONBLOCK: 2048, O_NOFOLLOW: 131072 },
 }));
 
 vi.mock("fs/promises", () => ({
-  access: mockFs.access,
-  readFile: mockFs.readFile,
-  stat: mockFs.stat,
+  open: mockFs.open,
   constants: mockFs.constants,
 }));
 
@@ -54,6 +50,36 @@ vi.mock("os", () => ({
   default: { homedir: vi.fn(() => "/home/user") },
   homedir: vi.fn(() => "/home/user"),
 }));
+
+function createMockHandle(content, { isFile = true, size, failRead = false } = {}) {
+  const contentBuf = Buffer.isBuffer(content) ? content : Buffer.from(content ?? "", "utf-8");
+  const actualSize = size !== undefined ? size : contentBuf.length;
+  let pos = 0;
+  let closed = false;
+
+  return {
+    stat: vi.fn(async () => ({
+      isFile: () => isFile,
+      size: actualSize,
+    })),
+    read: vi.fn(async (buffer, offset, length) => {
+      if (failRead) throw new Error("EIO: disk read failure");
+      if (pos >= contentBuf.length) {
+        return { bytesRead: 0 };
+      }
+      const bytesToRead = Math.min(length, contentBuf.length - pos);
+      contentBuf.copy(buffer, offset, pos, pos + bytesToRead);
+      pos += bytesToRead;
+      return { bytesRead: bytesToRead };
+    }),
+    close: vi.fn(async () => {
+      closed = true;
+    }),
+    get isClosed() {
+      return closed;
+    },
+  };
+}
 
 const { proxy } = await import("../../src/dashboardGuard.js");
 const { GET } = await import("../../src/app/api/oauth/commandcode/auto-import/route.js");
@@ -133,7 +159,7 @@ describe("CommandCode Import Guard — route handler defense-in-depth", () => {
     guardMocks.verifyDashboardAuthToken.mockResolvedValue(true);
   });
 
-  it("denies unauthenticated callers before any filesystem reads", async () => {
+  it("denies unauthenticated callers before any filesystem reads (no fs.open)", async () => {
     guardMocks.verifyDashboardAuthToken.mockResolvedValue(false);
 
     const unauthedReq = makeRouteRequest({ isLoopback: true, hasValidJwt: false });
@@ -142,26 +168,39 @@ describe("CommandCode Import Guard — route handler defense-in-depth", () => {
 
     expect(res.status).toBe(401);
     expect(data.found).toBe(false);
-    expect(mockFs.access).not.toHaveBeenCalled();
-    expect(mockFs.readFile).not.toHaveBeenCalled();
+    expect(mockFs.open).not.toHaveBeenCalled();
     expect(res.headers.get("Cache-Control")).toContain("no-store");
   });
 
-  it("denies non-loopback callers before any filesystem reads", async () => {
+  it("denies non-loopback callers before any filesystem reads (no fs.open)", async () => {
     const remoteReq = makeRouteRequest({ isLoopback: false, hasValidJwt: true });
     const res = await GET(remoteReq);
     const data = await res.json();
 
     expect(res.status).toBe(403);
     expect(data.found).toBe(false);
-    expect(mockFs.access).not.toHaveBeenCalled();
-    expect(mockFs.readFile).not.toHaveBeenCalled();
+    expect(mockFs.open).not.toHaveBeenCalled();
     expect(res.headers.get("Cache-Control")).toContain("no-store");
   });
 
-  it("bounds credential read and rejects files exceeding 64 KiB", async () => {
-    mockFs.access.mockResolvedValue(undefined);
-    mockFs.stat.mockResolvedValue({ size: 65537 });
+  it("rejects non-regular files (FIFO, socket, directory) and closes handle", async () => {
+    const handle = createMockHandle(JSON.stringify({ apiKey: "key" }), { isFile: false });
+    mockFs.open.mockResolvedValue(handle);
+
+    const authedReq = makeRouteRequest({ isLoopback: true, hasValidJwt: true });
+    const res = await GET(authedReq);
+    const data = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(data.found).toBe(false);
+    expect(data.error).toContain("not a regular file");
+    expect(handle.isClosed).toBe(true);
+    expect(res.headers.get("Cache-Control")).toContain("no-store");
+  });
+
+  it("bounds credential read and rejects files exceeding 64 KiB via stat size", async () => {
+    const handle = createMockHandle(Buffer.alloc(65537), { size: 65537 });
+    mockFs.open.mockResolvedValue(handle);
 
     const authedReq = makeRouteRequest({ isLoopback: true, hasValidJwt: true });
     const res = await GET(authedReq);
@@ -170,13 +209,29 @@ describe("CommandCode Import Guard — route handler defense-in-depth", () => {
     expect(res.status).toBe(400);
     expect(data.found).toBe(false);
     expect(data.error).toContain("exceeds size limit");
+    expect(handle.isClosed).toBe(true);
     expect(res.headers.get("Cache-Control")).toContain("no-store");
   });
 
+  it("bounds credential read when stat size lies (e.g. 0 on special stream) without unbounded memory read", async () => {
+    // 100 KiB content, but stat reports size 0 (like procfs or lying descriptor)
+    const largeBuf = Buffer.alloc(100 * 1024, "a");
+    const handle = createMockHandle(largeBuf, { size: 0 });
+    mockFs.open.mockResolvedValue(handle);
+
+    const authedReq = makeRouteRequest({ isLoopback: true, hasValidJwt: true });
+    const res = await GET(authedReq);
+    const data = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(data.found).toBe(false);
+    expect(data.error).toContain("exceeds size limit");
+    expect(handle.isClosed).toBe(true);
+  });
+
   it("rejects invalid JSON shape (array or primitive) without leaking raw exception", async () => {
-    mockFs.access.mockResolvedValue(undefined);
-    mockFs.stat.mockResolvedValue({ size: 50 });
-    mockFs.readFile.mockResolvedValue(JSON.stringify(["not", "an", "object"]));
+    const handle = createMockHandle(JSON.stringify(["not", "an", "object"]));
+    mockFs.open.mockResolvedValue(handle);
 
     const authedReq = makeRouteRequest({ isLoopback: true, hasValidJwt: true });
     const res = await GET(authedReq);
@@ -184,11 +239,12 @@ describe("CommandCode Import Guard — route handler defense-in-depth", () => {
 
     expect(data.found).toBe(false);
     expect(data.error).toContain("invalid format");
+    expect(handle.isClosed).toBe(true);
     expect(res.headers.get("Cache-Control")).toContain("no-store");
   });
 
   it("avoids leaking absolute candidate paths or raw exceptions in not-found response", async () => {
-    mockFs.access.mockRejectedValue(new Error("ENOENT: no such file or directory"));
+    mockFs.open.mockRejectedValue(new Error("ENOENT: no such file or directory"));
 
     const authedReq = makeRouteRequest({ isLoopback: true, hasValidJwt: true });
     const res = await GET(authedReq);
@@ -200,10 +256,24 @@ describe("CommandCode Import Guard — route handler defense-in-depth", () => {
     expect(res.headers.get("Cache-Control")).toContain("no-store");
   });
 
-  it("returns no-store on successful credential read", async () => {
-    mockFs.access.mockResolvedValue(undefined);
-    mockFs.stat.mockResolvedValue({ size: 100 });
-    mockFs.readFile.mockResolvedValue(JSON.stringify({ apiKey: "user_valid_key_123" }));
+  it("handles read error gracefully and closes handle in finally", async () => {
+    const handle = createMockHandle(Buffer.from("some content"), { failRead: true });
+    mockFs.open.mockResolvedValue(handle);
+
+    const authedReq = makeRouteRequest({ isLoopback: true, hasValidJwt: true });
+    const res = await GET(authedReq);
+    const data = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(data.found).toBe(false);
+    expect(data.error).toBe("Failed to read Command Code credentials");
+    expect(handle.isClosed).toBe(true);
+    expect(res.headers.get("Cache-Control")).toContain("no-store");
+  });
+
+  it("returns no-store on successful credential read and closes handle", async () => {
+    const handle = createMockHandle(JSON.stringify({ apiKey: "user_valid_key_123" }));
+    mockFs.open.mockResolvedValue(handle);
 
     const authedReq = makeRouteRequest({ isLoopback: true, hasValidJwt: true });
     const res = await GET(authedReq);
@@ -211,6 +281,7 @@ describe("CommandCode Import Guard — route handler defense-in-depth", () => {
 
     expect(data.found).toBe(true);
     expect(data.apiKey).toBe("user_valid_key_123");
+    expect(handle.isClosed).toBe(true);
     expect(res.headers.get("Cache-Control")).toContain("no-store");
   });
 });

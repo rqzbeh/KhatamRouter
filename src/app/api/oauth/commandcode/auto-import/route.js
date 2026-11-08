@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server";
-import { readFile, access, constants, stat } from "fs/promises";
+import { open, constants } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
 import { isLocalRequest } from "@/dashboardGuard";
 import { verifyDashboardAuthToken } from "@/lib/auth/dashboardSession";
 
 const MAX_AUTH_FILE_SIZE = 64 * 1024; // 64 KiB
+const READ_LIMIT = MAX_AUTH_FILE_SIZE + 1; // 64 KiB + 1 byte for bounded oversize detection
+const OPEN_FLAGS =
+  (constants.O_RDONLY ?? 0) |
+  (constants.O_NONBLOCK || 0) |
+  (constants.O_NOFOLLOW || 0);
+
 const NO_STORE_HEADERS = {
   "Cache-Control": "no-store, no-cache, must-revalidate, private",
   Pragma: "no-cache",
@@ -29,10 +35,11 @@ function getCandidatePaths() {
  * GET /api/oauth/commandcode/auto-import
  * Auto-detect Command Code CLI credentials from ~/.commandcode/auth.json
  * Guarded: requires loopback peer and valid dashboard JWT session.
+ * Uses bounded descriptor reads to prevent memory exhaustion and TOCTOU issues.
  */
 export async function GET(request) {
   try {
-    // 1. Guard check: loopback-only
+    // 1. Guard check: loopback-only (before any fs operations)
     if (!request || !isLocalRequest(request)) {
       return NextResponse.json(
         { found: false, error: "Access denied: loopback access required" },
@@ -40,7 +47,7 @@ export async function GET(request) {
       );
     }
 
-    // 2. Guard check: valid JWT required (even if requireLogin=false)
+    // 2. Guard check: valid JWT required (even if requireLogin=false, before any fs operations)
     const token = request.cookies?.get?.("auth_token")?.value;
     const isAuthed = token ? await verifyDashboardAuthToken(token) : false;
     if (!isAuthed) {
@@ -50,21 +57,20 @@ export async function GET(request) {
       );
     }
 
-    // 3. Probing candidate paths
+    // 3. Probing candidate paths using descriptor open with safe flags
     const candidates = getCandidatePaths();
 
-    let authPath = null;
+    let handle = null;
     for (const candidate of candidates) {
       try {
-        await access(candidate, constants.R_OK);
-        authPath = candidate;
+        handle = await open(candidate, OPEN_FLAGS);
         break;
       } catch {
-        // try next
+        // Continue to next candidate (e.g. ENOENT, ELOOP for symlink with O_NOFOLLOW)
       }
     }
 
-    if (!authPath) {
+    if (!handle) {
       return NextResponse.json(
         {
           found: false,
@@ -74,72 +80,92 @@ export async function GET(request) {
       );
     }
 
-    // 4. Bounded credential read (64 KiB)
-    if (typeof stat === "function") {
-      try {
-        const fileStat = await stat(authPath);
-        if (fileStat && fileStat.size > MAX_AUTH_FILE_SIZE) {
-          return NextResponse.json(
-            { found: false, error: "Command Code auth file exceeds size limit" },
-            { status: 400, headers: NO_STORE_HEADERS }
-          );
-        }
-      } catch {
-        // Continue to bounded buffer length check
-      }
-    }
-
-    const raw = await readFile(authPath, "utf-8");
-    if (typeof raw === "string" && Buffer.byteLength(raw, "utf-8") > MAX_AUTH_FILE_SIZE) {
-      return NextResponse.json(
-        { found: false, error: "Command Code auth file exceeds size limit" },
-        { status: 400, headers: NO_STORE_HEADERS }
-      );
-    }
-
-    // 5. Validate JSON shape and key types
-    let auth;
     try {
-      auth = JSON.parse(raw);
-    } catch {
+      // 4. Validate descriptor is a regular file (reject FIFOs, devices, directories)
+      const fileStat = await handle.stat();
+      if (!fileStat?.isFile?.()) {
+        return NextResponse.json(
+          { found: false, error: "Command Code auth file is not a regular file" },
+          { status: 400, headers: NO_STORE_HEADERS }
+        );
+      }
+
+      // Pre-check size if reported
+      if (typeof fileStat.size === "number" && fileStat.size > MAX_AUTH_FILE_SIZE) {
+        return NextResponse.json(
+          { found: false, error: "Command Code auth file exceeds size limit" },
+          { status: 400, headers: NO_STORE_HEADERS }
+        );
+      }
+
+      // 5. Bounded loop read: read at most MAX_AUTH_FILE_SIZE + 1 bytes total
+      const chunks = [];
+      let totalBytes = 0;
+      const buffer = Buffer.alloc(Math.min(8192, READ_LIMIT));
+
+      while (totalBytes < READ_LIMIT) {
+        const toRead = Math.min(buffer.length, READ_LIMIT - totalBytes);
+        const { bytesRead } = await handle.read(buffer, 0, toRead, null);
+        if (!bytesRead || bytesRead <= 0) break;
+        chunks.push(Buffer.from(buffer.subarray(0, bytesRead)));
+        totalBytes += bytesRead;
+      }
+
+      if (totalBytes > MAX_AUTH_FILE_SIZE) {
+        return NextResponse.json(
+          { found: false, error: "Command Code auth file exceeds size limit" },
+          { status: 400, headers: NO_STORE_HEADERS }
+        );
+      }
+
+      const raw = Buffer.concat(chunks).toString("utf-8");
+
+      // 6. Validate JSON shape and key types
+      let auth;
+      try {
+        auth = JSON.parse(raw);
+      } catch {
+        return NextResponse.json(
+          {
+            found: false,
+            error: "Command Code auth file is not valid JSON. Please run 'commandcode login' again.",
+          },
+          { status: 200, headers: NO_STORE_HEADERS }
+        );
+      }
+
+      if (!auth || typeof auth !== "object" || Array.isArray(auth)) {
+        return NextResponse.json(
+          { found: false, error: "Command Code auth file has invalid format." },
+          { status: 200, headers: NO_STORE_HEADERS }
+        );
+      }
+
+      const apiKey = typeof auth.apiKey === "string" ? auth.apiKey.trim() : "";
+      if (!apiKey) {
+        return NextResponse.json(
+          {
+            found: false,
+            error: "No apiKey found in Command Code auth file. Please run 'commandcode login'.",
+          },
+          { status: 200, headers: NO_STORE_HEADERS }
+        );
+      }
+
       return NextResponse.json(
         {
-          found: false,
-          error: "Command Code auth file is not valid JSON. Please run 'commandcode login' again.",
+          found: true,
+          apiKey,
+          userId: typeof auth.userId === "string" ? auth.userId : null,
+          userName: typeof auth.userName === "string" ? auth.userName : null,
+          keyName: typeof auth.keyName === "string" ? auth.keyName : null,
+          authenticatedAt: typeof auth.authenticatedAt === "string" ? auth.authenticatedAt : null,
         },
-        { status: 200, headers: NO_STORE_HEADERS }
+        { headers: NO_STORE_HEADERS }
       );
+    } finally {
+      await handle.close().catch(() => {});
     }
-
-    if (!auth || typeof auth !== "object" || Array.isArray(auth)) {
-      return NextResponse.json(
-        { found: false, error: "Command Code auth file has invalid format." },
-        { status: 200, headers: NO_STORE_HEADERS }
-      );
-    }
-
-    const apiKey = typeof auth.apiKey === "string" ? auth.apiKey.trim() : "";
-    if (!apiKey) {
-      return NextResponse.json(
-        {
-          found: false,
-          error: "No apiKey found in Command Code auth file. Please run 'commandcode login'.",
-        },
-        { status: 200, headers: NO_STORE_HEADERS }
-      );
-    }
-
-    return NextResponse.json(
-      {
-        found: true,
-        apiKey,
-        userId: typeof auth.userId === "string" ? auth.userId : null,
-        userName: typeof auth.userName === "string" ? auth.userName : null,
-        keyName: typeof auth.keyName === "string" ? auth.keyName : null,
-        authenticatedAt: typeof auth.authenticatedAt === "string" ? auth.authenticatedAt : null,
-      },
-      { headers: NO_STORE_HEADERS }
-    );
   } catch {
     // Avoid raw exception / path leaks
     return NextResponse.json(
