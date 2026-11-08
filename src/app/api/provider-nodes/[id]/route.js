@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { deleteProviderConnectionsByProvider, deleteProviderNode, getProviderConnections, getProviderNodeById, updateProviderConnection, updateProviderNode } from "@/models";
+import { assertGatewayUrlAllowed, isGatewaySelfHostedAllowed } from "@/lib/network/gatewayTrust.js";
 
 // PUT /api/provider-nodes/[id] - Update provider node
 export async function PUT(request, { params }) {
   try {
     const { id } = await params;
     const body = await request.json();
-    const { name, prefix, apiType, baseUrl } = body;
+    const { name, prefix, apiType, baseUrl, isSelfHosted, allowInsecureTls } = body;
     const node = await getProviderNodeById(id);
 
     if (!node) {
@@ -21,6 +22,35 @@ export async function PUT(request, { params }) {
       return NextResponse.json({ error: "Prefix is required" }, { status: 400 });
     }
 
+    const effectiveIsSelfHosted = isSelfHosted !== undefined ? Boolean(isSelfHosted) : Boolean(node.isSelfHosted);
+    const effectiveAllowInsecure = allowInsecureTls !== undefined ? Boolean(allowInsecureTls) : Boolean(node.allowInsecureTls);
+
+    if (effectiveAllowInsecure && !effectiveIsSelfHosted) {
+      return NextResponse.json({ error: "allowInsecureTls is only allowed for self-hosted nodes" }, { status: 400 });
+    }
+
+    // Check if security posture is being changed or newly granted:
+    // Remote operators can update metadata (name, prefix, apiType) of an already trusted node
+    // without lockout, but changing baseUrl or newly enabling self-hosted / insecure TLS requires local origin.
+    const isBaseUrlChanged = baseUrl && baseUrl.trim() !== node.baseUrl;
+    const isSelfHostedElevated = effectiveIsSelfHosted && !node.isSelfHosted;
+    const isTlsElevated = effectiveAllowInsecure && !node.allowInsecureTls;
+    const isSecurityElevation = isBaseUrlChanged || isSelfHostedElevated || isTlsElevated;
+
+    if (effectiveIsSelfHosted && isSecurityElevation) {
+      const allowed = isGatewaySelfHostedAllowed({
+        request,
+        isSelfHosted: true,
+        baseUrl: baseUrl || node.baseUrl,
+      });
+      if (!allowed) {
+        return NextResponse.json(
+          { error: "Self-hosted gateway security update not permitted from proxied or non-local requests" },
+          { status: 400 }
+        );
+      }
+    }
+
     // Only validate apiType for OpenAI Compatible nodes
     if (node.type === "openai-compatible" && (!apiType || !["chat", "responses"].includes(apiType))) {
       return NextResponse.json({ error: "Invalid OpenAI compatible API type" }, { status: 400 });
@@ -31,7 +61,7 @@ export async function PUT(request, { params }) {
     }
 
     let sanitizedBaseUrl = baseUrl.trim();
-    
+
     // Sanitize Base URL for Anthropic Compatible
     if (node.type === "anthropic-compatible") {
       sanitizedBaseUrl = sanitizedBaseUrl.replace(/\/$/, "");
@@ -48,10 +78,21 @@ export async function PUT(request, { params }) {
       }
     }
 
+    try {
+      await assertGatewayUrlAllowed(sanitizedBaseUrl, {
+        isSelfHosted: effectiveIsSelfHosted,
+        trustedHost: new URL(sanitizedBaseUrl).host,
+      });
+    } catch (err) {
+      return NextResponse.json({ error: `Invalid base URL: ${err.message}` }, { status: 400 });
+    }
+
     const updates = {
       name: name.trim(),
       prefix: prefix.trim(),
       baseUrl: sanitizedBaseUrl,
+      isSelfHosted: effectiveIsSelfHosted,
+      allowInsecureTls: effectiveAllowInsecure,
     };
 
     if (node.type === "openai-compatible") {
