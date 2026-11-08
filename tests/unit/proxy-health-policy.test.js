@@ -93,10 +93,47 @@ describe("classifyProxyFailure", () => {
     expect(r.durationMs).toBe(PROXY_HEALTH_LIMITS.maxCooldownMs);
   });
 
-  it("tells a region block from a plain 403", () => {
+  it("tells a region or egress block from an unproven 403", () => {
     expect(classifyProxyFailure({ status: 403, errorText: "This model is not available in your region", providerId: "p", settings: on(), now }).kind).toBe("region_blocked");
     expect(classifyProxyFailure({ status: 451, providerId: "p", settings: on(), now }).kind).toBe("region_blocked");
-    expect(classifyProxyFailure({ status: 403, errorText: "forbidden", providerId: "p", settings: on(), now }).kind).toBe("forbidden");
+    expect(classifyProxyFailure({ status: 403, errorText: "Requests from this IP address are blocked", providerId: "p", settings: on(), now }).kind).toBe("egress_blocked");
+    expect(classifyProxyFailure({ status: 403, errorText: "forbidden", providerId: "p", settings: on(), now })).toBeNull();
+  });
+
+  it.each([
+    ["anthropic", "API key does not have access to this model"],
+    ["openai", "Account is suspended"],
+    ["gemini", "Request blocked by content policy"],
+    ["mistral", "Missing required geo metadata in request parameters"],
+    ["groq", "You cannot change the country on this account"],
+    ["bedrock", "Forbidden"],
+    ["openrouter", "proxy error: invalid model argument in prompt"],
+    ["stripe", "Membership blocked due to missing payment"],
+    ["billing", "This subscription is blocked"],
+  ])("does not cool a proxy on account, policy or generic 403 across provider scopes: %s / %s", (providerId, message) => {
+    expect(classifyProxyFailure({ status: 403, errorText: message, providerId, settings: on(), now })).toBeNull();
+  });
+
+  it.each([
+    ["anthropic", "This service is not available in your region", "region_blocked"],
+    ["openai", "Access denied: unsupported location", "region_blocked"],
+    ["gemini", "Requests from this IP address are blocked", "egress_blocked"],
+  ])("classifies explicit egress denial consistently across provider scopes: %s", (providerId, errorText, expectedKind) => {
+    const verdict = classifyProxyFailure({ status: 403, errorText, providerId, settings: on(), now });
+    expect(verdict?.scope).toBe(`${providerId}::*`);
+    expect(verdict?.kind).toBe(expectedKind);
+    expect(verdict?.reason).not.toContain(errorText);
+  });
+
+  it.each([
+    "tunneling socket could not be established",
+    "proxy connect failed with status 403",
+    "HTTP CONNECT failed: 403",
+    "proxy tunnel failed",
+  ])("accepts explicit CONNECT/tunnel transport faults on 403: %s", (message) => {
+    const verdict = classifyProxyFailure({ status: 403, errorText: message, providerId: "anthropic", settings: on(), now });
+    expect(verdict?.kind).toBe("transport");
+    expect(verdict?.scope).toBe("anthropic::*");
   });
 
   it("treats transport failures as proxy faults even on unlisted statuses", () => {
@@ -134,6 +171,16 @@ describe("nextProbeDelayMs and selectEligiblePools", () => {
 
   it("skips cooled pools for both round-robin and random selection", () => {
     expect(selectEligiblePools(["a", "b", "c"], (id) => id !== "b")).toEqual(["a", "c"]);
+  });
+
+  it("leaves unaffected pools in rotation when one pool is cooled in a provider scope", () => {
+    const pools = ["pool-1", "pool-2", "pool-3"];
+    // Fitness predicate simulates pool-1 cooled under provider-a, unaffected under provider-b
+    const isFitProviderA = (id) => id !== "pool-1";
+    const isFitProviderB = () => true;
+
+    expect(selectEligiblePools(pools, isFitProviderA)).toEqual(["pool-2", "pool-3"]);
+    expect(selectEligiblePools(pools, isFitProviderB)).toEqual(["pool-1", "pool-2", "pool-3"]);
   });
 
   it("falls back to every pool when all are cooling instead of going direct", () => {

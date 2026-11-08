@@ -189,11 +189,11 @@ export default function NoAuthProxyCard({ providerId }) {
             ))}
           </select>
           <p className="text-xs text-text-muted">
-            When a request through a pool hits a rate limit (429), a region block (403/451) or a proxy
-            failure (502-504, connection errors), that pool is skipped for this long and then rejoins
-            the rotation automatically. A longer upstream Retry-After is respected. Applies to all
-            providers that rotate pools. If every pool is cooling, rotation uses them anyway rather
-            than going direct.
+            When a request through a pool hits a rate limit (429), a region or egress block (451, or
+            403 with explicit egress attribution) or a proxy failure (502-504, connection errors),
+            that pool is skipped for this long and then rejoins the rotation automatically. A longer
+            upstream Retry-After is respected. Applies to all providers that rotate pools. If every
+            pool is cooling, rotation uses them anyway rather than going direct.
           </p>
           {cooldownError && <p className="text-xs text-red-500">{cooldownError}</p>}
         </div>
