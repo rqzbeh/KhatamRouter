@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { Badge, Button, Card, CardSkeleton, Input, Modal, Toggle, ConfirmModal, Select } from "@/shared/components";
+import { PSIPHON_SELECTABLE_REGIONS } from "@/lib/network/psiphon/regions.js";
 import { useNotificationStore } from "@/store/notificationStore";
 
 function getStatusVariant(status) {
@@ -1322,8 +1323,8 @@ export default function ProxyPoolsPage() {
                 label="Regions (comma-separated ISO-2, empty for any)"
                 value={formData.regions}
                 onChange={(e) => setFormData((prev) => ({ ...prev, regions: e.target.value }))}
-                placeholder="US, CA, NL, DE, GB"
-                hint="Egress country codes to select from. Leave empty to allow any available region."
+                placeholder={PSIPHON_SELECTABLE_REGIONS.join(", ")}
+                hint={`Egress country codes to select from (e.g. ${PSIPHON_SELECTABLE_REGIONS.join(", ")}). Any valid ISO-2 code is accepted; leave empty to allow any available region.`}
               />
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <Input

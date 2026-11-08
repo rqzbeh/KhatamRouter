@@ -59,16 +59,26 @@ ENV DATA_DIR_ALLOW_TEMP=1
 # Next.js build execution under Bun
 RUN bun run build
 
-# Download prebuilt Psiphon ConsoleClient sidecar (regionhop release)
+# Download prebuilt Psiphon ConsoleClient sidecar (regionhop release).
+# Pinned to an exact release plus per-arch SHA-256. Source of truth for these
+# values is src/lib/network/psiphon/regionhopRelease.json; the upstream project
+# publishes no checksums, so the hashes are recorded in-repo and
+# tests/unit/regionhop-release-pin.test.js fails if these ARGs drift from it.
+ARG REGIONHOP_VERSION=v1.27.0
+ARG REGIONHOP_SHA256_AMD64=ff309a82f54500feb4a200590022a9ea4e8cd22de074f4cc332ed159723c5f77
+ARG REGIONHOP_SHA256_ARM64=88ef27ca2ddb5cc33f3bfccd4732bbd7bca31039e7b9d6c25586b7955d12787b
 ARG TARGETARCH
 RUN set -eux; \
     ARCH="${TARGETARCH:-amd64}"; \
     case "$ARCH" in \
-      amd64) PSI_ARCH="amd64" ;; \
-      arm64) PSI_ARCH="arm64" ;; \
+      amd64) PSI_ARCH="amd64"; PSI_SHA="${REGIONHOP_SHA256_AMD64}" ;; \
+      arm64) PSI_ARCH="arm64"; PSI_SHA="${REGIONHOP_SHA256_ARM64}" ;; \
       *) echo "Unsupported architecture for ConsoleClient: $ARCH"; exit 1 ;; \
     esac; \
-    curl -fsSL "https://github.com/freeb5d/regionhop/releases/download/v1.26.0/regionhop-linux-${PSI_ARCH}.tar.gz" -o /tmp/psi.tar.gz; \
+    curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 \
+      "https://github.com/freeb5d/regionhop/releases/download/${REGIONHOP_VERSION}/regionhop-linux-${PSI_ARCH}.tar.gz" \
+      -o /tmp/psi.tar.gz; \
+    echo "${PSI_SHA}  /tmp/psi.tar.gz" | sha256sum -c -; \
     tar -C /usr/local/bin -xzf /tmp/psi.tar.gz ConsoleClient; \
     chmod 755 /usr/local/bin/ConsoleClient; \
     rm -f /tmp/psi.tar.gz; \

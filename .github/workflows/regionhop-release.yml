@@ -1,0 +1,186 @@
+name: Regionhop release bump
+
+# freeb5d/regionhop publishes no checksums/signatures, so a bump must be
+# reviewed by a human. This workflow only opens (or refreshes) a PR with the
+# new pinned version + measured hashes; it never auto-merges. Dependabot cannot
+# track GitHub release tarballs for this repo, hence the custom job.
+#
+# The single source of truth is src/lib/network/psiphon/regionhopRelease.json;
+# scripts/ci/regionhop-bump.mjs rewrites it plus the Dockerfile ARG lines.
+#
+# CI on the bump PR: a PR opened with the default GITHUB_TOKEN does NOT trigger
+# `pull_request` workflows (GitHub suppresses runs to avoid recursive loops), so
+# Verify will not start by itself. To get automatic CI, configure a GitHub App
+# installation token or fine-grained PAT as the REGIONHOP_BUMP_TOKEN secret; the
+# "Open or update pull request" step prefers it and falls back to GITHUB_TOKEN.
+# With the fallback, the run summary and PR body say plainly that CI did not
+# auto-run and a maintainer must re-run Verify. This workflow never claims that
+# review or CI passed.
+
+on:
+  schedule:
+    # Weekly, Mondays 05:41 UTC (off the top of the hour).
+    - cron: "41 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: regionhop-release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    name: Detect and PR new regionhop release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v7
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Check for a new release and rewrite pins
+        id: bump
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          out="$(bun scripts/ci/regionhop-bump.mjs)"
+          echo "$out"
+          if grep -qx 'NO_UPDATE_NEEDED' <<<"$out"; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          branch="$(sed -n 's/^BRANCH=//p' <<<"$out")"
+          title="$(sed -n 's/^TITLE=//p' <<<"$out")"
+          notes="$(sed -n 's/^NOTES=//p' <<<"$out")"
+          # Values are produced by our own script from a tag validated against
+          # ^v\d+\.\d+\.\d+$, never from upstream release body text, so none of
+          # them can inject shell.
+          {
+            echo "branch=$branch"
+            echo "title=$title"
+            echo "notes=$notes"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Select push token
+        id: token
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          APP_TOKEN: ${{ secrets.REGIONHOP_BUMP_TOKEN }}
+          DEFAULT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -n "${APP_TOKEN:-}" ]; then
+            echo "value=$APP_TOKEN" >> "$GITHUB_OUTPUT"
+            echo "ci_auto=true" >> "$GITHUB_OUTPUT"
+            echo "source=REGIONHOP_BUMP_TOKEN" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=$DEFAULT_TOKEN" >> "$GITHUB_OUTPUT"
+            echo "ci_auto=false" >> "$GITHUB_OUTPUT"
+            echo "source=GITHUB_TOKEN" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure git identity
+        if: steps.bump.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit and push bump branch
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          BRANCH: ${{ steps.bump.outputs.branch }}
+          PUSH_TOKEN: ${{ steps.token.outputs.value }}
+        run: |
+          set -euo pipefail
+          git switch -c "$BRANCH"
+          git add src/lib/network/psiphon/regionhopRelease.json Dockerfile Dockerfile.bun
+          git commit -m "deps: bump regionhop to ${BRANCH#deps/regionhop-}"
+          remote_url="https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git ls-remote --exit-code --heads "$remote_url" "$BRANCH" >/dev/null 2>&1; then
+            # Branch from an earlier run: refresh it under a lease pinned to the
+            # commit we just fetched, never an unqualified force push.
+            git fetch --no-tags "$remote_url" "$BRANCH"
+            git push --force-with-lease="refs/heads/$BRANCH:$(git rev-parse FETCH_HEAD)" "$remote_url" "$BRANCH"
+          else
+            git push "$remote_url" "$BRANCH"
+          fi
+
+      - name: Open or update pull request
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.value }}
+          BRANCH: ${{ steps.bump.outputs.branch }}
+          TITLE: ${{ steps.bump.outputs.title }}
+          NOTES: ${{ steps.bump.outputs.notes }}
+          CI_AUTO: ${{ steps.token.outputs.ci_auto }}
+        run: |
+          set -euo pipefail
+          tag="${BRANCH#deps/regionhop-}"
+          body_file="$RUNNER_TEMP/regionhop-pr-body.md"
+          {
+            echo "Automated bump of the pinned freeb5d/regionhop sidecar release."
+            echo
+            echo "- Release: ${NOTES}"
+            echo "- Pinned version: \`${tag}\`"
+            echo
+            echo '```json'
+            cat src/lib/network/psiphon/regionhopRelease.json
+            echo '```'
+            echo
+            echo "**Reviewer note:** upstream publishes no checksums or signatures, so these"
+            echo "SHA-256 values are trust-on-first-download. They detect corruption and"
+            echo "post-publication tampering but do not establish upstream provenance."
+            echo "Read the release notes above before merging. This PR is never auto-merged."
+            if [ "$CI_AUTO" != "true" ]; then
+              echo
+              echo "**CI note:** this PR was opened with the default \`GITHUB_TOKEN\`, which does"
+              echo "not trigger \`pull_request\` workflows. Verify has NOT run automatically."
+              echo "A maintainer must start it (\`gh workflow run verify.yml --ref ${BRANCH}\`,"
+              echo "or close/reopen the PR), or configure the \`REGIONHOP_BUMP_TOKEN\` secret"
+              echo "with an App/PAT token so future bump PRs trigger CI on their own."
+            fi
+          } > "$body_file"
+          if gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
+            gh pr edit "$BRANCH" --title "$TITLE" --body-file "$body_file"
+          else
+            gh pr create --base master --head "$BRANCH" --title "$TITLE" --body-file "$body_file"
+          fi
+
+      - name: Write job summary
+        if: always()
+        env:
+          CHANGED: ${{ steps.bump.outputs.changed }}
+          BRANCH: ${{ steps.bump.outputs.branch }}
+          CI_AUTO: ${{ steps.token.outputs.ci_auto }}
+          TOKEN_SOURCE: ${{ steps.token.outputs.source }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Regionhop release bump"
+            echo ""
+            if [ "${CHANGED:-}" = "true" ]; then
+              echo "- Branch: \`${BRANCH}\`"
+              echo "- Push token: \`${TOKEN_SOURCE:-unknown}\`"
+              if [ "${CI_AUTO:-}" = "true" ]; then
+                echo "- Result: PR opened/updated; CI can trigger from the App/PAT token. Never auto-merged."
+              else
+                echo "- Result: PR opened/updated with GITHUB_TOKEN, so **Verify did NOT run automatically**."
+                echo "  A maintainer must dispatch Verify on \`${BRANCH}\` or close/reopen the PR."
+              fi
+            else
+              echo "- Result: no update needed."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
