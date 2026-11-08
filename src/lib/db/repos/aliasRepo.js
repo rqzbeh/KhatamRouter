@@ -90,7 +90,10 @@ export async function getCustomModels() {
 
 // Atomic upsert inside transaction to prevent duplicate races.
 // Re-adding an existing model updates caps/name/transport without resetting omitted fields.
-export async function addCustomModel({ providerAlias, id, type = "llm", name, caps, transport }) {
+// `source: "import"` marks a row the model importer created, so the importer may
+// later remove it. It is only ever written on insert; editing a row never clears
+// or adds it, and a hand-added row can never be retagged as an import.
+export async function addCustomModel({ providerAlias, id, type = "llm", name, caps, transport, source }) {
   const k = customKey(providerAlias, id, type);
   const db = await getAdapter();
   let added = false;
@@ -102,7 +105,7 @@ export async function addCustomModel({ providerAlias, id, type = "llm", name, ca
       db.run(`UPDATE kv SET value = ? WHERE scope = 'customModels' AND key = ?`, [stringifyJson(next), k]);
       return;
     }
-    const value = stringifyJson({ providerAlias, id, type, name: name || id, ...(caps ? { caps } : {}), ...(transport ? { transport } : {}) });
+    const value = stringifyJson({ providerAlias, id, type, name: name || id, ...(caps ? { caps } : {}), ...(transport ? { transport } : {}), ...(source === "import" ? { source: "import" } : {}) });
     db.run(`INSERT INTO kv(scope, key, value) VALUES('customModels', ?, ?)`, [k, value]);
     added = true;
   });
