@@ -45,6 +45,7 @@ import { rotate, recordUsage, shouldRotateOn } from "@/lib/network/psiphon/psiph
 import { classifyProxyFailure } from "@/lib/network/proxyHealthPolicy.js";
 import { markPoolUnfit } from "open-sse/services/proxyPoolFitness.js";
 import { isLocalRequest } from "@/dashboardGuard.js";
+import { initializeOverrideCache } from "@/lib/models/overrideCache.js";
 
 /**
  * Resolve combo member cooldown caller scope.
@@ -70,6 +71,13 @@ export function resolveCooldownScope(request, { keyRecord = null, isTrustedInter
  * Format detection and translation handled by translator
  */
 export async function handleChat(request, clientRawRequest = null) {
+  try {
+    await initializeOverrideCache();
+  } catch (err) {
+    log.error("CHAT", `Failed to initialize capability override cache: ${err.message}`);
+    return errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, "Capability cache unavailable; fail-closed");
+  }
+
   let body;
   try {
     body = await request.json();

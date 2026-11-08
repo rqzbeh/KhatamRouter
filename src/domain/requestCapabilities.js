@@ -8,6 +8,9 @@
  */
 
 import { getCapabilitiesForModel } from "open-sse/providers/capabilities.js";
+import { resolveModelCapabilities } from "@/lib/models/capabilities.js";
+import { getOverrideSourcesSync } from "@/lib/models/overrideCache.js";
+import { resolveProviderAlias } from "open-sse/services/model.js";
 
 /** Hard capability requirements that must fail closed when unmet. */
 export const HARD_CAPABILITY_REASONS = new Set(["vision", "tools", "output_tokens"]);
@@ -184,7 +187,7 @@ export function deriveRequestRequirements(body) {
 /**
  * Resolve capability descriptor for a target model string or object.
  */
-function resolveCaps(target) {
+export function resolveCaps(target) {
   if (!target) return { vision: false, tools: false, contextWindow: 0, maxOutput: 0 };
 
   if (typeof target === "object") {
@@ -200,8 +203,25 @@ function resolveCaps(target) {
 
   const modelStr = typeof target === "string" ? target : target.modelStr || target.id || "";
   const slash = modelStr.indexOf("/");
-  const provider = slash > 0 ? modelStr.slice(0, slash) : "";
+  const rawProvider = slash > 0 ? modelStr.slice(0, slash) : "";
   const model = slash > 0 ? modelStr.slice(slash + 1) : modelStr;
+  const provider = resolveProviderAlias(rawProvider);
+
+  try {
+    const sources = getOverrideSourcesSync();
+    if (sources && sources.ready) {
+      const resolved = resolveModelCapabilities({ provider, model }, sources);
+      return {
+        vision: Boolean(resolved.supportsVision),
+        tools: Boolean(resolved.supportsTools),
+        contextWindow: resolved.contextWindow || 0,
+        maxOutput: resolved.maxOutputTokens || 0,
+      };
+    }
+  } catch {
+    // Fail-open to static capabilities
+  }
+
   return getCapabilitiesForModel(provider, model);
 }
 

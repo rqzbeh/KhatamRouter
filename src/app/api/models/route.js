@@ -3,11 +3,19 @@ import { getModelAliases, setModelAlias, getCustomModels } from "@/models";
 import { getDisabledModels } from "@/lib/disabledModelsDb";
 import { AI_MODELS } from "@/shared/constants/config";
 import { getProviderAlias, ALIAS_TO_ID } from "@/shared/constants/providers";
-import { getCapabilitiesForModel } from "open-sse/providers/capabilities.js";
+import { initializeOverrideCache, getOverrideSourcesSync } from "@/lib/models/overrideCache.js";
+import { resolveModelCapabilities } from "@/lib/models/capabilities.js";
 
 // GET /api/models - Get models with aliases
 export async function GET() {
   try {
+    try {
+      await initializeOverrideCache();
+    } catch (err) {
+      console.warn("[api/models] Failed to initialize override cache:", err.message);
+    }
+
+    const sources = getOverrideSourcesSync();
     const modelAliases = await getModelAliases();
     const disabled = await getDisabledModels();
 
@@ -21,18 +29,27 @@ export async function GET() {
         const fullModel = `${m.provider}/${m.model}`;
         const providerAlias = getProviderAlias(m.provider) || m.provider;
         const routedModel = `${providerAlias}/${m.model}`;
-        const c = getCapabilitiesForModel(m.provider, m.model);
+        const resolved = resolveModelCapabilities({ provider: m.provider, model: m.model }, sources);
         return {
           ...m,
           fullModel,
           routedModel,
           alias: modelAliases[fullModel] || m.model,
           caps: {
-            vision: c.vision,
-            search: c.search,
-            reasoning: c.reasoning,
-            contextWindow: c.contextWindow,
-            maxOutput: c.maxOutput,
+            vision: resolved.supportsVision,
+            search: resolved.supportsSearch ?? false,
+            reasoning: resolved.supportsReasoning,
+            contextWindow: resolved.contextWindow,
+            maxOutput: resolved.maxOutputTokens,
+            supportsVision: resolved.supportsVision,
+            supportsTools: resolved.supportsTools,
+            supportsReasoning: resolved.supportsReasoning,
+            supportsAudio: resolved.supportsAudio,
+            supportsVideo: resolved.supportsVideo,
+            supportsStreaming: resolved.supportsStreaming,
+            thinkingFormat: resolved.thinkingFormat || null,
+            provenance: resolved.provenance,
+            source: resolved.source,
           },
         };
       });
@@ -56,7 +73,7 @@ export async function GET() {
     for (const m of customModels) {
       const fullModel = `${m.providerAlias}/${m.id}`;
       const providerId = ALIAS_TO_ID[m.providerAlias] || m.providerAlias;
-      const c = getCapabilitiesForModel(providerId, m.id);
+      const resolved = resolveModelCapabilities({ provider: providerId, model: m.id }, sources);
       models.push({
         provider: m.providerAlias,
         model: m.id,
@@ -65,12 +82,21 @@ export async function GET() {
         routedModel: fullModel,
         alias: modelAliases[fullModel] || m.id,
         caps: {
-          vision: c.vision,
-          search: c.search,
-          reasoning: c.reasoning,
-          contextWindow: c.contextWindow,
-          maxOutput: c.maxOutput,
+          vision: resolved.supportsVision,
+          search: resolved.supportsSearch ?? false,
+          reasoning: resolved.supportsReasoning,
+          contextWindow: resolved.contextWindow,
+          maxOutput: resolved.maxOutputTokens,
+          supportsVision: resolved.supportsVision,
+          supportsTools: resolved.supportsTools,
+          supportsReasoning: resolved.supportsReasoning,
+          supportsAudio: resolved.supportsAudio,
+          supportsVideo: resolved.supportsVideo,
+          supportsStreaming: resolved.supportsStreaming,
+          thinkingFormat: resolved.thinkingFormat || null,
           ...(m.caps || {}),
+          provenance: resolved.provenance,
+          source: resolved.source,
         },
       });
     }
