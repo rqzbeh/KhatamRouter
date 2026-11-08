@@ -184,6 +184,9 @@ export async function importProviderModels({
   const { rawList, invalid: rawInvalid } = inspectRawListing(discovery);
   const authoritative = isAuthoritative(discovery);
   const normalized = normalizeDiscoveredModels(rawList, provider);
+  const discoveredTypeById = new Map(
+    normalized.map((m) => [m.id, m.raw?.type || m.raw?.kind || "llm"]),
+  );
 
   const previousRows = await fetchAllImportedModels(repo, { provider, connectionId, lifecycle: "active" });
   const isCapped = Boolean(previousRows.capped);
@@ -261,7 +264,7 @@ export async function importProviderModels({
     await repo.addCustomModel({
       providerAlias,
       id: m.id,
-      type: "llm",
+      type: discoveredTypeById.get(m.id) || prior?.type || "llm",
       name: m.name,
       caps: toCustomCaps(m.capabilities),
       source: "import",

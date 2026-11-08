@@ -19,6 +19,21 @@ import { ANTIGRAVITY_OAUTH_CLIENT } from "open-sse/providers/shared.js";
 import codexProvider from "open-sse/providers/registry/codex.js";
 import clineProvider from "open-sse/providers/registry/cline.js";
 import antigravityProvider from "open-sse/providers/registry/antigravity.js";
+import { proxyAwareFetch } from "open-sse/utils/proxyFetch.js";
+import {
+  isSignalPresent,
+  hasOpenAIPaginationSignal,
+  evaluateOpenAIListing,
+  validateCloudflareAccountId,
+  mapCloudflareModelRow,
+  validateAntigravityComplete,
+  hasConfiguredProxyEgress,
+  validateProxySupport,
+  sanitizeNoKeys,
+  MAX_PAGINATION_PAGES,
+  MAX_PAGINATION_RECORDS,
+  MAX_PAGINATION_DEADLINE_MS,
+} from "@/lib/models/listingCompleteness.js";
 
 const GEMINI_CLI_MODELS_URL = "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels";
 const ANTIGRAVITY_MODELS_URL = "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels";
@@ -27,28 +42,44 @@ const ANTIGRAVITY_MODELS_URL = "https://cloudcode-pa.googleapis.com/v1internal:f
 const CODEX_MODELS_URL = `https://chatgpt.com/backend-api/codex/models?client_version=${codexProvider.transport.cliVersion}`;
 
 const parseOpenAIStyleModels = (data) => {
-  if (Array.isArray(data)) return data;
-  return data?.data || data?.models || data?.results || [];
+  const list = Array.isArray(data)
+    ? data
+    : (data?.data || data?.models || data?.results || []);
+  if (!Array.isArray(list)) return [];
+  return list.map((item) => {
+    if (!item || typeof item !== "object") return item;
+    const id = item.id || item.name;
+    if (!id) return item;
+    return {
+      ...item,
+      id,
+      name: item.name || id,
+    };
+  });
 };
 
 const parseGeminiCliModels = (data) => {
   if (Array.isArray(data?.models)) {
-    return data.models
-      .map((item) => {
-        const id = item?.id || item?.model || item?.name;
-        if (!id) return null;
-        return { id, name: item?.displayName || item?.name || id };
-      })
-      .filter(Boolean);
+    return data.models.map((item) => {
+      if (!item || typeof item !== "object") return item;
+      const id = item?.id || item?.model || item?.name;
+      if (!id) return item;
+      return { ...item, id, name: item?.displayName || item?.name || id, raw: item };
+    });
   }
 
   if (data?.models && typeof data.models === "object") {
     return Object.entries(data.models)
       .filter(([, info]) => !info?.isInternal)
-      .map(([id, info]) => ({
-        id,
-        name: info?.displayName || info?.name || id,
-      }));
+      .map(([id, info]) => {
+        if (!id || typeof info !== "object" || info === null) return info;
+        return {
+          ...info,
+          id,
+          name: info?.displayName || info?.name || id,
+          raw: info,
+        };
+      });
   }
 
   return [];
@@ -57,11 +88,11 @@ const parseGeminiCliModels = (data) => {
 // Filter out inline tab-completion slots while keeping all real models
 // (including those backed by MODEL_PLACEHOLDER_* upstream slots).
 const parseAntigravityModels = (data) =>
-  parseGeminiCliModels(data).filter((model) => !model.id.startsWith("tab_"));
+  parseGeminiCliModels(data).filter((model) => !model?.id || typeof model.id !== "string" || !model.id.startsWith("tab_"));
 
 const appendCodexReviewModels = (models) => models.flatMap((model) => {
   const id = model?.id || model?.slug || model?.model || model?.name;
-  if (!id) return [];
+  if (!id) return [model];
   const name = model?.display_name || model?.displayName || model?.name || id;
   const normalized = { ...model, id, name };
   const isChatModel = (model?.type || "llm") !== "image" && !id.toLowerCase().includes("embed");
@@ -86,6 +117,7 @@ const createOpenAIModelsConfig = (url) => ({
   headers: { "Content-Type": "application/json" },
   authHeader: "Authorization",
   authPrefix: "Bearer ",
+  listingShape: "openai",
   parseResponse: parseOpenAIStyleModels
 });
 
@@ -110,16 +142,21 @@ const getStaticProviderModels = (providerId) =>
 // Same budget as the canonical fetchModelsFetcherIds helper. A timeout surfaces
 // as an AbortError and takes the existing fall-to-static path.
 const MODELS_FETCH_TIMEOUT_MS = 8000;
-const timedFetch = (url, options = {}) =>
-  fetch(url, { ...options, signal: options.signal || AbortSignal.timeout(MODELS_FETCH_TIMEOUT_MS) });
+const timedFetch = (url, options = {}, proxyOptions = null, callerSignal = null) => {
+  const fetchSignals = [AbortSignal.timeout(MODELS_FETCH_TIMEOUT_MS)];
+  if (callerSignal) fetchSignals.push(callerSignal);
+  const signal = options.signal || AbortSignal.any(fetchSignals);
+  return proxyAwareFetch(url, { ...options, signal }, proxyOptions);
+};
 
 // Generic custom resolver for OAuth providers that need refresh-on-401 + token persist.
 // Receives a `fetchFn(token)` and returns parsed models or throws.
-const buildOAuthResolver = ({ refreshFn, fetchFn, parseFn, errorLabel }) => async (connection) => {
-  const { accessToken, refreshToken } = connection;
+const buildOAuthResolver = ({ refreshFn, fetchFn, parseFn, validateComplete, errorLabel }) => async (connection) => {
+  const { accessToken, refreshToken, apiKey } = connection;
   if (!accessToken) {
     return { error: "No valid token found", status: 401 };
   }
+  const scrubKeys = [accessToken, refreshToken, apiKey].filter(Boolean);
   let warning;
   try {
     let response = await fetchFn(accessToken, connection);
@@ -139,17 +176,19 @@ const buildOAuthResolver = ({ refreshFn, fetchFn, parseFn, errorLabel }) => asyn
     if (response.ok) {
       const data = await response.json();
       const models = parseFn(data);
-      if (models.length > 0) return { models };
+      const isComplete = typeof validateComplete === "function" ? Boolean(validateComplete(data)) : false;
+      if (models.length > 0) return { models, complete: isComplete };
     } else {
-      const errorText = await response.text();
-      warning = `${errorLabel}: ${response.status} ${errorText}`;
-      console.log(`${errorLabel} (falling back to static):`, errorText);
+      // Never log raw HTTP error body to prevent token reflection; record status only
+      warning = `${errorLabel}: HTTP ${response.status}`;
+      console.log(`${errorLabel} (falling back to static): HTTP ${response.status}`);
     }
   } catch (error) {
-    warning = `${errorLabel}: ${error.message}`;
-    console.log(`${errorLabel} (falling back to static):`, error.message);
+    const sanitizedMsg = sanitizeNoKeys(error.message, scrubKeys);
+    warning = `${errorLabel}: ${sanitizedMsg}`;
+    console.log(`${errorLabel} (falling back to static):`, sanitizedMsg);
   }
-  return { models: [], warning };
+  return { models: [], complete: false, warning };
 };
 
 // Qoder shares one resolver across intl (qoder) and CN (qoder-cn); the
@@ -197,13 +236,14 @@ function buildQoderModelsResolver(providerId) {
 
 // Provider models endpoints configuration
 const PROVIDER_MODELS_CONFIG = {
-  "muse": {
+  muse: {
     url: "https://api.meta.ai/v1/models",
     method: "GET",
     headers: { "Content-Type": "application/json", "x-api-version": "1.0.0" },
     authHeader: "Authorization",
     authPrefix: "Bearer ",
-    parseResponse: (data) => data.data || [],
+    listingShape: "openai",
+    parseResponse: parseOpenAIStyleModels,
   },
   claude: {
     url: "https://api.anthropic.com/v1/models",
@@ -213,6 +253,7 @@ const PROVIDER_MODELS_CONFIG = {
       "Content-Type": "application/json"
     },
     authHeader: "x-api-key",
+    listingShape: "anthropic",
     parseResponse: (data) => data.data || []
   },
   gemini: {
@@ -220,6 +261,7 @@ const PROVIDER_MODELS_CONFIG = {
     method: "GET",
     headers: { "Content-Type": "application/json" },
     authQuery: "key", // Use query param for API key
+    listingShape: "gemini",
     parseResponse: (data) => data.models || []
   },
   codex: {
@@ -258,6 +300,7 @@ const PROVIDER_MODELS_CONFIG = {
         });
       },
       parseFn: parseAntigravityModels,
+      validateComplete: validateAntigravityComplete,
       errorLabel: "Failed to fetch Antigravity models"
     })
   },
@@ -302,6 +345,7 @@ const PROVIDER_MODELS_CONFIG = {
       "Content-Type": "application/json"
     },
     authHeader: "x-api-key",
+    listingShape: "anthropic",
     parseResponse: (data) => data.data || []
   },
 
@@ -311,6 +355,7 @@ const PROVIDER_MODELS_CONFIG = {
     headers: { "Content-Type": "application/json" },
     authHeader: "Authorization",
     authPrefix: "Bearer ",
+    listingShape: "openai",
     parseResponse: (data) => data.data || []
   },
   "alicode-intl": {
@@ -319,6 +364,7 @@ const PROVIDER_MODELS_CONFIG = {
     headers: { "Content-Type": "application/json" },
     authHeader: "Authorization",
     authPrefix: "Bearer ",
+    listingShape: "openai",
     parseResponse: (data) => data.data || []
   },
   "alims-intl": {
@@ -327,6 +373,7 @@ const PROVIDER_MODELS_CONFIG = {
     headers: { "Content-Type": "application/json" },
     authHeader: "Authorization",
     authPrefix: "Bearer ",
+    listingShape: "openai",
     parseResponse: (data) => data.data || []
   },
   "volcengine-ark": createOpenAIModelsConfig("https://ark.cn-beijing.volces.com/api/coding/v3/models"),
@@ -395,10 +442,21 @@ const PROVIDER_MODELS_CONFIG = {
   zed: {
     customResolver: async (connection) => {
       try {
+        const proxy = await resolveConnectionProxyConfig(connection.providerSpecificData || {});
         const result = await resolveZedModels({
           accessToken: connection.accessToken,
           providerSpecificData: connection.providerSpecificData || {},
-        }, { config: ZED_HOSTED_CONFIG, forceRefresh: true });
+        }, {
+          config: ZED_HOSTED_CONFIG,
+          forceRefresh: true,
+          proxyOptions: {
+            connectionProxyEnabled: proxy.connectionProxyEnabled === true,
+            connectionProxyUrl: proxy.connectionProxyUrl || "",
+            connectionNoProxy: proxy.connectionNoProxy || "",
+            vercelRelayUrl: proxy.vercelRelayUrl || "",
+            strictProxy: proxy.strictProxy === true,
+          },
+        });
         const models = (result?.models || [])
           .filter((m) => m && !m.isDisabled)
           .map((m) => ({
@@ -417,12 +475,13 @@ const PROVIDER_MODELS_CONFIG = {
             supportedEffortLevels: m.supportedEffortLevels || [],
             supportsStreamingTools: m.supportsStreamingTools,
             supportsParallelToolCalls: m.supportsParallelToolCalls,
+            raw: m,
           }));
-        if (models.length > 0) return { models };
-        return { models: [], warning: "Zed returned no live models." };
+        if (models.length > 0) return { models, complete: false };
+        return { models: [], complete: false, warning: "Zed returned no live models." };
       } catch (error) {
         console.log("Failed to fetch Zed models dynamically:", error.message);
-        return { models: [], warning: `Failed to fetch Zed models: ${error.message}` };
+        return { models: [], complete: false, warning: `Failed to fetch Zed models: ${error.message}` };
       }
     },
   },
@@ -590,54 +649,472 @@ function __respond(body, init) {
   return { body, status: init?.status ?? 200 };
 }
 
-function isSignalPresent(val) {
-  if (val === undefined || val === null || val === false || val === "" || val === 0) return false;
-  if (typeof val === "string") {
-    const s = val.trim().toLowerCase();
-    return s.length > 0 && s !== "false" && s !== "null" && s !== "undefined" && s !== "0";
+async function resolveCloudflareModels(connection, { callerSignal, proxyOptions } = {}) {
+  const accountId = connection.providerSpecificData?.accountId;
+  if (!accountId || typeof accountId !== "string" || !validateCloudflareAccountId(accountId)) {
+    return __respond(
+      { error: "Cloudflare discovery requires a valid accountId in providerSpecificData (alphanumeric, dashes, underscores, max 128 characters)" },
+      { status: 400 }
+    );
   }
-  if (typeof val === "number") return Number.isFinite(val) && val > 0;
-  if (Array.isArray(val)) return val.length > 0;
-  if (typeof val === "object") return Object.keys(val).length > 0;
-  return Boolean(val);
+
+  const token = connection.providerSpecificData?.apiToken || connection.apiKey || connection.accessToken;
+  if (!token) {
+    return __respond({ error: "No valid token found" }, { status: 401 });
+  }
+
+  const safeAccountId = encodeURIComponent(accountId.trim());
+  const baseUrl = `https://api.cloudflare.com/client/v4/accounts/${safeAccountId}/ai/models/search`;
+  const MAX_PAGES = MAX_PAGINATION_PAGES;
+  const totalDeadlineSignal = AbortSignal.timeout(MAX_PAGINATION_DEADLINE_MS);
+  let page = 1;
+  let pageCount = 0;
+  let totalPages = 1;
+  let complete = false;
+  let warning;
+  const allRows = [];
+  const seenPages = new Set();
+
+  while (page <= totalPages) {
+    pageCount++;
+    if (pageCount > MAX_PAGES) {
+      warning = `Cloudflare pagination reached maximum limit of ${MAX_PAGES} pages`;
+      complete = false;
+      break;
+    }
+    if (totalDeadlineSignal.aborted) {
+      warning = "Cloudflare pagination exceeded 30s deadline";
+      complete = false;
+      break;
+    }
+    if (callerSignal?.aborted) {
+      if (pageCount === 1) {
+        return __respond({ error: "Cloudflare model discovery canceled by caller" }, { status: 500 });
+      }
+      warning = "Cloudflare model discovery canceled by caller";
+      complete = false;
+      break;
+    }
+    if (seenPages.has(page)) {
+      warning = `Cloudflare pagination cycle detected for page ${page}`;
+      complete = false;
+      break;
+    }
+    seenPages.add(page);
+
+    const pageUrl = `${baseUrl}?page=${page}&per_page=100`;
+    const fetchSignals = [AbortSignal.timeout(MODELS_FETCH_TIMEOUT_MS), totalDeadlineSignal];
+    if (callerSignal) fetchSignals.push(callerSignal);
+    const combinedSignal = AbortSignal.any(fetchSignals);
+
+    let response;
+    try {
+      response = await proxyAwareFetch(pageUrl, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        signal: combinedSignal,
+      }, proxyOptions);
+    } catch (err) {
+      if (totalDeadlineSignal.aborted) {
+        warning = "Cloudflare pagination exceeded 30s deadline";
+        complete = false;
+        break;
+      }
+      if (callerSignal?.aborted) {
+        warning = "Cloudflare model discovery canceled by caller";
+        complete = false;
+        break;
+      }
+      if (pageCount === 1) {
+        return __respond({ error: sanitizeNoKeys(`Failed to fetch models: ${err.message}`, [token]) }, { status: 500 });
+      }
+      warning = sanitizeNoKeys(`Cloudflare pagination error on page ${page}: ${err.message}`, [token]);
+      complete = false;
+      break;
+    }
+
+    if (!response.ok) {
+      if (pageCount === 1) {
+        return __respond(
+          { error: `Failed to fetch models: ${response.status}` },
+          { status: response.status }
+        );
+      }
+      try { await response.body?.cancel?.(); } catch {}
+      warning = `Cloudflare pagination error on page ${page}: HTTP ${response.status}`;
+      complete = false;
+      break;
+    }
+
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      if (pageCount === 1) {
+        return __respond({ error: "Failed to parse models response" }, { status: 502 });
+      }
+      try { await response.body?.cancel?.(); } catch {}
+      warning = `Cloudflare pagination error on page ${page}: invalid JSON`;
+      complete = false;
+      break;
+    }
+
+    if (!Array.isArray(data?.result)) {
+      if (pageCount === 1) {
+        return __respond({ error: "Cloudflare models response lacked a result array" }, { status: 502 });
+      }
+      try { await response.body?.cancel?.(); } catch {}
+      warning = `Cloudflare pagination error on page ${page}: missing result array`;
+      complete = false;
+      break;
+    }
+
+    allRows.push(...data.result);
+
+    const ri = data.result_info;
+    if (ri && typeof ri.total_pages === "number" && Number.isFinite(ri.total_pages)) {
+      totalPages = ri.total_pages;
+    } else {
+      totalPages = page;
+    }
+
+    if (page >= totalPages) {
+      complete = true;
+      break;
+    }
+    page++;
+  }
+
+  const models = allRows.map(mapCloudflareModelRow);
+
+  return __respond({
+    provider: connection.provider,
+    connectionId: connection.id,
+    models,
+    complete,
+    completenessProvenance: complete ? "exhausted_numeric_pages" : "partial_numeric_pages",
+    ...(warning ? { warning } : {}),
+  });
 }
 
-function hasOpenAIPaginationSignal(data) {
-  if (!data || typeof data !== "object") return false;
-  // Strict or string 'true' has_more
-  if (data.has_more === true || (typeof data.has_more === "string" && data.has_more.trim().toLowerCase() === "true")) {
-    return true;
+async function resolveGeminiModels(connection, { callerSignal, proxyOptions } = {}) {
+  const token = connection.providerSpecificData?.apiKey || connection.apiKey || connection.accessToken;
+  if (!token) {
+    return __respond({ error: "No valid token found" }, { status: 401 });
   }
-  // Check any pagination cursor / link / token / page markers:
-  const candidateKeys = [
-    "next",
-    "next_page",
-    "next_cursor",
-    "nextPageToken",
-    "next_token",
-    "nextToken",
-    "cursor",
-    "after",
-    "after_id",
-  ];
-  for (const k of candidateKeys) {
-    if (isSignalPresent(data[k])) return true;
+
+  const baseUrl = "https://generativelanguage.googleapis.com/v1beta/models";
+  const MAX_PAGES = MAX_PAGINATION_PAGES;
+  const MAX_RECORDS = MAX_PAGINATION_RECORDS;
+  const totalDeadlineSignal = AbortSignal.timeout(MAX_PAGINATION_DEADLINE_MS);
+  let pageCount = 0;
+  let nextPageToken = null;
+  let complete = false;
+  let warning;
+  const allModels = [];
+  const seenTokens = new Set();
+
+  while (true) {
+    pageCount++;
+    if (pageCount > MAX_PAGES) {
+      warning = `Gemini pagination reached maximum limit of ${MAX_PAGES} pages`;
+      complete = false;
+      break;
+    }
+    if (totalDeadlineSignal.aborted) {
+      warning = "Gemini pagination exceeded 30s deadline";
+      complete = false;
+      break;
+    }
+    if (callerSignal?.aborted) {
+      if (pageCount === 1) {
+        return __respond({ error: "Gemini model discovery canceled by caller" }, { status: 500 });
+      }
+      warning = "Gemini model discovery canceled by caller";
+      complete = false;
+      break;
+    }
+
+    const params = new URLSearchParams({
+      key: token,
+      pageSize: "1000",
+    });
+    if (nextPageToken) {
+      params.set("pageToken", nextPageToken);
+    }
+
+    const pageUrl = `${baseUrl}?${params.toString()}`;
+    const fetchSignals = [AbortSignal.timeout(MODELS_FETCH_TIMEOUT_MS), totalDeadlineSignal];
+    if (callerSignal) fetchSignals.push(callerSignal);
+    const combinedSignal = AbortSignal.any(fetchSignals);
+
+    let response;
+    try {
+      response = await proxyAwareFetch(pageUrl, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+        signal: combinedSignal,
+      }, proxyOptions);
+    } catch (err) {
+      if (totalDeadlineSignal.aborted) {
+        warning = "Gemini pagination exceeded 30s deadline";
+        complete = false;
+        break;
+      }
+      if (callerSignal?.aborted) {
+        warning = "Gemini model discovery canceled by caller";
+        complete = false;
+        break;
+      }
+      if (pageCount === 1) {
+        return __respond({ error: sanitizeNoKeys(`Failed to fetch models: ${err.message}`, [token]) }, { status: 500 });
+      }
+      warning = sanitizeNoKeys(`Gemini pagination error on page ${pageCount}: ${err.message}`, [token]);
+      complete = false;
+      break;
+    }
+
+    if (!response.ok) {
+      if (pageCount === 1) {
+        return __respond(
+          { error: `Failed to fetch models: ${response.status}` },
+          { status: response.status }
+        );
+      }
+      try { await response.body?.cancel?.(); } catch {}
+      warning = `Gemini pagination error on page ${pageCount}: HTTP ${response.status}`;
+      complete = false;
+      break;
+    }
+
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      if (pageCount === 1) {
+        return __respond({ error: "Failed to parse models response" }, { status: 502 });
+      }
+      try { await response.body?.cancel?.(); } catch {}
+      warning = `Gemini pagination error on page ${pageCount}: invalid JSON`;
+      complete = false;
+      break;
+    }
+
+    if (!Array.isArray(data?.models)) {
+      if (pageCount === 1) {
+        return __respond({ error: "Gemini models response lacked a models array" }, { status: 502 });
+      }
+      try { await response.body?.cancel?.(); } catch {}
+      warning = `Gemini pagination error on page ${pageCount}: missing models array`;
+      complete = false;
+      break;
+    }
+
+    allModels.push(...data.models);
+
+    if (allModels.length >= MAX_RECORDS) {
+      warning = `Gemini pagination reached maximum record limit of ${MAX_RECORDS}`;
+      complete = false;
+      break;
+    }
+
+    const tokenFromData = typeof data.nextPageToken === "string" ? data.nextPageToken.trim() : null;
+    if (tokenFromData) {
+      if (seenTokens.has(tokenFromData)) {
+        warning = "Gemini pagination cycle detected: token already seen";
+        complete = false;
+        break;
+      }
+      seenTokens.add(tokenFromData);
+      nextPageToken = tokenFromData;
+    } else {
+      complete = true;
+      break;
+    }
   }
-  // Numeric pagination: e.g. page < total_pages
-  if (typeof data.page === "number" && typeof data.total_pages === "number" && data.page < data.total_pages) {
-    return true;
+
+  return __respond({
+    provider: connection.provider,
+    connectionId: connection.id,
+    models: allModels,
+    complete,
+    completenessProvenance: complete ? "exhausted_token_pages" : "partial_token_pages",
+    ...(warning ? { warning } : {}),
+  });
+}
+
+async function resolveNativeAnthropicModels(connection, { callerSignal, proxyOptions } = {}) {
+  const token = connection.providerSpecificData?.apiKey || connection.apiKey || connection.accessToken;
+  if (!token) {
+    return __respond({ error: "No valid token found" }, { status: 401 });
   }
-  // last_id present along with has_more signal
-  if (isSignalPresent(data.last_id) && data.has_more !== false) {
-    return true;
+
+  const baseUrl = "https://api.anthropic.com/v1/models";
+  const MAX_PAGES = MAX_PAGINATION_PAGES;
+  const totalDeadlineSignal = AbortSignal.timeout(MAX_PAGINATION_DEADLINE_MS);
+  let pageCount = 0;
+  let afterId = null;
+  let complete = false;
+  let warning;
+  const allModels = [];
+  const seenCursors = new Set();
+
+  while (true) {
+    pageCount++;
+    if (pageCount > MAX_PAGES) {
+      warning = `Anthropic pagination reached maximum limit of ${MAX_PAGES} pages`;
+      complete = false;
+      break;
+    }
+    if (totalDeadlineSignal.aborted) {
+      warning = "Anthropic pagination exceeded 30s deadline";
+      complete = false;
+      break;
+    }
+    if (callerSignal?.aborted) {
+      if (pageCount === 1) {
+        return __respond({ error: "Anthropic model discovery canceled by caller" }, { status: 500 });
+      }
+      warning = "Anthropic model discovery canceled by caller";
+      complete = false;
+      break;
+    }
+
+    const params = new URLSearchParams({ limit: "1000" });
+    if (afterId) {
+      params.set("after_id", afterId);
+    }
+    const pageUrl = `${baseUrl}?${params.toString()}`;
+    const fetchSignals = [AbortSignal.timeout(MODELS_FETCH_TIMEOUT_MS), totalDeadlineSignal];
+    if (callerSignal) fetchSignals.push(callerSignal);
+    const combinedSignal = AbortSignal.any(fetchSignals);
+
+    let response;
+    try {
+      response = await proxyAwareFetch(pageUrl, {
+        method: "GET",
+        headers: {
+          "Anthropic-Version": "2023-06-01",
+          "Content-Type": "application/json",
+          "x-api-key": token,
+        },
+        signal: combinedSignal,
+      }, proxyOptions);
+    } catch (err) {
+      if (totalDeadlineSignal.aborted) {
+        warning = "Anthropic pagination exceeded 30s deadline";
+        complete = false;
+        break;
+      }
+      if (callerSignal?.aborted) {
+        warning = "Anthropic model discovery canceled by caller";
+        complete = false;
+        break;
+      }
+      if (pageCount === 1) {
+        return __respond({ error: sanitizeNoKeys(`Failed to fetch models: ${err.message}`, [token]) }, { status: 500 });
+      }
+      warning = sanitizeNoKeys(`Anthropic pagination error on page ${pageCount}: ${err.message}`, [token]);
+      complete = false;
+      break;
+    }
+
+    if (!response.ok) {
+      if (pageCount === 1) {
+        return __respond(
+          { error: `Failed to fetch models: ${response.status}` },
+          { status: response.status }
+        );
+      }
+      try { await response.body?.cancel?.(); } catch {}
+      warning = `Anthropic pagination error on page ${pageCount}: HTTP ${response.status}`;
+      complete = false;
+      break;
+    }
+
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      if (pageCount === 1) {
+        return __respond({ error: "Failed to parse models response" }, { status: 502 });
+      }
+      try { await response.body?.cancel?.(); } catch {}
+      warning = `Anthropic pagination error on page ${pageCount}: invalid JSON`;
+      complete = false;
+      break;
+    }
+
+    const pageModels = Array.isArray(data?.data) ? data.data : (Array.isArray(data?.models) ? data.models : null);
+    if (!pageModels) {
+      if (pageCount === 1) {
+        return __respond({ error: "Anthropic models response lacked a models array" }, { status: 502 });
+      }
+      try { await response.body?.cancel?.(); } catch {}
+      warning = `Anthropic pagination error on page ${pageCount}: missing models array`;
+      complete = false;
+      break;
+    }
+
+    allModels.push(...pageModels);
+
+    if (data.has_more !== undefined && typeof data.has_more !== "boolean") {
+      warning = `Anthropic pagination error on page ${pageCount}: non-boolean has_more signal`;
+      complete = false;
+      break;
+    }
+
+    const hasAlternatePagination =
+      isSignalPresent(data.next) ||
+      isSignalPresent(data.next_page) ||
+      isSignalPresent(data.next_cursor) ||
+      isSignalPresent(data.nextPageToken) ||
+      isSignalPresent(data.cursor);
+
+    if (hasAlternatePagination) {
+      warning = `Anthropic pagination error on page ${pageCount}: unexpected alternate pagination signal present`;
+      complete = false;
+      break;
+    }
+
+    if (data.has_more === true) {
+      const nextLastId = typeof data.last_id === "string" ? data.last_id.trim() : "";
+      if (!nextLastId) {
+        warning = "Anthropic pagination has_more true but no valid last_id was provided";
+        complete = false;
+        break;
+      }
+      if (seenCursors.has(nextLastId)) {
+        warning = `Anthropic pagination cycle detected: cursor ${nextLastId} already seen`;
+        complete = false;
+        break;
+      }
+      seenCursors.add(nextLastId);
+      afterId = nextLastId;
+    } else {
+      complete = true;
+      break;
+    }
   }
-  return false;
+
+  return __respond({
+    provider: connection.provider,
+    connectionId: connection.id,
+    models: allModels,
+    complete,
+    completenessProvenance: complete ? "exhausted_cursor_chain" : "partial_cursor_chain",
+    ...(warning ? { warning } : {}),
+  });
 }
 
 // Shared by GET (list) and the import route: returns { body, status } instead of
 // a Response so callers can inspect the listing before deciding what to do.
-export async function resolveProviderModels(request, id) {
+export async function resolveProviderModels(request, id, { signal } = {}) {
   try {
+    const callerSignal = signal || request?.signal || null;
     const connection = await getProviderConnectionById(id);
 
     if (!connection) {
@@ -712,13 +1189,15 @@ export async function resolveProviderModels(request, id) {
       }
 
       try {
+        const gatewaySignals = [AbortSignal.timeout(MODELS_FETCH_TIMEOUT_MS)];
+        if (callerSignal) gatewaySignals.push(callerSignal);
         const response = await fetchGateway(url, {
           method: "GET",
           headers: {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${connection.apiKey}`,
           },
-          signal: AbortSignal.timeout(MODELS_FETCH_TIMEOUT_MS),
+          signal: AbortSignal.any(gatewaySignals),
         }, {
           isSelfHosted,
           allowInsecureTls,
@@ -746,6 +1225,7 @@ export async function resolveProviderModels(request, id) {
           connectionId: connection.id,
           models,
           complete,
+          completenessProvenance: complete ? "unpaginated_authoritative" : "partial_pagination_signal",
         });
       } catch (err) {
         const sanitized = sanitizeGatewayError(err, [connection.apiKey]);
@@ -854,10 +1334,12 @@ export async function resolveProviderModels(request, id) {
 
         let response;
         try {
+          const pageSignals = [AbortSignal.timeout(MODELS_FETCH_TIMEOUT_MS)];
+          if (callerSignal) pageSignals.push(callerSignal);
           response = await fetchGateway(pageUrl, {
             method: "GET",
             headers: gatewayHeaders,
-            signal: AbortSignal.timeout(MODELS_FETCH_TIMEOUT_MS),
+            signal: AbortSignal.any(pageSignals),
           }, gatewayTrust);
         } catch (err) {
           if (pageCount === 1) {
@@ -965,12 +1447,50 @@ export async function resolveProviderModels(request, id) {
         connectionId: connection.id,
         models: allModels,
         complete,
+        completenessProvenance: complete ? "exhausted_cursor_chain" : "partial_cursor_chain",
         ...(warning ? { warning } : {}),
       });
     }
 
+    // Resolve and validate proxy configuration for built-in and native providers.
+    // If proxy egress is configured and supported, proxyAwareFetch routes through the proxy.
+    // If proxy egress is configured with an unsupported type or failed resolution, fails closed with 503.
+    const supportsInternalProxy = connection.provider === "zed" || connection.provider === "grok-cli";
+    let proxyOptions = null;
+    if (!supportsInternalProxy) {
+      const proxy = await resolveConnectionProxyConfig(connection.providerSpecificData || {});
+      const proxyValidation = validateProxySupport(proxy, connection.providerSpecificData);
+      if (!proxyValidation.ok) {
+        return __respond({ error: proxyValidation.error }, { status: proxyValidation.status || 503 });
+      }
+      proxyOptions = proxyValidation.proxyOptions;
+    }
+
+    if (connection.provider === "cloudflare" || connection.provider === "cloudflare-ai") {
+      return resolveCloudflareModels(connection, { callerSignal, proxyOptions });
+    }
+
+    if (connection.provider === "gemini") {
+      return resolveGeminiModels(connection, { callerSignal, proxyOptions });
+    }
+
+    if (connection.provider === "anthropic" || connection.provider === "claude") {
+      return resolveNativeAnthropicModels(connection, { callerSignal, proxyOptions });
+    }
+
     const config = PROVIDER_MODELS_CONFIG[connection.provider];
     if (!config) {
+      const staticModels = getStaticProviderModels(connection.provider);
+      if (staticModels.length > 0) {
+        return __respond({
+          provider: connection.provider,
+          connectionId: connection.id,
+          models: staticModels,
+          complete: false,
+          completenessProvenance: "static_catalog_fallback",
+          warning: `Provider ${connection.provider} does not support dynamic model discovery; using static catalog.`,
+        });
+      }
       return __respond(
         { error: `Provider ${connection.provider} does not support models listing` },
         { status: 400 }
@@ -983,10 +1503,13 @@ export async function resolveProviderModels(request, id) {
       if (result.error) {
         return __respond({ error: result.error }, { status: result.status || 500 });
       }
+      const isComplete = result.complete === true;
       return __respond({
         provider: connection.provider,
         connectionId: connection.id,
         models: result.models,
+        complete: isComplete,
+        completenessProvenance: isComplete ? "proven_custom_resolver" : "unverified_custom_resolver",
         ...(result.warning ? { warning: result.warning } : {})
       });
     }
@@ -1000,7 +1523,7 @@ export async function resolveProviderModels(request, id) {
     // Build request URL
     let url = config.url;
     if (config.authQuery) {
-      url += `?${config.authQuery}=${token}`;
+      url += `?${config.authQuery}=${encodeURIComponent(token)}`;
     }
 
     // Build headers
@@ -1019,7 +1542,7 @@ export async function resolveProviderModels(request, id) {
       fetchOptions.body = JSON.stringify(config.body);
     }
 
-    const response = await timedFetch(url, fetchOptions);
+    const response = await timedFetch(url, fetchOptions, proxyOptions, callerSignal);
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -1031,12 +1554,36 @@ export async function resolveProviderModels(request, id) {
     }
 
     const data = await response.json();
-    const models = config.parseResponse(data);
+
+    if (config.listingShape === "openai") {
+      const evaluation = evaluateOpenAIListing(data);
+      let models;
+      if (!evaluation.recognized) {
+        models = [];
+      } else if (config.parseResponse && config.parseResponse !== parseOpenAIStyleModels) {
+        models = config.parseResponse(data);
+      } else {
+        models = evaluation.models;
+      }
+      return __respond({
+        provider: connection.provider,
+        connectionId: connection.id,
+        models,
+        complete: evaluation.complete,
+        completenessProvenance: evaluation.complete ? "unpaginated_authoritative" : (evaluation.recognized ? "partial_pagination_signal" : "unrecognized_shape"),
+        ...(evaluation.warning ? { warning: evaluation.warning } : {}),
+      });
+    }
+
+    const models = config.parseResponse ? config.parseResponse(data) : [];
 
     return __respond({
       provider: connection.provider,
       connectionId: connection.id,
-      models
+      models,
+      complete: false,
+      completenessProvenance: "unverified_config_shape",
+      warning: `Listing completeness not verified for provider ${connection.provider}`,
     });
   } catch (error) {
     console.log("Error fetching provider models:", error);
