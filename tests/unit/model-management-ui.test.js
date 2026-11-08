@@ -1,13 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import React from "react";
-import { createRequire } from "node:module";
+import ReactTestRenderer, { act } from "react-test-renderer";
 
-const req = createRequire(import.meta.url);
-const ReactTestRenderer = req("react-test-renderer");
-const { act } = ReactTestRenderer;
-
-const ModelManagementPanel = req("../../src/app/(dashboard)/dashboard/providers/[id]/ModelManagementPanel.js").default;
-const ModelOverrideModal = req("../../src/app/(dashboard)/dashboard/providers/[id]/ModelOverrideModal.js").default;
+import ModelManagementPanel from "@/app/(dashboard)/dashboard/providers/[id]/ModelManagementPanel.js";
+import ModelOverrideModal from "@/app/(dashboard)/dashboard/providers/[id]/ModelOverrideModal.js";
+import ModelRow from "@/app/(dashboard)/dashboard/providers/[id]/ModelRow.js";
 
 // Enable React act() testing environment
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -671,7 +668,6 @@ describe("Model Management UI Slice (Spec 017)", () => {
 
   describe("Feature 5: ModelRow Capabilities Integration", () => {
     it("renders onEditCaps button in ModelRow and triggers callback with model id", async () => {
-      const ModelRow = req("../../src/app/(dashboard)/dashboard/providers/[id]/ModelRow.js").default;
       const onEditCapsSpy = vi.fn();
 
       let renderer;
