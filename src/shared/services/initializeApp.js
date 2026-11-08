@@ -61,6 +61,11 @@ export async function initializeApp() {
         try { removeAllDNSEntriesSync(); } catch { /* best effort */ }
         try { killAllBridges(); } catch { /* best effort */ }
         try { killCloudflared(); } catch { /* best effort */ }
+        try {
+          if (globalThis.__modelSyncScheduler) {
+            globalThis.__modelSyncScheduler.stop();
+          }
+        } catch { /* best effort */ }
       };
       const onSignal = () => {
         if (!lifecycleOwned) {
@@ -146,6 +151,13 @@ async function runHeavyStartup() {
   import("@/sse/services/backgroundTokenRefresh.js")
     .then(({ startBackgroundTokenRefresh }) => startBackgroundTokenRefresh())
     .catch((e) => console.log("[BackgroundTokenRefresh] scheduler start failed:", e.message));
+
+  // Automatic provider model sync scheduler (Spec 017)
+  if (process.env.NEXT_PHASE !== "phase-production-build") {
+    import("@/lib/models/providerSyncRuntime.js")
+      .then(({ startModelSyncScheduler }) => startModelSyncScheduler())
+      .catch((e) => console.log("[ModelSync] scheduler start failed:", e?.message || e));
+  }
 }
 
 // Cheap local check: keeps the scheduler module (and its provider graph) unloaded
