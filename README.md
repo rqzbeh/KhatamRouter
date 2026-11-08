@@ -104,6 +104,7 @@ KhatamRouter is initialized from [decolua/9router](https://github.com/decolua/9r
 - **⬆️ Upstream-Synced (9router 0.5.112)**: Tracks decolua/9router at v0.5.112 with fork hardening (restored DeepSeek PoW input bounds, hardened MiniMax desktop lease broker, loopback-only lease routes). Per-commit audit in `docs/UPSTREAM-PORTS.md`.
 - **🌐 Rotating Psiphon Proxy Pool**: Keeps OpenCode Free (or any pool-bound provider) off flagged IPs: holds a lowest-latency Psiphon tunnel and rotates to a new IP and country on 429 / `FreeTierError` / transport failure. Fail-closed, operator-supplied GPL-3.0 sidecar, see `docs/PSIPHON.md`.
 - **🔁 LoopGuard Protection**: Detects repetitive tool-calling cycles and repeating assistant messages using an opt-in sliding window in `open-sse/utils/loopGuard.js`.
+- **⚡ Prompt Combo Quota Failover**: Bypasses transient 5xx outage delay for explicit quota exhaustion errors (nested 429, daily limits), promptly trying the next eligible combo candidate while preserving outer status and Retry-After headers (PR #130; configurable member cooldowns and model import remain pending).
 - **🔐 Resilient Persistence & Clustering**: Zero-dependency `bun:sqlite` with WAL mode and preflight integrity validation. Optional Redis provides cross-worker event broadcasting and distributed progressive login limiting.
 - **📊 Real-Time Dashboard**: Web interface for API keys, model combos, provider nodes, OAuth authentication, usage metrics, and CLI tooling integration.
 
