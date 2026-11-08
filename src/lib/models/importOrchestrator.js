@@ -147,6 +147,7 @@ function overridesByModel(rows) {
  *                                        getCustomModels, addCustomModel, deleteCustomModel }
  * @param {Record<string,object>} [args.enrichment]
  * @param {boolean} [args.dryRun]
+ * @param {AbortSignal} [args.signal]  checked before reconcile and before any write
  */
 export async function importProviderModels({
   provider,
@@ -156,6 +157,7 @@ export async function importProviderModels({
   repo,
   enrichment = {},
   dryRun = false,
+  signal,
 }) {
   if (!provider || !providerAlias || !connectionId || typeof discover !== "function" || !repo) {
     throw new Error("importProviderModels: provider, providerAlias, connectionId, discover and repo are required");
@@ -174,6 +176,9 @@ export async function importProviderModels({
   }
   if (discovery?.error) {
     return { ok: false, status: discovery.status || 502, error: discovery.error };
+  }
+  if (signal?.aborted) {
+    return { ok: false, status: 499, error: "Import aborted before reconcile" };
   }
 
   const { rawList, invalid: rawInvalid } = inspectRawListing(discovery);
@@ -230,6 +235,9 @@ export async function importProviderModels({
     dryRun: Boolean(dryRun),
   };
   if (dryRun) return summary;
+  if (signal?.aborted) {
+    return { ok: false, status: 499, error: "Import aborted before write" };
+  }
 
   const upserts = [...result.add, ...result.update].map((m) => ({
     modelId: m.id,
