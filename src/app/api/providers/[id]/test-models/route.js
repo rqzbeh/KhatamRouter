@@ -58,7 +58,12 @@ export async function POST(request, { params }) {
       results.push(...restResults);
     }
 
-    return NextResponse.json({ provider: providerId, connectionId: id, results });
+    return NextResponse.json({
+      provider: providerId,
+      connectionId: id,
+      executionScope: "provider",
+      results,
+    });
   } catch (error) {
     console.log("Error testing models:", error);
     return NextResponse.json({ error: "Test failed" }, { status: 500 });
