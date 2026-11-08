@@ -120,6 +120,47 @@ describe("regionhop-bump pure rewrite", () => {
   });
 });
 
+describe("regionhop bump workflow shape", () => {
+  const workflow = fs.readFileSync(path.join(REPO_ROOT, ".github/workflows/regionhop-release.yml"), "utf8");
+
+  it("never writes a secret into $GITHUB_OUTPUT or a command line", () => {
+    expect(workflow).not.toMatch(/echo\s+"?(value|token)=\$\{?\{?\s*secrets\./i);
+    expect(workflow).not.toMatch(/GITHUB_OUTPUT[\s\S]{0,80}secrets\.REGIONHOP_BUMP_TOKEN/);
+    expect(workflow).not.toMatch(/https:\/\/[^"'\s]*\$\{?\{?\s*secrets\./);
+    // The token only reaches steps as an env value.
+    expect(workflow).toContain("GH_TOKEN: ${{ secrets.REGIONHOP_BUMP_TOKEN || github.token }}");
+  });
+
+  it("does not force-push over an existing bump branch", () => {
+    expect(workflow).not.toMatch(/git push\s+--force/);
+    expect(workflow).toContain('existing=true');
+  });
+
+  it("declares workflow_dispatch so a maintainer can start Verify manually", () => {
+    expect(workflow).toMatch(/^  workflow_dispatch:$/m);
+    expect(fs.readFileSync(path.join(REPO_ROOT, ".github/workflows/verify.yml"), "utf8")).toMatch(
+      /^  workflow_dispatch:$/m
+    );
+  });
+
+  it("carries the required attribution footer on generated PR content", () => {
+    expect(workflow).toContain("Generated with [Claude Code](https://claude.com/claude-code)");
+    expect(workflow).toContain("Co-Authored-By: Claude Code <noreply@anthropic.com>");
+  });
+
+  it("keeps least-privilege workflow permissions", () => {
+    const block = workflow.slice(workflow.indexOf("permissions:"));
+    const perms = block.slice(0, block.indexOf("\n\n"));
+    expect(perms).toContain("contents: write");
+    expect(perms).toContain("pull-requests: write");
+    expect(perms).toContain("actions: write");
+    expect(workflow).not.toContain("permissions: write-all");
+    // Only the three needed scopes, each declared once.
+    const scopes = [...perms.matchAll(/^ {2}([\w-]+):/gm)].map((m) => m[1]);
+    expect(scopes.sort()).toEqual(["actions", "contents", "pull-requests"]);
+  });
+});
+
 describe("regionhop-bump release asset selection", () => {
   function releaseFor(version, { missing, size = 36_000_000 } = {}) {
     const assets = Object.entries(ASSET_NAMES)

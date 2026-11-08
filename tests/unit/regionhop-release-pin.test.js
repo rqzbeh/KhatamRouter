@@ -5,7 +5,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import regionhopRelease from "@/lib/network/psiphon/regionhopRelease.json" with { type: "json" };
-import { downloadAndVerify, sha256Hex } from "@/lib/network/psiphon/downloader.js";
+import { downloadAndVerify, sha256Hex, readBodyBounded } from "@/lib/network/psiphon/downloader.js";
 
 const REPO_ROOT = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const SHA_RE = /^[0-9a-f]{64}$/;
@@ -171,6 +171,146 @@ describe("downloader hash/size verification (loopback, no external network)", ()
       // repository root, tests/, or any other CWD-relative location.
       expect(path.dirname(installed)).toBe(targetDir);
       expect(installed.startsWith(REPO_ROOT + path.sep)).toBe(false);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("cancels an over-cap chunked body before buffering it and installs nothing", async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rh-overflow-"));
+    try {
+      // Client-side guarantee: the reader is cancelled as soon as the pinned
+      // cap is exceeded, so the peer is told to stop and nothing extra is kept.
+      let cancelled = false;
+      let pulled = 0;
+      const chunk = new Uint8Array(64 * 1024);
+      const stream = new ReadableStream({
+        pull(controller) {
+          pulled += 1;
+          controller.enqueue(chunk);
+        },
+        cancel() {
+          cancelled = true;
+        },
+      });
+      const fakeRes = { body: stream };
+      await expect(readBodyBounded(fakeRes, 1024)).rejects.toThrow(/exceeds size cap/);
+      expect(cancelled).toBe(true);
+      // Exactly one chunk was pulled; the second read that would exceed the cap
+      // never happens.
+      expect(pulled).toBe(1);
+
+      // End-to-end: the same cap stops a real loopback download and leaves no
+      // binary or temp install dir behind.
+      const server = Bun.serve({
+        port: 0,
+        fetch() {
+          const s = new ReadableStream({
+            pull(controller) {
+              controller.enqueue(chunk);
+            },
+          });
+          return new Response(s, { headers: { "content-type": "application/gzip" } });
+        },
+      });
+      try {
+        const targetDir = path.join(tmp, "bin");
+        await expect(
+          downloadAndVerify({
+            url: `http://127.0.0.1:${server.port}/asset.tar.gz`,
+            sha256: "0".repeat(64),
+            size: 1024,
+            arch: "amd64",
+            version: "v9.9.9",
+            targetDir,
+          })
+        ).rejects.toThrow(/exceeds size cap/);
+        expect(fs.existsSync(path.join(targetDir, "ConsoleClient"))).toBe(false);
+        const leftovers = fs.existsSync(targetDir) ? fs.readdirSync(targetDir) : [];
+        expect(leftovers.filter((f) => f.startsWith(".regionhop-install-"))).toEqual([]);
+      } finally {
+        server.stop(true);
+      }
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("never overwrites an existing user-managed ConsoleClient", async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rh-keep-"));
+    try {
+      const bytes = makeFixtureTarball(tmp);
+      const targetDir = path.join(tmp, "bin");
+      fs.mkdirSync(targetDir, { recursive: true });
+      const existing = path.join(targetDir, "ConsoleClient");
+      fs.writeFileSync(existing, "USER-MANAGED-BINARY", { mode: 0o755 });
+
+      let fetched = false;
+      const installed = await downloadAndVerify({
+        url: "http://127.0.0.1:1/never-called.tar.gz",
+        sha256: sha256Hex(bytes),
+        size: bytes.length,
+        arch: "amd64",
+        version: "v9.9.9",
+        targetDir,
+        fetchImpl: async () => {
+          fetched = true;
+          throw new Error("fetch must not run when a binary already exists");
+        },
+      });
+      expect(installed).toBe(existing);
+      expect(fetched).toBe(false);
+      expect(fs.readFileSync(existing, "utf8")).toBe("USER-MANAGED-BINARY");
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("concurrent installs converge on one valid binary without temp collisions", async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rh-race-"));
+    try {
+      const bytes = makeFixtureTarball(tmp);
+      const targetDir = path.join(tmp, "bin");
+      const sha = sha256Hex(bytes);
+      await withServer(bytes, async (url) => {
+        const results = await Promise.all([
+          downloadAndVerify({ url, sha256: sha, size: bytes.length, arch: "amd64", version: "v9.9.9", targetDir }),
+          downloadAndVerify({ url, sha256: sha, size: bytes.length, arch: "amd64", version: "v9.9.9", targetDir }),
+          downloadAndVerify({ url, sha256: sha, size: bytes.length, arch: "amd64", version: "v9.9.9", targetDir }),
+        ]);
+        for (const r of results) expect(r).toBe(path.join(targetDir, "ConsoleClient"));
+      });
+      const leftovers = fs.readdirSync(targetDir).filter((f) => f.startsWith(".regionhop-install-"));
+      expect(leftovers).toEqual([]);
+      expect(fs.readFileSync(path.join(targetDir, "ConsoleClient"), "utf8")).toContain("fake-console-client");
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a fetched body whose declared content-length disagrees with the pin", async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rh-clen-"));
+    try {
+      const bytes = makeFixtureTarball(tmp);
+      // A real Response would recompute content-length; exercise the header
+      // check with a minimal stand-in that reports a wrong declared length.
+      await expect(
+        downloadAndVerify({
+          url: "http://127.0.0.1:1/asset.tar.gz",
+          sha256: sha256Hex(bytes),
+          size: bytes.length,
+          arch: "amd64",
+          version: "v9.9.9",
+          targetDir: path.join(tmp, "bin"),
+          fetchImpl: async () => ({
+            ok: true,
+            status: 200,
+            headers: new Headers({ "content-length": String(bytes.length + 10) }),
+            arrayBuffer: async () => bytes,
+          }),
+        })
+      ).rejects.toThrow(/declared size mismatch/);
+      expect(fs.existsSync(path.join(tmp, "bin", "ConsoleClient"))).toBe(false);
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
