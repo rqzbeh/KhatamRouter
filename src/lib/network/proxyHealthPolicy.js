@@ -34,7 +34,19 @@ const ERROR_SCAN_CHARS = 2048;
 const NEVER_PROXY_FAULT = new Set([400, 401, 404, 409, 410, 422]);
 
 const TRANSPORT_PATTERN = /ECONNRESET|ETIMEDOUT|ECONNREFUSED|EHOSTUNREACH|connect timeout|socket hang up|proxy (?:error|connect|tunnel)/i;
-const REGION_PATTERN = /region|country|geo|not available in your|unsupported location|location is not supported|blocked in your/i;
+
+// Narrow explicit transport evidence for 403: truly CONNECT/tunnel fault,
+// never user text or error strings merely mentioning "proxy".
+const PROXY_TUNNEL_PATTERN = /(?:proxy|connect) tunnel (?:failed|error)|tunneling socket could not be established|failed to establish (?:a )?proxy tunnel|(?:proxy|tunnel) connect(?:ion)? failed|http connect failed/i;
+
+// Explicit regional access refusal. Words like "region", "country" or "geo"
+// alone are insufficient: only explicit phrases indicating regional access
+// is unavailable or unsupported qualify.
+const REGION_BLOCKED_PATTERN = /\b(?:not available|unavailable|not supported|blocked)\s+in\s+(?:your|this)\s+(?:region|country|territory|location)\b|\bunsupported\s+(?:location|region|country|territory)\b|\b(?:location|region|country|territory)\s+(?:is\s+)?not\s+supported\b/i;
+
+// Explicit source-IP denial phrases. Requires word boundary around IP token
+// so words like "membership" are never misclassified.
+const IP_BLOCKED_PATTERN = /\b(?:requests?\s+from\s+(?:this|your)\s+)?\bip(?:\s+address)?\s+(?:is|are|has\s+been)\s+blocked\b|\bip(?:\s+address)?\s+is\s+not\s+allowed\b/i;
 
 function defaults() {
   return { ...DEFAULT_PROXY_HEALTH, statuses: [...DEFAULT_PROXY_HEALTH.statuses] };
@@ -116,19 +128,27 @@ export function parseRetryAfterMs(headerValue, now = Date.now()) {
   return ms;
 }
 
-function kindFor(status, text) {
-  if (status === 429) return "rate_limit";
-  if (status === 451) return "region_blocked";
-  if (status === 403) return REGION_PATTERN.test(text) ? "region_blocked" : "forbidden";
-  if (status === 502 || status === 503 || status === 504) return "transport";
-  if (TRANSPORT_PATTERN.test(text)) return "transport";
-  return "other";
+function kindFor(status, text, listed = true) {
+  if (status === 403) {
+    if (listed && REGION_BLOCKED_PATTERN.test(text)) return "region_blocked";
+    if (listed && IP_BLOCKED_PATTERN.test(text)) return "egress_blocked";
+    if (PROXY_TUNNEL_PATTERN.test(text)) return "transport";
+    return null;
+  }
+  if (status === 429) return listed ? "rate_limit" : null;
+  if (status === 451) return listed ? "region_blocked" : null;
+  if (status === 502 || status === 503 || status === 504) {
+    return (listed || TRANSPORT_PATTERN.test(text)) ? "transport" : null;
+  }
+  if (TRANSPORT_PATTERN.test(text) || PROXY_TUNNEL_PATTERN.test(text)) return "transport";
+  if (listed) return "other";
+  return null;
 }
 
 const REASONS = Object.freeze({
   rate_limit: "rate limited through this proxy",
   region_blocked: "provider blocked this proxy's region",
-  forbidden: "provider refused this proxy (403)",
+  egress_blocked: "provider blocked this proxy's IP",
   transport: "proxy transport failure",
   other: "proxy failure",
 });
@@ -156,13 +176,13 @@ export function classifyProxyFailure({
 
   const text = typeof errorText === "string" ? errorText.slice(0, ERROR_SCAN_CHARS) : "";
   const listed = Number.isInteger(status) && policy.statuses.includes(status);
-  if (!listed && !TRANSPORT_PATTERN.test(text)) return null;
+  const kind = kindFor(status, text, listed);
+  if (!kind) return null;
 
   const retryAfterMs = parseRetryAfterMs(readHeader(headers, "retry-after"), now);
   let durationMs = Math.max(policy.cooldownMs, retryAfterMs ?? 0);
   if (durationMs > PROXY_HEALTH_LIMITS.maxCooldownMs) durationMs = PROXY_HEALTH_LIMITS.maxCooldownMs;
 
-  const kind = kindFor(status, text);
   return { scope: `${providerId.trim()}::*`, durationMs, kind, reason: REASONS[kind] };
 }
 
