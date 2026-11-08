@@ -79,15 +79,20 @@ describe("undici keep-alive dead-socket protection & fresh-socket retry", () => 
     expect(fresh1).not.toBe(direct1);
   });
 
-  it("classifies only provable dead-socket errors and excludes aborts/DNS/TLS/bare fetch failed", async () => {
-    const { isStaleSocketError } = await import("../../open-sse/utils/proxyFetch.js");
+  it("classifies only provable dead-socket errors and excludes aborts/DNS/TLS/bare fetch failed/headers timeout", async () => {
+    const { isStaleSocketError, isBodyReplaySafe } = await import("../../open-sse/utils/proxyFetch.js");
 
     expect(isStaleSocketError(Object.assign(new Error("fetch failed"), { cause: { code: "UND_ERR_SOCKET" } }))).toBe(true);
     expect(isStaleSocketError(Object.assign(new Error("fetch failed"), { cause: { code: "ECONNRESET" } }))).toBe(true);
     expect(isStaleSocketError(Object.assign(new Error("fetch failed"), { cause: { code: "EPIPE" } }))).toBe(true);
-    expect(isStaleSocketError(Object.assign(new Error("fetch failed"), { cause: { code: "UND_ERR_HEADERS_TIMEOUT" } }))).toBe(true);
     expect(isStaleSocketError(Object.assign(new Error("fetch failed"), { cause: new Error("other side closed") }))).toBe(true);
     expect(isStaleSocketError(new Error("socket hang up"))).toBe(true);
+
+    // UND_ERR_HEADERS_TIMEOUT means the request was already transmitted to upstream; replaying
+    // could bill twice or duplicate non-idempotent mutations. Must NEVER be treated as stale socket.
+    expect(isStaleSocketError(Object.assign(new Error("fetch failed"), { cause: { code: "UND_ERR_HEADERS_TIMEOUT" } }))).toBe(false);
+    expect(isStaleSocketError(Object.assign(new Error("socket hang up"), { cause: { code: "UND_ERR_HEADERS_TIMEOUT" } }))).toBe(false);
+    expect(isStaleSocketError(new Error("headers timeout"))).toBe(false);
 
     // A bare "fetch failed" with no code is ambiguous: the upstream may already have the
     // request, so replaying it could double-charge. Never treat it as a stale socket.
@@ -97,6 +102,19 @@ describe("undici keep-alive dead-socket protection & fresh-socket retry", () => 
     expect(isStaleSocketError(Object.assign(new Error("fetch failed"), { cause: { code: "ENOTFOUND" } }))).toBe(false);
     expect(isStaleSocketError(Object.assign(new Error("fetch failed"), { cause: { code: "SELF_SIGNED_CERT_IN_CHAIN" } }))).toBe(false);
     expect(isStaleSocketError(null)).toBe(false);
+
+    // isBodyReplaySafe allows only in-memory replayable payloads; rejects all streams/iterables
+    expect(isBodyReplaySafe(null)).toBe(true);
+    expect(isBodyReplaySafe(undefined)).toBe(true);
+    expect(isBodyReplaySafe("{\"prompt\":\"hello\"}")).toBe(true);
+    expect(isBodyReplaySafe(Buffer.from("hello"))).toBe(true);
+    expect(isBodyReplaySafe(new Uint8Array([1, 2, 3]))).toBe(true);
+    expect(isBodyReplaySafe(new ArrayBuffer(8))).toBe(true);
+    expect(isBodyReplaySafe(new URLSearchParams("a=1"))).toBe(true);
+
+    expect(isBodyReplaySafe(new ReadableStream())).toBe(false);
+    expect(isBodyReplaySafe({ pipe: () => {} })).toBe(false);
+    expect(isBodyReplaySafe({ [Symbol.asyncIterator]: () => {} })).toBe(false);
   });
 
   it("replays once on the fresh-socket dispatcher when a pooled socket dies", async () => {
@@ -181,6 +199,63 @@ describe("undici keep-alive dead-socket protection & fresh-socket retry", () => 
         body: "{}",
       })
     ).rejects.toThrow(/fetch failed/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not replay when request body is an unlocked WebStream or Node Readable stream", async () => {
+    const { Readable } = await import("stream");
+    const fetchMock = vi.fn().mockRejectedValue(
+      Object.assign(new Error("fetch failed"), { cause: { code: "UND_ERR_SOCKET" } })
+    );
+    await mockUndici(fetchMock);
+
+    const { proxyAwareFetch, resetDirectDispatchersForTests } = await import("../../open-sse/utils/proxyFetch.js");
+    resetDirectDispatchersForTests();
+
+    // 1. Unlocked WebStream must not be replayed
+    const webStream = new ReadableStream({
+      start(c) {
+        c.enqueue(new TextEncoder().encode("data"));
+        c.close();
+      },
+    });
+    expect(webStream.locked).toBe(false);
+
+    await expect(
+      proxyAwareFetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+        method: "POST",
+        body: webStream,
+      })
+    ).rejects.toThrow();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // 2. Node Readable stream must not be replayed
+    fetchMock.mockClear();
+    const nodeStream = Readable.from(["chunk1", "chunk2"]);
+    await expect(
+      proxyAwareFetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+        method: "POST",
+        body: nodeStream,
+      })
+    ).rejects.toThrow();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not replay when error is UND_ERR_HEADERS_TIMEOUT even if message mentions socket hang up", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(
+      Object.assign(new Error("socket hang up"), { cause: { code: "UND_ERR_HEADERS_TIMEOUT" } })
+    );
+    await mockUndici(fetchMock);
+
+    const { proxyAwareFetch, resetDirectDispatchersForTests } = await import("../../open-sse/utils/proxyFetch.js");
+    resetDirectDispatchersForTests();
+
+    await expect(
+      proxyAwareFetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+        method: "POST",
+        body: "{}",
+      })
+    ).rejects.toThrow(/socket hang up/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

@@ -150,6 +150,70 @@ describe("transport-019-safety: Strict proxy, bounded safe replay, caller cancel
       expect(fetchMock.mock.calls[1][1].dispatcher).toBe(freshAgent);
     });
 
+    it("never replays when request body is a stream (unlocked WebStream or Node Readable)", async () => {
+      const { Readable } = await import("stream");
+      const fetchMock = vi.fn().mockRejectedValue(
+        Object.assign(new Error("fetch failed"), { cause: { code: "UND_ERR_SOCKET" } })
+      );
+      await mockUndici(fetchMock);
+
+      const { proxyAwareFetch, resetDirectDispatchersForTests } = await import(
+        "../../open-sse/utils/proxyFetch.js"
+      );
+      resetDirectDispatchersForTests();
+
+      // Unlocked WebStream must NOT be replayed
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("hello"));
+          controller.close();
+        },
+      });
+      expect(stream.locked).toBe(false);
+
+      await expect(
+        proxyAwareFetch("https://api.deepseek.com/v1/chat/completions", {
+          method: "POST",
+          body: stream,
+        })
+      ).rejects.toThrow();
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // Node Readable must NOT be replayed
+      fetchMock.mockClear();
+      const nodeStream = Readable.from(["chunk"]);
+      await expect(
+        proxyAwareFetch("https://api.deepseek.com/v1/chat/completions", {
+          method: "POST",
+          body: nodeStream,
+        })
+      ).rejects.toThrow();
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("never replays on headers timeout even if error message contains 'socket hang up'", async () => {
+      const fetchMock = vi.fn().mockRejectedValue(
+        Object.assign(new Error("socket hang up"), { cause: { code: "UND_ERR_HEADERS_TIMEOUT" } })
+      );
+      await mockUndici(fetchMock);
+
+      const { proxyAwareFetch, resetDirectDispatchersForTests } = await import(
+        "../../open-sse/utils/proxyFetch.js"
+      );
+      resetDirectDispatchersForTests();
+
+      await expect(
+        proxyAwareFetch("https://api.deepseek.com/v1/chat/completions", {
+          method: "POST",
+          body: "{\"prompt\":\"hi\"}",
+        })
+      ).rejects.toThrow(/socket hang up/);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
     it("never replays when request body is a locked stream", async () => {
       const fetchMock = vi.fn().mockRejectedValue(
         Object.assign(new Error("fetch failed"), { cause: { code: "UND_ERR_SOCKET" } })

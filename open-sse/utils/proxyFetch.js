@@ -23,8 +23,9 @@ export function isStaleSocketError(error) {
   if (!error || error.name === "AbortError" || isTlsCertError(error)) return false;
   const code = error?.cause?.code || error?.code || "";
   if (NON_STALE_SOCKET_ERROR_CODES.has(code)) return false;
-  if (STALE_SOCKET_ERROR_CODES.has(code)) return true;
   const msg = `${error?.message || ""} ${error?.cause?.message || ""}`.toLowerCase();
+  if (msg.includes("headers timeout") || msg.includes("headers_timeout")) return false;
+  if (STALE_SOCKET_ERROR_CODES.has(code)) return true;
   return STALE_SOCKET_ERROR_SUBSTRINGS.some((sub) => msg.includes(sub));
 }
 
@@ -372,11 +373,15 @@ function isOpenCodeHost(url) {
   }
 }
 
-function isBodyReplaySafe(body) {
-  if (!body) return true;
-  if (typeof body.getReader === "function" && body.locked) return false;
-  if (typeof body.pipe === "function" && (body.readableEnded || body.destroyed)) return false;
-  return true;
+export function isBodyReplaySafe(body) {
+  if (body == null) return true;
+  if (typeof body === "string") return true;
+  if (typeof Buffer !== "undefined" && Buffer.isBuffer(body)) return true;
+  if (body instanceof ArrayBuffer) return true;
+  if (ArrayBuffer.isView(body)) return true;
+  if (typeof URLSearchParams !== "undefined" && body instanceof URLSearchParams) return true;
+  // Reject all streams (ReadableStream, Node Readable), async iterables, generators, and non-memory bodies
+  return false;
 }
 
 async function fetchWithTlsFallback(url, options, proxyUrl, proxyOptions = null, forceFreshSocket = false) {

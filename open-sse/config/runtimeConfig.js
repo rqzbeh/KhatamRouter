@@ -88,7 +88,6 @@ export const STALE_SOCKET_ERROR_CODES = new Set([
   "UND_ERR_SOCKET",
   "ECONNRESET",
   "EPIPE",
-  "UND_ERR_HEADERS_TIMEOUT",
 ]);
 
 export const NON_STALE_SOCKET_ERROR_CODES = new Set([
@@ -99,6 +98,7 @@ export const NON_STALE_SOCKET_ERROR_CODES = new Set([
   "ENETUNREACH",
   "UND_ERR_CONNECT_TIMEOUT",
   "UND_ERR_INVALID_ARG",
+  "UND_ERR_HEADERS_TIMEOUT",
 ]);
 
 // Deliberately excludes a bare "fetch failed": with no error code the upstream may already
