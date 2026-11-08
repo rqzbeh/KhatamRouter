@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
-import { assertPublicUrl } from "@/shared/utils/ssrfGuard.js";
+import { assertGatewayUrlAllowed, fetchGateway, sanitizeGatewayError } from "@/lib/network/gatewayTrust.js";
 import { isLocalRequest } from "@/dashboardGuard";
 
-// Fetch with timeout wrapper
-const fetchWithTimeout = (url, options, timeout = 10000) => {
+// Fetch with timeout wrapper using safe guarded fetch
+const fetchWithTimeout = (url, options = {}, timeout = 10000, trustOpts = {}) => {
   return Promise.race([
-    fetch(url, options),
-    new Promise((_, reject) => 
+    fetchGateway(url, {
+      ...options,
+      signal: AbortSignal.timeout(timeout),
+    }, trustOpts),
+    new Promise((_, reject) =>
       setTimeout(() => reject(new Error("Request timeout")), timeout)
     )
   ]);
@@ -66,14 +69,25 @@ export async function POST(request) {
       return NextResponse.json({ error: "Invalid URL format" }, { status: 400 });
     }
 
-    // SSRF guard for remote callers; local host keeps self-hosted nodes (e.g. ollama-local)
-    if (!isLocalRequest(request)) {
-      try {
-        assertPublicUrl(baseUrl);
-      } catch {
-        return NextResponse.json({ error: "URL not allowed" }, { status: 400 });
-      }
+    const isLocal = isLocalRequest(request);
+    const selfHostedRequested = Boolean(body.isSelfHosted);
+    const isSelfHosted = selfHostedRequested && isLocal;
+    const allowInsecureTls = Boolean(body.allowInsecureTls && isSelfHosted);
+
+    try {
+      await assertGatewayUrlAllowed(baseUrl, {
+        isSelfHosted,
+        trustedHost: new URL(baseUrl).host,
+      });
+    } catch {
+      return NextResponse.json({ error: "URL not allowed" }, { status: 400 });
     }
+
+    const trustOpts = {
+      isSelfHosted,
+      allowInsecureTls,
+      trustedHost: new URL(baseUrl).host,
+    };
 
     // Custom Embedding Validation - test POST /embeddings directly
     if (type === "custom-embedding") {
@@ -88,7 +102,7 @@ export async function POST(request) {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({ model: modelId.trim(), input: "ping" })
-      });
+      }, 10000, trustOpts);
       if (embedRes.ok) {
         const data = await embedRes.json().catch(() => null);
         const dims = Array.isArray(data?.data?.[0]?.embedding) ? data.data[0].embedding.length : null;
@@ -120,7 +134,7 @@ export async function POST(request) {
           "anthropic-version": "2023-06-01",
           "Authorization": `Bearer ${apiKey}`
         }
-      });
+      }, 10000, trustOpts);
 
       if (res.ok) return NextResponse.json({ valid: true });
 
@@ -144,7 +158,7 @@ export async function POST(request) {
             messages: [{ role: "user", content: "ping" }],
             max_tokens: 1
           })
-        });
+        }, 10000, trustOpts);
         if (chatRes.ok) {
           return NextResponse.json({ valid: true, method: "chat" });
         }
@@ -162,7 +176,7 @@ export async function POST(request) {
     const modelsUrl = `${baseUrl.replace(/\/$/, "")}/models`;
     const res = await fetchWithTimeout(modelsUrl, {
       headers: { "Authorization": `Bearer ${apiKey}` },
-    });
+    }, 10000, trustOpts);
 
     if (res.ok) return NextResponse.json({ valid: true });
 
@@ -184,7 +198,7 @@ export async function POST(request) {
           messages: [{ role: "user", content: "ping" }],
           max_tokens: 1
         })
-      });
+      }, 10000, trustOpts);
       if (chatRes.ok) {
         return NextResponse.json({ valid: true, method: "chat" });
       }

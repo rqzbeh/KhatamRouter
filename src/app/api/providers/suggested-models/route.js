@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { FILTERS } from "./filters.js";
+import { assertGatewayUrlAllowed, fetchGateway, sanitizeGatewayError } from "@/lib/network/gatewayTrust.js";
 
 export const dynamic = "force-dynamic";
 
@@ -12,13 +13,22 @@ export async function GET(request) {
     return NextResponse.json({ error: "Missing url or type" }, { status: 400 });
   }
 
+  // Pre-validate URL against SSRF and internal addresses before proceeding
+  try {
+    await assertGatewayUrlAllowed(url, { isSelfHosted: false });
+  } catch (err) {
+    return NextResponse.json({ error: "URL not allowed: internal or blocked address" }, { status: 400 });
+  }
+
   const filter = FILTERS[type];
   if (!filter) {
     return NextResponse.json({ error: "Unknown filter type" }, { status: 400 });
   }
 
   try {
-    const res = await fetch(url);
+    const res = await fetchGateway(url, {
+      signal: AbortSignal.timeout(8000),
+    }, { isSelfHosted: false });
     if (!res.ok) {
       return NextResponse.json({ data: [] });
     }
