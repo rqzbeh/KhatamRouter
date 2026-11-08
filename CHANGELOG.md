@@ -1,3 +1,8 @@
+# Unreleased — Combo quota fallback
+
+## Fixes
+- Skip the transient 5xx delay before trying another combo member when the response explicitly indicates upstream quota exhaustion or rate limiting. Preserve the outer status, authoritative Retry-After headers, caller isolation, and ordinary outage handling. Configurable member cooldown and broader nested-error normalization remain separate work.
+
 # v0.5.112 (2026-10-28) — Upstream Alignment & Hardening
 
 ## Features

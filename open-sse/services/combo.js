@@ -97,6 +97,56 @@ export function parseRetryAfter(value) {
   return null;
 }
 
+export function isQuotaShapedTransientError(status, errorBody, errorText) {
+  if (status !== 502 && status !== 503 && status !== 504) {
+    return false;
+  }
+
+  if (errorBody && typeof errorBody === "object") {
+    const upstreamStatus = Number(
+      errorBody.upstream_status ||
+      errorBody.upstreamStatus ||
+      errorBody.error?.upstream_status ||
+      errorBody.error?.upstreamStatus
+    );
+    if (upstreamStatus === 429) {
+      return true;
+    }
+
+    const errCode = String(errorBody.error?.code || errorBody.code || "").toLowerCase();
+    const errType = String(errorBody.error?.type || errorBody.type || "").toLowerCase();
+    if (
+      errCode === "rate_limit_exceeded" ||
+      errCode === "insufficient_quota" ||
+      errType === "rate_limit_error" ||
+      errType === "insufficient_quota"
+    ) {
+      return true;
+    }
+  }
+
+  const boundedText = typeof errorText === "string" ? errorText.slice(0, 4096) : "";
+  if (boundedText) {
+    if (
+      /(?:^|\s)\[429\](?::|\s)/.test(boundedText) ||
+      /\b(?:upstream|provider|gateway)\s+(?:returned|status|code|error:?)\s*\[?429\]?/i.test(boundedText) ||
+      /\bHTTP 429\b/i.test(boundedText)
+    ) {
+      return true;
+    }
+
+    if (
+      /\b(?:daily (?:free-model )?limit|daily quota|account daily limit)\b/i.test(boundedText) ||
+      /\b(?:quota exceeded|rate limit exceeded|rate limit reached)\b/i.test(boundedText) ||
+      /\b(?:too many requests|exceeded your (?:current )?quota)\b/i.test(boundedText)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export function pruneExpiredCooldowns(now = Date.now()) {
   for (const [key, entry] of comboModelCooldownMap.entries()) {
     if (!entry || entry.until <= now) {
@@ -948,8 +998,10 @@ export async function handleComboChat({
 
       // For transient errors (503/502/504), wait for cooldown before falling through
       // so a briefly-overloaded provider gets a chance to recover rather than being
-      // skipped immediately (fixes: combo falls through on transient 503)
-      if (cooldownMs && cooldownMs > 0 && cooldownMs <= 5000 &&
+      // skipped immediately (fixes: combo falls through on transient 503).
+      // Skip the delay when the transient 5xx is explicitly quota-shaped (embedded 429, daily limit).
+      if (!isQuotaShapedTransientError(result.status, errorBody, errorText) &&
+          cooldownMs && cooldownMs > 0 && cooldownMs <= 5000 &&
           (result.status === 503 || result.status === 502 || result.status === 504)) {
         log.info("COMBO", `Model ${modelStr} transient ${result.status}, waiting ${cooldownMs}ms before next`);
         if (clientSignal) {
