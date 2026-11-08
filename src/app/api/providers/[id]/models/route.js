@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { getProviderConnectionById } from "@/models";
+import { getProviderConnectionById, getProviderNodeById } from "@/models";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
 import { GEMINI_CONFIG, ZED_HOSTED_CONFIG } from "@/lib/oauth/constants/oauth";
+import { assertGatewayUrlAllowed, fetchGateway, isGatewaySelfHostedAllowed, sanitizeGatewayError } from "@/lib/network/gatewayTrust.js";
 import { refreshGoogleToken, refreshCodexToken, updateProviderCredentials } from "@/sse/services/tokenRefresh";
 import { resolveOllamaLocalHost } from "open-sse/config/providers.js";
 import { getModelsByProviderId } from "open-sse/config/providerModels.js";
@@ -9,7 +10,7 @@ import { resolveKiroModels } from "open-sse/services/kiroModels.js";
 import { resolveKimchiModels } from "open-sse/services/kimchiModels.js";
 import { resolveQoderModels } from "open-sse/services/qoderModels.js";
 import { resolveGrokCliModels } from "open-sse/services/grokCliModels.js";
-import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
+import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy.js";
 import { resolveCursorModels } from "open-sse/services/cursorModels.js";
 import { resolveZedModels } from "open-sse/shared/zedAuth.js";
 import { resolveClineModels, resolveClinepassModels } from "open-sse/services/clinepassModels.js";
@@ -583,92 +584,234 @@ const PROVIDER_MODELS_CONFIG = {
 /**
  * GET /api/providers/[id]/models - Get models list from provider
  */
-export async function GET(request, { params }) {
+
+// Build the { body, status } pair resolveProviderModels returns.
+function __respond(body, init) {
+  return { body, status: init?.status ?? 200 };
+}
+// Shared by GET (list) and the import route: returns { body, status } instead of
+// a Response so callers can inspect the listing before deciding what to do.
+export async function resolveProviderModels(request, id) {
   try {
-    const { id } = await params;
     const connection = await getProviderConnectionById(id);
 
     if (!connection) {
-      return NextResponse.json({ error: "Connection not found" }, { status: 404 });
+      return __respond({ error: "Connection not found" }, { status: 404 });
     }
 
     if (isOpenAICompatibleProvider(connection.provider)) {
-      const baseUrl = connection.providerSpecificData?.baseUrl;
-      if (!baseUrl) {
-        return NextResponse.json({ error: "No base URL configured for OpenAI compatible provider" }, { status: 400 });
+      const node = await getProviderNodeById(connection.provider);
+      if (!node?.baseUrl) {
+        return __respond({ error: "No base URL configured for OpenAI compatible provider node" }, { status: 400 });
       }
-      const url = `${baseUrl.replace(/\/$/, "")}/models`;
-      const response = await timedFetch(url, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${connection.apiKey}`,
-        },
-      });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.log(`Error fetching models from ${connection.provider}:`, errorText);
-        return NextResponse.json(
-          { error: `Failed to fetch models: ${response.status}` },
-          { status: response.status }
+      // Check for origin mismatch between connection-specific URL and immutable node authority
+      const connBaseUrl = connection.providerSpecificData?.baseUrl;
+      if (connBaseUrl) {
+        try {
+          const connOrigin = new URL(connBaseUrl).origin;
+          const nodeOrigin = new URL(node.baseUrl).origin;
+          if (connOrigin !== nodeOrigin) {
+            return __respond(
+              { error: "Connection URL origin mismatch with trusted node authority" },
+              { status: 400 }
+            );
+          }
+        } catch {
+          return __respond({ error: "Invalid gateway URL format" }, { status: 400 });
+        }
+      }
+
+      // Proxy preservation: refuse explicitly if connection requires proxy or relay that cannot be honored
+      const proxy = await resolveConnectionProxyConfig(connection.providerSpecificData || {});
+      if (
+        proxy?.strictProxy === true ||
+        proxy?.connectionProxyEnabled === true ||
+        Boolean(proxy?.vercelRelayUrl) ||
+        Boolean(proxy?.connectionProxyUrl) ||
+        Boolean(proxy?.proxyPoolId) ||
+        Boolean(proxy?.psiphonPoolId)
+      ) {
+        return __respond(
+          { error: "Configured proxy egress cannot be honored for custom gateway model discovery (fail-closed)" },
+          { status: 503 }
         );
       }
 
-      const data = await response.json();
-      const models = data.data || data.models || [];
+      const baseUrl = node.baseUrl;
+      const isSelfHosted = Boolean(node?.isSelfHosted);
+      const allowInsecureTls = Boolean(node?.allowInsecureTls && isSelfHosted);
 
-      return NextResponse.json({
-        provider: connection.provider,
-        connectionId: connection.id,
-        models
-      });
+      if (isSelfHosted) {
+        const permitted = isGatewaySelfHostedAllowed({
+          request,
+          isSelfHosted: true,
+          baseUrl,
+        });
+        if (!permitted) {
+          return __respond(
+            { error: "Self-hosted gateway discovery not permitted from proxied or non-local requests" },
+            { status: 400 }
+          );
+        }
+      }
+
+      const url = `${baseUrl.replace(/\/$/, "")}/models`;
+      try {
+        await assertGatewayUrlAllowed(url, {
+          isSelfHosted,
+          authorizedOrigin: new URL(baseUrl).origin,
+        });
+      } catch (err) {
+        return __respond({ error: `Gateway URL not allowed: ${err.message}` }, { status: 400 });
+      }
+
+      try {
+        const response = await fetchGateway(url, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${connection.apiKey}`,
+          },
+          signal: AbortSignal.timeout(MODELS_FETCH_TIMEOUT_MS),
+        }, {
+          isSelfHosted,
+          allowInsecureTls,
+          authorizedOrigin: new URL(baseUrl).origin,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          return __respond(
+            { error: `Failed to fetch models: ${response.status}` },
+            { status: response.status }
+          );
+        }
+
+        const data = await response.json();
+        const models = data.data || data.models || [];
+
+        return __respond({
+          provider: connection.provider,
+          connectionId: connection.id,
+          models
+        });
+      } catch (err) {
+        const sanitized = sanitizeGatewayError(err, [connection.apiKey]);
+        return __respond({ error: sanitized.message }, { status: 500 });
+      }
     }
 
     if (isAnthropicCompatibleProvider(connection.provider)) {
-      let baseUrl = connection.providerSpecificData?.baseUrl;
-      if (!baseUrl) {
-        return NextResponse.json({ error: "No base URL configured for Anthropic compatible provider" }, { status: 400 });
+      const node = await getProviderNodeById(connection.provider);
+      if (!node?.baseUrl) {
+        return __respond({ error: "No base URL configured for Anthropic compatible provider node" }, { status: 400 });
       }
 
-      baseUrl = baseUrl.replace(/\/$/, "");
+      const connBaseUrl = connection.providerSpecificData?.baseUrl;
+      if (connBaseUrl) {
+        try {
+          const connOrigin = new URL(connBaseUrl).origin;
+          const nodeOrigin = new URL(node.baseUrl).origin;
+          if (connOrigin !== nodeOrigin) {
+            return __respond(
+              { error: "Connection URL origin mismatch with trusted node authority" },
+              { status: 400 }
+            );
+          }
+        } catch {
+          return __respond({ error: "Invalid gateway URL format" }, { status: 400 });
+        }
+      }
+
+      const proxy = await resolveConnectionProxyConfig(connection.providerSpecificData || {});
+      if (
+        proxy?.strictProxy === true ||
+        proxy?.connectionProxyEnabled === true ||
+        Boolean(proxy?.vercelRelayUrl) ||
+        Boolean(proxy?.connectionProxyUrl) ||
+        Boolean(proxy?.proxyPoolId) ||
+        Boolean(proxy?.psiphonPoolId)
+      ) {
+        return __respond(
+          { error: "Configured proxy egress cannot be honored for custom gateway model discovery (fail-closed)" },
+          { status: 503 }
+        );
+      }
+
+      let baseUrl = node.baseUrl.replace(/\/$/, "");
       if (baseUrl.endsWith("/messages")) {
         baseUrl = baseUrl.slice(0, -9);
       }
 
-      const url = `${baseUrl}/models`;
-      const response = await timedFetch(url, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": connection.apiKey,
-          "anthropic-version": "2023-06-01",
-          "Authorization": `Bearer ${connection.apiKey}`
-        },
-      });
+      const isSelfHosted = Boolean(node?.isSelfHosted);
+      const allowInsecureTls = Boolean(node?.allowInsecureTls && isSelfHosted);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.log(`Error fetching models from ${connection.provider}:`, errorText);
-        return NextResponse.json(
-          { error: `Failed to fetch models: ${response.status}` },
-          { status: response.status }
-        );
+      if (isSelfHosted) {
+        const permitted = isGatewaySelfHostedAllowed({
+          request,
+          isSelfHosted: true,
+          baseUrl,
+        });
+        if (!permitted) {
+          return __respond(
+            { error: "Self-hosted gateway discovery not permitted from proxied or non-local requests" },
+            { status: 400 }
+          );
+        }
       }
 
-      const data = await response.json();
-      const models = data.data || data.models || [];
+      const url = `${baseUrl}/models`;
+      try {
+        await assertGatewayUrlAllowed(url, {
+          isSelfHosted,
+          authorizedOrigin: new URL(node.baseUrl).origin,
+        });
+      } catch (err) {
+        return __respond({ error: `Gateway URL not allowed: ${err.message}` }, { status: 400 });
+      }
 
-      return NextResponse.json({
-        provider: connection.provider,
-        connectionId: connection.id,
-        models
-      });
+      try {
+        const response = await fetchGateway(url, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": connection.apiKey,
+            "anthropic-version": "2023-06-01",
+            "Authorization": `Bearer ${connection.apiKey}`
+          },
+          signal: AbortSignal.timeout(MODELS_FETCH_TIMEOUT_MS),
+        }, {
+          isSelfHosted,
+          allowInsecureTls,
+          authorizedOrigin: new URL(node.baseUrl).origin,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          return __respond(
+            { error: `Failed to fetch models: ${response.status}` },
+            { status: response.status }
+          );
+        }
+
+        const data = await response.json();
+        const models = data.data || data.models || [];
+
+        return __respond({
+          provider: connection.provider,
+          connectionId: connection.id,
+          models
+        });
+      } catch (err) {
+        const sanitized = sanitizeGatewayError(err, [connection.apiKey]);
+        return __respond({ error: sanitized.message }, { status: 500 });
+      }
     }
 
     const config = PROVIDER_MODELS_CONFIG[connection.provider];
     if (!config) {
-      return NextResponse.json(
+      return __respond(
         { error: `Provider ${connection.provider} does not support models listing` },
         { status: 400 }
       );
@@ -678,9 +821,9 @@ export async function GET(request, { params }) {
     if (typeof config.customResolver === "function") {
       const result = await config.customResolver(connection);
       if (result.error) {
-        return NextResponse.json({ error: result.error }, { status: result.status || 500 });
+        return __respond({ error: result.error }, { status: result.status || 500 });
       }
-      return NextResponse.json({
+      return __respond({
         provider: connection.provider,
         connectionId: connection.id,
         models: result.models,
@@ -691,7 +834,7 @@ export async function GET(request, { params }) {
     // Get auth token
     const token = connection.providerSpecificData?.copilotToken || connection.accessToken || connection.apiKey;
     if (!token) {
-      return NextResponse.json({ error: "No valid token found" }, { status: 401 });
+      return __respond({ error: "No valid token found" }, { status: 401 });
     }
 
     // Build request URL
@@ -721,7 +864,7 @@ export async function GET(request, { params }) {
     if (!response.ok) {
       const errorText = await response.text();
       console.log(`Error fetching models from ${connection.provider}:`, errorText);
-      return NextResponse.json(
+      return __respond(
         { error: `Failed to fetch models: ${response.status}` },
         { status: response.status }
       );
@@ -730,13 +873,19 @@ export async function GET(request, { params }) {
     const data = await response.json();
     const models = config.parseResponse(data);
 
-    return NextResponse.json({
+    return __respond({
       provider: connection.provider,
       connectionId: connection.id,
       models
     });
   } catch (error) {
     console.log("Error fetching provider models:", error);
-    return NextResponse.json({ error: "Failed to fetch models" }, { status: 500 });
+    return __respond({ error: "Failed to fetch models" }, { status: 500 });
   }
+}
+
+export async function GET(request, { params }) {
+  const { id } = await params;
+  const { body, status } = await resolveProviderModels(request, id);
+  return NextResponse.json(body, { status });
 }

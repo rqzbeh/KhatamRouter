@@ -13,12 +13,22 @@ const STRATEGIES = [
   { value: "random", label: "Random" },
 ];
 
+// Values match COOLDOWN_PRESETS_MS in src/lib/network/proxyHealthPolicy.js.
+const COOLDOWN_OPTIONS = [
+  { value: "off", label: "Off (keep failing pools in rotation)" },
+  { value: "60000", label: "1 minute" },
+  { value: "300000", label: "5 minutes" },
+  { value: "3600000", label: "1 hour" },
+];
+
 export default function NoAuthProxyCard({ providerId }) {
   const [proxyPools, setProxyPools] = useState([]);
   const [proxyPoolId, setProxyPoolId] = useState(NONE_PROXY_POOL_VALUE);
   const [rotateStrategy, setRotateStrategy] = useState("none");
   const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
+  const [cooldown, setCooldown] = useState("off");
+  const [cooldownError, setCooldownError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -31,9 +41,47 @@ export default function NoAuthProxyCard({ providerId }) {
       const override = (settingsData.providerStrategies || {})[providerId] || {};
       setProxyPoolId(override.proxyPoolId || NONE_PROXY_POOL_VALUE);
       setRotateStrategy(override.rotateStrategy || "none");
+      const health = settingsData.proxyHealth || {};
+      setCooldown(health.enabled ? String(health.cooldownMs) : "off");
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [providerId]);
+
+  // Proxy health is a global setting: it applies to every provider that rotates
+  // across proxy pools, since a pool's failure is recorded per provider.
+  const handleCooldownChange = async (value) => {
+    const previous = cooldown;
+    setCooldown(value);
+    setCooldownError("");
+    setSaving(true);
+    try {
+      const res = await fetch("/api/settings", { cache: "no-store" });
+      const data = res.ok ? await res.json() : {};
+      const current = data.proxyHealth || {};
+      const next = value === "off"
+        ? { ...current, enabled: false }
+        : { ...current, enabled: true, cooldownMs: Number(value) };
+      const saveRes = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proxyHealth: next }),
+      });
+      if (!saveRes.ok) {
+        const err = await saveRes.json().catch(() => ({}));
+        setCooldown(previous);
+        setCooldownError(err.error || "Could not save the cooldown setting");
+        return;
+      }
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 1500);
+    } catch (e) {
+      setCooldown(previous);
+      setCooldownError("Could not save the cooldown setting");
+      console.log("Save proxy health error:", e);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const save = useCallback(async (poolId, strategy) => {
     setSaving(true);
@@ -125,6 +173,31 @@ export default function NoAuthProxyCard({ providerId }) {
               : `Uses the selected pool above. Set to Round-robin or Random to rotate across all active pools.`}
         </p>
       </div>
+
+      {isRotation && (
+        <div className="flex flex-col gap-2 mt-4">
+          <label htmlFor="proxy-cooldown" className="text-sm font-medium text-text-main">Remove failing pool for</label>
+          <select
+            id="proxy-cooldown"
+            value={cooldown}
+            onChange={(e) => handleCooldownChange(e.target.value)}
+            disabled={saving}
+            className="py-2 px-3 text-sm text-text-main bg-white dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-md focus:ring-1 focus:ring-primary/30 focus:border-primary/50 focus:outline-none transition-all disabled:opacity-50"
+          >
+            {COOLDOWN_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+          <p className="text-xs text-text-muted">
+            When a request through a pool hits a rate limit (429), a region block (403/451) or a proxy
+            failure (502-504, connection errors), that pool is skipped for this long and then rejoins
+            the rotation automatically. A longer upstream Retry-After is respected. Applies to all
+            providers that rotate pools. If every pool is cooling, rotation uses them anyway rather
+            than going direct.
+          </p>
+          {cooldownError && <p className="text-xs text-red-500">{cooldownError}</p>}
+        </div>
+      )}
     </Card>
   );
 }

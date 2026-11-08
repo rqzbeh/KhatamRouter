@@ -117,6 +117,9 @@ export async function getProviderNodeById(id) {
 export async function createProviderNode(data) {
   const db = await getAdapter();
   const now = new Date().toISOString();
+  if (data.allowInsecureTls && !data.isSelfHosted) {
+    throw new Error("allowInsecureTls is only allowed for self-hosted nodes");
+  }
   const node = {
     id: data.id || uuidv4(),
     type: data.type,
@@ -124,6 +127,8 @@ export async function createProviderNode(data) {
     prefix: data.prefix,
     apiType: data.apiType,
     baseUrl: data.baseUrl,
+    isSelfHosted: Boolean(data.isSelfHosted),
+    allowInsecureTls: Boolean(data.allowInsecureTls),
     createdAt: now,
     updatedAt: now,
   };
@@ -138,7 +143,19 @@ export async function updateProviderNode(id, data) {
   db.transaction(() => {
     const row = db.get(`SELECT * FROM providerNodes WHERE id = ?`, [id]);
     if (!row) return;
-    const merged = { ...rowToNode(row), ...data, updatedAt: new Date().toISOString() };
+    const existing = rowToNode(row);
+    const effectiveIsSelfHosted = data.isSelfHosted !== undefined ? Boolean(data.isSelfHosted) : Boolean(existing.isSelfHosted);
+    const effectiveAllowInsecureTls = data.allowInsecureTls !== undefined ? Boolean(data.allowInsecureTls) : Boolean(existing.allowInsecureTls);
+    if (effectiveAllowInsecureTls && !effectiveIsSelfHosted) {
+      throw new Error("allowInsecureTls is only allowed for self-hosted nodes");
+    }
+    const merged = {
+      ...existing,
+      ...data,
+      isSelfHosted: effectiveIsSelfHosted,
+      allowInsecureTls: effectiveAllowInsecureTls,
+      updatedAt: new Date().toISOString(),
+    };
     upsert(db, merged);
     result = merged;
   });

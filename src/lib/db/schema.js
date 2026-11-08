@@ -3,7 +3,7 @@
 // pre-change safety backup in migrate.js: when the stored version is lower,
 // one lightweight DB backup is taken before applying schema changes. Forgetting
 // to bump only skips that backup — it does NOT break the additive auto-sync.
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 // busy_timeout comes first: journal_mode = WAL needs locks that another opener may hold.
 export const PRAGMA_SQL = `
@@ -290,10 +290,39 @@ export const TABLES = {
     columns: {
       id: "TEXT PRIMARY KEY",
       model_pattern: "TEXT NOT NULL",
+      provider: "TEXT",
+      model_id: "TEXT",
+      source: "TEXT DEFAULT 'manual'",
       capabilities_json: "TEXT NOT NULL",
       created_at: "TEXT NOT NULL",
       updated_at: "TEXT NOT NULL",
     },
+    indexes: [
+      "CREATE INDEX IF NOT EXISTS idx_mcap_provider_model ON model_capability_overrides(provider, model_id)",
+      "CREATE INDEX IF NOT EXISTS idx_mcap_source ON model_capability_overrides(source)",
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_mcap_scope_unique ON model_capability_overrides(provider, model_id, source) WHERE provider IS NOT NULL AND model_id IS NOT NULL",
+    ],
+  },
+  imported_models: {
+    columns: {
+      id: "TEXT PRIMARY KEY",
+      provider: "TEXT NOT NULL",
+      connection_id: "TEXT NOT NULL",
+      model_id: "TEXT NOT NULL",
+      provenance: "TEXT NOT NULL DEFAULT 'imported'",
+      lifecycle: "TEXT NOT NULL DEFAULT 'active'",
+      capabilities_json: "TEXT",
+      metadata_json: "TEXT",
+      created_at: "TEXT NOT NULL",
+      updated_at: "TEXT NOT NULL",
+      last_seen_at: "TEXT NOT NULL",
+    },
+    indexes: [
+      "CREATE INDEX IF NOT EXISTS idx_im_provider_conn ON imported_models(provider, connection_id)",
+      "CREATE INDEX IF NOT EXISTS idx_im_provider_model ON imported_models(provider, model_id)",
+      "CREATE INDEX IF NOT EXISTS idx_im_lifecycle ON imported_models(lifecycle)",
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_im_unique_source ON imported_models(provider, connection_id, model_id)",
+    ],
   },
   proxy_pool_fitness: {
     columns: {

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import PropTypes from "prop-types";
-import { Badge, Button, Input, Modal, Select } from "@/shared/components";
+import { Badge, Button, Input, Modal, Select, Toggle } from "@/shared/components";
 
 const VARIANT_CONFIG = {
   openai: {
@@ -41,25 +41,22 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
     prefix: "",
     ...(config.hasApiType ? { apiType: "chat" } : {}),
     baseUrl: config.defaultBaseUrl,
+    isSelfHosted: false,
+    allowInsecureTls: false,
   });
 
   const [formData, setFormData] = useState(initialFormData);
+  const [prevApiType, setPrevApiType] = useState(formData.apiType);
   const [submitting, setSubmitting] = useState(false);
   const [checkKey, setCheckKey] = useState("");
   const [checkModelId, setCheckModelId] = useState("");
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState(null);
 
-  // openai: reset baseUrl when apiType changes; anthropic: reset checks when opened
-  useEffect(() => {
-    if (config.hasApiType) {
-      setFormData((prev) => ({ ...prev, baseUrl: config.defaultBaseUrl }));
-    } else if (isOpen) {
-      setValidationResult(null);
-      setCheckKey("");
-      setCheckModelId("");
-    }
-  }, [config.hasApiType ? formData.apiType : isOpen]);
+  if (config.hasApiType && formData.apiType !== prevApiType) {
+    setPrevApiType(formData.apiType);
+    setFormData((prev) => ({ ...prev, baseUrl: config.defaultBaseUrl }));
+  }
 
   const handleSubmit = async () => {
     if (!formData.name.trim() || !formData.prefix.trim() || !formData.baseUrl.trim()) return;
@@ -74,6 +71,8 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
           ...(config.hasApiType ? { apiType: formData.apiType } : {}),
           baseUrl: formData.baseUrl,
           type: config.type,
+          isSelfHosted: formData.isSelfHosted,
+          allowInsecureTls: formData.allowInsecureTls,
         }),
       });
       const data = await res.json();
@@ -101,6 +100,8 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
           apiKey: checkKey,
           type: config.type,
           modelId: checkModelId.trim() || undefined,
+          isSelfHosted: formData.isSelfHosted,
+          allowInsecureTls: formData.allowInsecureTls,
         }),
       });
       const data = await res.json();
@@ -165,6 +166,26 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
           placeholder={config.defaultBaseUrl}
           hint={config.baseUrlHint}
         />
+        <div className="flex flex-col gap-3 rounded-lg border border-border/40 p-3 bg-surface-2/30">
+          <Toggle
+            label="Local / Self-Hosted Gateway"
+            description="Explicitly authorize local loopback or private LAN targets (e.g. Ollama, vLLM)."
+            checked={formData.isSelfHosted}
+            onChange={(checked) => setFormData({
+              ...formData,
+              isSelfHosted: checked,
+              allowInsecureTls: checked ? formData.allowInsecureTls : false,
+            })}
+          />
+          {formData.isSelfHosted && (
+            <Toggle
+              label="Allow Insecure TLS (Self-signed)"
+              description="Disable certificate verification strictly for this declared local gateway. Disabled by default."
+              checked={formData.allowInsecureTls}
+              onChange={(checked) => setFormData({ ...formData, allowInsecureTls: checked })}
+            />
+          )}
+        </div>
         <Input
           label="API Key (for Check)"
           type="password"

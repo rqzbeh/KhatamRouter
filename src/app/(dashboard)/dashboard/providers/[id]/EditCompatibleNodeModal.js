@@ -2,31 +2,36 @@
 
 import { useState, useEffect } from "react";
 import PropTypes from "prop-types";
-import { Button, Badge, Input, Modal, Select } from "@/shared/components";
+import { Button, Badge, Input, Modal, Select, Toggle } from "@/shared/components";
 
 export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose, isAnthropic }) {
-  const [formData, setFormData] = useState({
-    name: "",
-    prefix: "",
-    apiType: "chat",
-    baseUrl: "https://api.openai.com/v1",
-  });
+  const [prevNode, setPrevNode] = useState(node);
+  const [formData, setFormData] = useState(() => ({
+    name: node?.name || "",
+    prefix: node?.prefix || "",
+    apiType: node?.apiType || "chat",
+    baseUrl: node?.baseUrl || (isAnthropic ? "https://api.anthropic.com/v1" : "https://api.openai.com/v1"),
+    isSelfHosted: Boolean(node?.isSelfHosted),
+    allowInsecureTls: Boolean(node?.allowInsecureTls),
+  }));
+
+  if (node !== prevNode) {
+    setPrevNode(node);
+    setFormData({
+      name: node?.name || "",
+      prefix: node?.prefix || "",
+      apiType: node?.apiType || "chat",
+      baseUrl: node?.baseUrl || (isAnthropic ? "https://api.anthropic.com/v1" : "https://api.openai.com/v1"),
+      isSelfHosted: Boolean(node?.isSelfHosted),
+      allowInsecureTls: Boolean(node?.allowInsecureTls),
+    });
+  }
+
   const [saving, setSaving] = useState(false);
   const [checkKey, setCheckKey] = useState("");
   const [checkModelId, setCheckModelId] = useState("");
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState(null);
-
-  useEffect(() => {
-    if (node) {
-      setFormData({
-        name: node.name || "",
-        prefix: node.prefix || "",
-        apiType: node.apiType || "chat",
-        baseUrl: node.baseUrl || (isAnthropic ? "https://api.anthropic.com/v1" : "https://api.openai.com/v1"),
-      });
-    }
-  }, [node, isAnthropic]);
 
   const apiTypeOptions = [
     { value: "chat", label: "Chat Completions" },
@@ -41,6 +46,8 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
         name: formData.name,
         prefix: formData.prefix,
         baseUrl: formData.baseUrl,
+        isSelfHosted: formData.isSelfHosted,
+        allowInsecureTls: formData.allowInsecureTls,
       };
       if (!isAnthropic) {
         payload.apiType = formData.apiType;
@@ -61,7 +68,9 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
           baseUrl: formData.baseUrl,
           apiKey: checkKey,
           type: isAnthropic ? "anthropic-compatible" : "openai-compatible",
-          modelId: checkModelId.trim() || undefined
+          modelId: checkModelId.trim() || undefined,
+          isSelfHosted: formData.isSelfHosted,
+          allowInsecureTls: formData.allowInsecureTls,
         }),
       });
       const data = await res.json();
@@ -107,6 +116,26 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
           placeholder={isAnthropic ? "https://api.anthropic.com/v1" : "https://api.openai.com/v1"}
           hint={`Use the base URL (ending in /v1) for your ${isAnthropic ? "Anthropic" : "OpenAI"}-compatible API.`}
         />
+        <div className="flex flex-col gap-3 rounded-lg border border-border/40 p-3 bg-surface-2/30">
+          <Toggle
+            label="Local / Self-Hosted Gateway"
+            description="Explicitly authorize local loopback or private LAN targets (e.g. Ollama, vLLM)."
+            checked={formData.isSelfHosted}
+            onChange={(checked) => setFormData({
+              ...formData,
+              isSelfHosted: checked,
+              allowInsecureTls: checked ? formData.allowInsecureTls : false,
+            })}
+          />
+          {formData.isSelfHosted && (
+            <Toggle
+              label="Allow Insecure TLS (Self-signed)"
+              description="Disable certificate verification strictly for this declared local gateway. Disabled by default."
+              checked={formData.allowInsecureTls}
+              onChange={(checked) => setFormData({ ...formData, allowInsecureTls: checked })}
+            />
+          )}
+        </div>
         <div className="flex gap-2">
           <Input
             label="API Key (for Check)"
