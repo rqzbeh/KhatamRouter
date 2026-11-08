@@ -1,0 +1,198 @@
+name: Regionhop release bump
+
+# freeb5d/regionhop publishes no checksums/signatures, so a bump must be
+# reviewed by a human. This workflow only opens (or refreshes) a PR with the
+# new pinned version + measured hashes; it never auto-merges. Dependabot cannot
+# track GitHub release tarballs for this repo, hence the custom job.
+#
+# The single source of truth is src/lib/network/psiphon/regionhopRelease.json;
+# scripts/ci/regionhop-bump.mjs rewrites it plus the Dockerfile ARG lines.
+#
+# Token handling: no secret is ever written to $GITHUB_OUTPUT or placed on a
+# command line. Git auth uses `gh auth setup-git` (GH_TOKEN env), and gh reads
+# the same env. Prefer the optional REGIONHOP_BUMP_TOKEN (App/PAT) secret; fall
+# back to the workflow's own github.token.
+#
+# CI on the bump PR: a PR opened with the default GITHUB_TOKEN does NOT trigger
+# `pull_request` workflows. This job therefore dispatches Verify explicitly when
+# a non-default token is available (workflow_dispatch is a real trigger on
+# verify.yml). With the default token it says plainly that Verify did not
+# auto-run and a maintainer must dispatch it. This workflow never claims that
+# review or CI passed.
+#
+# Existing bump branch: if the branch already exists, the job reuses it as-is
+# (no force push) so reviewer commits are never discarded. Re-run after a stale
+# PR is closed/merged to pick up a newer tag on a fresh branch.
+
+on:
+  schedule:
+    # Weekly, Mondays 05:41 UTC (off the top of the hour).
+    - cron: "41 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: regionhop-release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    name: Detect and PR new regionhop release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v7
+        with:
+          ref: master
+          fetch-depth: 0
+          # Prefer the App/PAT token so any push/PR it creates can trigger CI;
+          # falls back to the workflow token.
+          token: ${{ secrets.REGIONHOP_BUMP_TOKEN || github.token }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Check for a new release and rewrite pins
+        id: bump
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          out="$(bun scripts/ci/regionhop-bump.mjs)"
+          echo "$out"
+          if grep -qx 'NO_UPDATE_NEEDED' <<<"$out"; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          branch="$(sed -n 's/^BRANCH=//p' <<<"$out")"
+          title="$(sed -n 's/^TITLE=//p' <<<"$out")"
+          notes="$(sed -n 's/^NOTES=//p' <<<"$out")"
+          # Values are produced by our own script from a tag validated against
+          # ^v\d+\.\d+\.\d+$, never from upstream release body text, so none of
+          # them can inject shell.
+          {
+            echo "branch=$branch"
+            echo "title=$title"
+            echo "notes=$notes"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Configure git auth
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.REGIONHOP_BUMP_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          gh auth setup-git
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit and push bump branch
+        id: push
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          BRANCH: ${{ steps.bump.outputs.branch }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            # Branch already exists (an earlier run or reviewer commits). Do not
+            # force-overwrite it; reuse the existing PR/branch untouched.
+            echo "existing=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git switch -c "$BRANCH"
+          git add src/lib/network/psiphon/regionhopRelease.json Dockerfile Dockerfile.bun
+          git commit -m "deps: bump regionhop to ${BRANCH#deps/regionhop-}" -m "Co-Authored-By: Claude Code <noreply@anthropic.com>"
+          git push -u origin "$BRANCH"
+          echo "existing=false" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update pull request
+        id: pr
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.REGIONHOP_BUMP_TOKEN || github.token }}
+          BRANCH: ${{ steps.bump.outputs.branch }}
+          TITLE: ${{ steps.bump.outputs.title }}
+          NOTES: ${{ steps.bump.outputs.notes }}
+          EXISTING: ${{ steps.push.outputs.existing }}
+          USING_APP_TOKEN: ${{ secrets.REGIONHOP_BUMP_TOKEN != '' }}
+        run: |
+          set -euo pipefail
+          tag="${BRANCH#deps/regionhop-}"
+          branch_tip="$(git rev-parse HEAD)"
+          body_file="$RUNNER_TEMP/regionhop-pr-body.md"
+          {
+            echo "Automated bump of the pinned freeb5d/regionhop sidecar release."
+            echo
+            echo "- Release: ${NOTES}"
+            echo "- Pinned version: \`${tag}\`"
+            echo
+            echo '```json'
+            cat src/lib/network/psiphon/regionhopRelease.json
+            echo '```'
+            echo
+            echo "**Reviewer note:** upstream publishes no checksums or signatures, so these"
+            echo "SHA-256 values are trust-on-first-download. They detect corruption and"
+            echo "post-publication tampering but do not establish upstream provenance."
+            echo "Read the release notes above before merging. This PR is never auto-merged."
+            echo
+            echo "🤖 Generated with [Claude Code](https://claude.com/claude-code)"
+          } > "$body_file"
+
+          if gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
+            gh pr edit "$BRANCH" --title "$TITLE" --body-file "$body_file"
+          else
+            gh pr create --base master --head "$BRANCH" --title "$TITLE" --body-file "$body_file"
+          fi
+          pr_number="$(gh pr view "$BRANCH" --json number --jq .number)"
+          pr_head="$(gh pr view "$BRANCH" --json headRefOid --jq .headRefOid)"
+
+          # Only dispatch Verify for a PR whose head this bot just created on a
+          # fresh branch. An existing branch may hold reviewer commits, and a
+          # stale head must not be re-run or overwritten.
+          if [ "$EXISTING" = "false" ] && [ "$USING_APP_TOKEN" = "true" ] && [ "$pr_head" = "$branch_tip" ]; then
+            gh workflow run verify.yml --ref "$BRANCH" || echo "::warning::Verify dispatch failed; dispatch it manually."
+          else
+            {
+              echo
+              echo "**CI note:** Verify was not started automatically (default token, existing"
+              echo "branch, or head moved). A maintainer must run"
+              echo "\`gh workflow run verify.yml --ref ${BRANCH}\` or close/reopen the PR."
+            } >> "$body_file"
+            gh pr edit "$BRANCH" --body-file "$body_file"
+          fi
+          echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+
+      - name: Write job summary
+        if: always()
+        env:
+          CHANGED: ${{ steps.bump.outputs.changed }}
+          BRANCH: ${{ steps.bump.outputs.branch }}
+          EXISTING: ${{ steps.push.outputs.existing }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Regionhop release bump"
+            echo ""
+            if [ "${CHANGED:-}" = "true" ]; then
+              echo "- Branch: \`${BRANCH}\`"
+              if [ "${EXISTING:-}" = "true" ]; then
+                echo "- Result: branch already existed; reused untouched (reviewer commits preserved)."
+              else
+                echo "- Result: PR prepared for review; never auto-merged."
+              fi
+              if [ -n "${PR_NUMBER:-}" ]; then
+                echo "- PR: #${PR_NUMBER}"
+              fi
+            else
+              echo "- Result: no update needed."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

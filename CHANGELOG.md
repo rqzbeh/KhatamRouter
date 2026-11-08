@@ -1,3 +1,11 @@
+# Unreleased — Regionhop release pin (v1.27.0)
+
+## Features
+- **Psiphon sidecar pin**: the regionhop release is now a single manifest, `src/lib/network/psiphon/regionhopRelease.json` (v1.27.0), read by both the runtime downloader and the Docker builds. The downloader verifies size and SHA-256 with `Bun.CryptoHasher` before extraction, refuses and deletes the tarball on mismatch, and never resolves "latest" at runtime. Upstream publishes no checksums, so the recorded hashes are trust-on-first-download and detect corruption/post-publication tampering only.
+- **Container builds**: `ARG REGIONHOP_VERSION` / `REGIONHOP_SHA256_AMD64` / `REGIONHOP_SHA256_ARM64` replace the hardcoded tag; `curl` retries transient GitHub 5xx errors and `sha256sum -c` runs before `tar`. `tests/unit/regionhop-release-pin.test.js` fails if the Dockerfile pins drift from the manifest.
+- **BR exit region**: regionhop v1.27.0 adds Brazil (`BR`). It is offered in the dashboard's region field via `src/lib/network/psiphon/regions.js`; validation stays format-based and rotation defaults/selection are unchanged.
+- **Bump automation**: `.github/workflows/regionhop-release.yml` (weekly cron + dispatch) runs `scripts/ci/regionhop-bump.mjs`, which checks the GitHub API for a new tag, downloads the exact amd64/arm64 assets, records hashes/sizes, rewrites the manifest and Dockerfile ARGs, and opens a review PR. It never auto-merges, and by default (GITHUB_TOKEN) the PR does not trigger Verify automatically — see the workflow note.
+
 # Unreleased — Combo quota fallback
 
 ## Fixes
