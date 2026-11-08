@@ -20,6 +20,10 @@ export const DEFAULT_SETTINGS = {
   tailscaleUrl: "",
   stickyRoundRobinLimit: 3,
   providerStrategies: {},
+  // Take a proxy pool out of rotation after a proxy-shaped failure (rate limit,
+  // region block, transport) and let it back in after cooldownMs. Off by default.
+  // Validated by normalizeProxyHealthSettings in src/lib/network/proxyHealthPolicy.js.
+  proxyHealth: { enabled: false, cooldownMs: 300000, probeEnabled: false, probeIntervalMs: 300000, statuses: [403, 429, 451, 502, 503, 504] },
   quotaVisibility: {},
   comboStrategy: "fallback",
   comboStickyRoundRobinLimit: 1,

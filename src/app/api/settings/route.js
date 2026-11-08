@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSettings, updateSettings } from "@/lib/localDb";
 import { applyOutboundProxyEnv } from "@/lib/network/outboundProxy";
 import { resetComboRotation } from "open-sse/services/combo.js";
+import { normalizeProxyHealthSettings } from "@/lib/network/proxyHealthPolicy.js";
 import bcrypt from "bcryptjs";
 
 export const dynamic = "force-dynamic";
@@ -41,6 +42,14 @@ export async function PATCH(request) {
 
     // Strip protected secrets before any internal handling sets them
     for (const key of PROTECTED_SETTING_KEYS) delete body[key];
+
+    // Proxy health is validated and stored normalized; invalid values are
+    // rejected rather than silently clamped.
+    if (Object.prototype.hasOwnProperty.call(body, "proxyHealth")) {
+      const { ok, value, errors } = normalizeProxyHealthSettings(body.proxyHealth);
+      if (!ok) return NextResponse.json({ error: errors.join("; ") }, { status: 400 });
+      body.proxyHealth = value;
+    }
 
     // If updating password, hash it
     if (body.newPassword) {
