@@ -20,3 +20,5 @@ This directory contains Spec-Kit specifications, implementation plans, and tasks
 | [013-upstream-0-5-112](013-upstream-0-5-112/) | Wave 13 — Upstream v0.5.112 Port (14 Commits, Core Routing, MiniMax Named-Pipe Lease Broker, DeepSeek PoW Boundary) | Merged (PR #119) | `spec/013-upstream-0-5-112` |
 | [014-psiphon-proxy-pool](014-psiphon-proxy-pool/) | Wave 14 — Psiphon rotating proxy pool for OpenCode Free (best-ping country, rotate on 429/FreeTierError) | Merged (PR #117) | `spec/014-psiphon-proxy-pool` |
 | [016-opencode-interoperability](016-opencode-interoperability/) | Wave 16 — OpenCode Interoperability & Transport Polish (terminal tool aliasing, combo storm cooldowns, keep-alive tuning) | In progress | `feat/opencode-interoperability-ports` |
+| [017-model-import-testing](017-model-import-testing/) | Spec 017 — Model Import, Batch Testing, Sync Policies & Runtime Overrides | Merged (PR #151/#152) | `master` |
+| [019-upstream-05116](019-upstream-05116/) | Spec 019 — 9router Release Parity (0.5.112..0.5.116, 29 new + 14 prior commits, security hardening, Bun adaptations) | Pending CI / PR | `019-upstream-05116` |

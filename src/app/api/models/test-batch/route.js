@@ -248,7 +248,7 @@ export async function POST(request) {
       connectionId,
       executionScope: "provider",
       executionNote:
-        "Probes execute through 9Router's provider routing aggregate across active connections. connectionId provides authorization and catalog scope.",
+        "Probes execute through KhatamRouter's provider routing aggregate across active connections. connectionId provides authorization and catalog scope.",
       summary: batchResult.summary,
       results: batchResult.results,
       stoppedEarly: batchResult.stoppedEarly,

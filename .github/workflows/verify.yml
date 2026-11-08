@@ -228,6 +228,62 @@ jobs:
             unit/catalog-reconcile.test.js \
             unit/capability-per-field.test.js
 
+      - name: "Unit tests (Spec 019: upstream 0.5.116 parity & cross-regressions)"
+        working-directory: tests
+        run: |
+          set -euo pipefail
+          bun x --bun vitest run --reporter=verbose \
+            translator/thinking-tool-result-turns.test.js \
+            unit/audio-voices-internal-auth.test.js \
+            unit/cli-019-bun.test.js \
+            unit/cli-launcher-process.test.js \
+            unit/cli-tools-add-all-active-models.test.js \
+            unit/cli-tray-runtime.test.js \
+            unit/codebuddy-intl-system-prompt.test.js \
+            unit/codex-native-image-generation.test.js \
+            unit/commandcode-import-guard.test.js \
+            unit/dashscope-claude-cache.test.js \
+            unit/deepseek-thinking-budget.test.js \
+            unit/econnreset-repro.test.js \
+            unit/gemini-request-tool-results.test.js \
+            unit/media-019-security.test.js \
+            unit/oauth-commandcode-auto-import.test.js \
+            unit/proxy-keepalive-dead-socket.test.js \
+            unit/tool-dedupe.test.js \
+            unit/transport-019-safety.test.js \
+            unit/transport-019-packaging.test.js \
+            unit/web-fetch-formats.test.js \
+            translator/agent-client-fixes.test.js \
+            unit/opencode-test-no-probe.test.js \
+            unit/qoder-proxy-replay.test.js \
+            unit/qoder.test.js \
+            unit/commandcode-headers.test.js \
+            unit/openai-to-commandcode.test.js \
+            unit/commandcode-usage.test.js \
+            unit/image-generation.test.js \
+            unit/antigravity-weekly-quota.test.js \
+            unit/opencode-go-deepseek-thinking-injection.test.js \
+            unit/opencode-go-models.test.js \
+            unit/opencode-go-transport-routing.test.js \
+            unit/opencode-go-usage.test.js \
+            unit/kiro-api-key-endpoint-routing.test.js \
+            unit/cli-build-artifacts.test.js \
+            unit/provider-thinking-config.test.js \
+            unit/commandcode-to-openai.test.js \
+            unit/opencode-go-muse-spark-responses.test.js \
+            unit/opencode-go-session.test.js \
+            unit/strict-proxy-enforcement.test.js \
+            unit/multimodal-drop-lock.test.js \
+            unit/antigravity-quota-routing.test.js \
+            unit/antigravity-weekly-dashboard.test.js \
+            unit/jina-reader-fetch.test.js
+
+      - name: Parity verification oracle (Spec 019)
+        run: |
+          set -euo pipefail
+          bun scripts/verify-019.mjs --self-test
+          bun scripts/verify-019.mjs
+
   unit-wave:
     name: Verify / Unit (waves)
     runs-on: ubuntu-latest
@@ -493,6 +549,33 @@ jobs:
             echo "Health endpoint returned 200 OK"
           elif [ "$HEALTH_CODE" = "404" ]; then
             echo "Health endpoint returned 404 (noted)"
+          fi
+
+      - name: "Assert security smoke endpoints & voices route (Leg 1)"
+        run: |
+          set -euo pipefail
+          # CommandCode auto-import without auth MUST 401 or 403, NEVER 200 and NEVER leak apiKey
+          CC_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:20128/api/oauth/commandcode/auto-import)
+          echo "curl /api/oauth/commandcode/auto-import (unauthenticated) returned HTTP code: $CC_CODE"
+          if [ "$CC_CODE" != "401" ] && [ "$CC_CODE" != "403" ]; then
+            echo "::error::CommandCode auto-import without auth returned $CC_CODE (expected 401 or 403)"
+            exit 1
+          fi
+          CC_BODY=$(curl -s http://127.0.0.1:20128/api/oauth/commandcode/auto-import || true)
+          if echo "$CC_BODY" | grep -q '"apiKey"'; then
+            echo "::error::CommandCode auto-import leaked apiKey without auth"
+            exit 1
+          fi
+          echo "CommandCode unauthenticated import securely rejected ($CC_CODE, no key leaked)"
+
+          # Public voices route responded safely
+          VOICES_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:20128/v1/audio/voices || true)
+          echo "curl /v1/audio/voices returned HTTP code: $VOICES_CODE"
+          if [ "$VOICES_CODE" = "200" ] || [ "$VOICES_CODE" = "400" ] || [ "$VOICES_CODE" = "401" ] || [ "$VOICES_CODE" = "403" ]; then
+            echo "Voices route responded safely with expected status: $VOICES_CODE"
+          else
+            echo "::error::Unexpected voices response: $VOICES_CODE"
+            exit 1
           fi
 
       - name: "Assert runtime migrations (Leg 1)"

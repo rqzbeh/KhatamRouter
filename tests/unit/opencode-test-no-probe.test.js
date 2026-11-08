@@ -76,7 +76,7 @@ describe("provider test API key connection: opencode free tier probe (#5149)", (
     expect(res).toMatchObject({ valid: true, error: null });
     expect(mocks.fetchMock).toHaveBeenCalledTimes(1);
     const [url, options] = mocks.fetchMock.mock.calls[0];
-    expect(url).toBe("https://opencode.ai/zen/go/v1/chat/completions");
+    expect(url).toBe("https://opencode.ai/inference/go/openai/v1/chat/completions");
     expect(options.method).toBe("POST");
   });
 });

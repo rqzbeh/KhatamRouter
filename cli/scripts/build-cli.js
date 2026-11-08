@@ -170,6 +170,37 @@ function mergeServerArtifacts(buildDistDir, cliAppDir) {
   copyRecursive(serverSrc, serverDest);
 }
 
+const DEEPSEEK_POW_FILES = ["deepseek-pow-worker.mjs", "deepseek-pow-hash.js"];
+
+// The PoW worker runs in a worker_threads Worker and resolves its relative
+// import from the filesystem, so neither Next bundling nor standalone file
+// tracing follows it: tracing ships the worker but drops deepseek-pow-hash.js
+// (9router issue 5460). Copy both explicitly instead of relying on tracing.
+function copyDeepSeekPowFiles(appDir, cliAppDir) {
+  const srcDir = path.join(appDir, "open-sse/lib");
+  const destDir = path.join(cliAppDir, "open-sse/lib");
+  for (const file of DEEPSEEK_POW_FILES) {
+    const src = path.join(srcDir, file);
+    if (!fs.existsSync(src)) {
+      throw new Error(`DeepSeek PoW source file not found: ${src}`);
+    }
+    fs.mkdirSync(destDir, { recursive: true });
+    fs.copyFileSync(src, path.join(destDir, file));
+  }
+}
+
+function assertDeepSeekPowFiles(cliAppDir) {
+  const missing = DEEPSEEK_POW_FILES
+    .map((file) => path.join(cliAppDir, "open-sse/lib", file))
+    .filter((filePath) => !fs.existsSync(filePath));
+  if (missing.length > 0) {
+    throw new Error(
+      `Required DeepSeek PoW worker file${missing.length === 1 ? " is" : "s are"} missing:\n` +
+      missing.join("\n"),
+    );
+  }
+}
+
 function assertRequiredApiArtifacts(cliAppDir) {
   const requiredArtifacts = [
     "app/api/v1/chat/completions/route.js",
@@ -289,6 +320,12 @@ function buildCliPackage() {
   copyMultiWorkerAssets(appDir, cliAppDir);
   console.log("✅ Copied multi-worker closure\n");
 
+  // Step 3d: DeepSeek PoW worker + its hash dependency (runtime-loaded, not traced).
+  console.log("3️⃣ d Copying DeepSeek PoW worker files...");
+  copyDeepSeekPowFiles(appDir, cliAppDir);
+  assertDeepSeekPowFiles(cliAppDir);
+  console.log("✅ Copied DeepSeek PoW worker files\n");
+
   // Step 4: Copy static files
   console.log("4️⃣  Copying static files...");
   const staticSrc = path.join(appDir, ".next", "static");
@@ -376,7 +413,9 @@ function buildCliPackage() {
 }
 
 module.exports = {
+  assertDeepSeekPowFiles,
   assertRequiredApiArtifacts,
+  copyDeepSeekPowFiles,
   copyMultiWorkerAssets,
   copyStandaloneBuild,
   ensureModuleInBundle,
