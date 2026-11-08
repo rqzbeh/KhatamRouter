@@ -52,7 +52,7 @@ Comparison between clean master baseline (`c9a48311`) captured in `/tmp/k019-mas
 | **Passing Test Files** | 497 files passed | 521 files passed | **+24 files passing** |
 | **Sorted Failure Diff (`comm -23`)** | Baseline `/tmp/k019-fm.txt` | Branch `/tmp/k019-fb2.txt` | **EMPTY (0 new failure identities)** |
 
-**Note on suite status**: The suite is NOT claimed 100% green; ~90 pre-existing baseline failures remain in un-mocked external routes and missing cloud workers (catalogued in `known-fails.txt`). All 44 targeted upstream leaf tests pass cleanly.
+**Final pre-PR-head measurement (`bc0fefd4`)**: after security hardening and release-only snapshot updates, the full run reports **6,207 passed, 90 failed, 13 expected failures, 27 skipped and 1 todo** across 558 files (522 passing, 32 failing, 4 skipped). Comparison of sorted failure identities against clean `c9a48311` is still empty for new failures; six prior failures are resolved. The full suite exits **1**, not zero. These existing failures include mocked-contract, external-route and missing-cloud-worker failures; `known-fails.txt` is historical and is not claimed to exhaustively catalog the measured set. All 44 targeted upstream CI files pass separately (548 passed, 1 todo).
 
 ---
 
