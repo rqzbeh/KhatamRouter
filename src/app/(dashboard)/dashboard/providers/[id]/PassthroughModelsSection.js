@@ -5,7 +5,7 @@ import PropTypes from "prop-types";
 import { Button } from "@/shared/components";
 import { getProviderCustomModelRows } from "@/shared/utils/providerCustomModels";
 
-function PassthroughModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias, onTest, testStatus, isTesting }) {
+function PassthroughModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias, onTest, testStatus, isTesting, onEditCaps }) {
   const borderColor = testStatus === "ok"
     ? "border-green-500/40"
     : testStatus === "error"
@@ -61,6 +61,17 @@ function PassthroughModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias
               </span>
             </div>
           )}
+          {onEditCaps && (
+            <button
+              type="button"
+              onClick={() => onEditCaps(modelId)}
+              className="p-0.5 hover:bg-sidebar rounded text-text-muted hover:text-primary transition-colors"
+              title="Edit capabilities"
+              aria-label={`Edit capabilities for ${modelId}`}
+            >
+              <span className="material-symbols-outlined text-sm">tune</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -87,7 +98,7 @@ PassthroughModelRow.propTypes = {
   isTesting: PropTypes.bool,
 };
 
-export default function PassthroughModelsSection({ providerAlias, modelAliases, customModels, copied, onCopy, onDeleteAlias, onAddCustomModel, onDeleteCustomModel }) {
+export default function PassthroughModelsSection({ providerAlias, modelAliases, customModels, copied, onCopy, onDeleteAlias, onAddCustomModel, onDeleteCustomModel, onEditCaps }) {
   const [newModel, setNewModel] = useState("");
   const [adding, setAdding] = useState(false);
 
@@ -154,6 +165,7 @@ export default function PassthroughModelsSection({ providerAlias, modelAliases, 
               copied={copied}
               onCopy={onCopy}
               onDeleteAlias={() => source === "custom" ? onDeleteCustomModel(id) : onDeleteAlias(alias)}
+              onEditCaps={onEditCaps}
             />
           ))}
         </div>
@@ -171,4 +183,5 @@ PassthroughModelsSection.propTypes = {
   onDeleteAlias: PropTypes.func.isRequired,
   onAddCustomModel: PropTypes.func.isRequired,
   onDeleteCustomModel: PropTypes.func.isRequired,
+  onEditCaps: PropTypes.func,
 };
