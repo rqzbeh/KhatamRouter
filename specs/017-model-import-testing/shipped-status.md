@@ -89,15 +89,13 @@ The following root capabilities from Spec 017 and adjacent roadmap initiatives r
    - Applying `model_context_overrides` and `model_capability_overrides` dynamically during request translation and combo dispatch.
    - UI controls for editing and resetting capability overrides per provider/model.
 2. **Batch Testing Engine**:
-   - Explicit sequential bounded probes (not concurrent probes) across imported models.
-   - Live latency, context-window boundary, and modality verification.
+   - Explicit sequential bounded probes across imported models.
 3. **Global & Per-Provider Synchronization**:
    - Background interval synchronization orchestrator for connected providers via approved `providerSync` module with KV policy.
-   - Webhook or event-driven catalog refresh.
 4. **"Import All Providers" Action**:
    - Control-plane action/button available across all provider types.
 5. **models.dev Community Metadata Enrichment**:
-   - Ingesting community model capabilities, limits, and context boundaries from models.dev into local SQLite metadata tables.
+   - Ingesting community model metadata from models.dev into local SQLite metadata tables.
 6. **Free Proxy Ingestion (Vetted Sources)**:
    - Opted-in explicit ingestion from vetted OmniRoute sources (not broad web scraping).
 7. **Background Probing Service**:
@@ -114,7 +112,8 @@ The following root capabilities from Spec 017 and adjacent roadmap initiatives r
 | **DB Migration 005** | T018: Add `005-model-capability-override-scope.js` | Merged as `005-model-metadata.js` (commit `142190b8`, PR #134), which adds `provider`, `model_id`, `source` to `model_capability_overrides` and creates table `imported_models`. | Formally mapped to `005-model-metadata.js`. |
 | **Combo Cooldown Persistence** | T019: Add `006-combo-cooldown.js` adding nullable column `cooldownMs INTEGER` to `combos` table | Merged via PR #142 (`d77cbfe3`) using `settings.comboStrategies[comboName].memberCooldownMs`. | **Formally resolved & superseded**: Stored in settings key-value map, avoiding database schema migration lock contention. |
 | **Combo Quota Bypass & Member Cooldown** | T039–T049 (User Story 7 / S2) | PR #130 (`isQuotaShapedTransientError`) bypassed transient delay; PR #142 (`d77cbfe3`) delivered configurable member cooldown presets/custom settings with caller-scoped routing and Retry-After floors. | Partially shipped (delay bypass & member cooldowns shipped; full nested error envelope normalization to client 429 remains pending). |
-| **Sync Policy Backend** | T015 (`syncPolicyRepo.js`) and T016 (`retryPolicyRepo.js`) | Pending implementation. | Approved parent decision: new `providerSync` module with KV policy. |
+| **Sync Policy Backend** | T015 (`syncPolicyRepo.js`) | Pending implementation. | Approved parent decision: new `providerSync` module with KV policy handles sync interval. |
+| **Retry Policy Backend** | T016 (`retryPolicyRepo.js`) | Pending implementation. | Kept distinct from sync policy; handles request retry policy separately. |
 | **Override Resolver & Cache** | T023 (`overrideCache.js`) | PR #141 landed per-field capability merging in `src/lib/models/capabilities.js`. In-memory caching and API routes (`/api/models/overrides`) remain pending. | Wire cache and API slice on top of PR #141 resolver logic. |
 
 ---
@@ -122,7 +121,7 @@ The following root capabilities from Spec 017 and adjacent roadmap initiatives r
 ## 6. Frozen Scope & Exclusions
 
 - **Psiphon Proxy Pool & OpenCode Quota/Rotation**:
-  - User-frozen. Strictly isolated; no changes made to rotation cooldowns, session invalidation, or `ConsoleClient` management.
+  - User-frozen. Strictly isolated; rotation cooldowns, session invalidation, and tunnel configurations remain unchanged as of the 2026-11-08 baseline.
 - **Regionhop Release Pin & Update PR**:
   - In-progress by concurrent worker. Excluded from this documentation slice to prevent git conflicts.
 - **`CHANGELOG.md`**:
