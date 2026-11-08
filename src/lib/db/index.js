@@ -71,7 +71,7 @@ export {
 
 // Disabled models
 export {
-  getDisabledModels, getDisabledByProvider, disableModels, enableModels,
+  getDisabledModels, getDisabledByProvider, getDisabledModelAudit, disableModels, disableModelsWithAudit, enableModels,
 } from "./repos/disabledModelsRepo.js";
 
 // Usage
