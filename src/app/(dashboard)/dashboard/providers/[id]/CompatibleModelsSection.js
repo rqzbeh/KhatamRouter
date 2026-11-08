@@ -4,7 +4,7 @@ import { useState } from "react";
 import PropTypes from "prop-types";
 import { Button } from "@/shared/components";
 import { getProviderCustomModelRows } from "@/shared/utils/providerCustomModels";
-function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias, onTest, testStatus, isTesting }) {
+function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias, onTest, testStatus, isTesting, onEditCaps }) {
   const borderColor = testStatus === "ok"
     ? "border-green-500/40"
     : testStatus === "error"
@@ -58,6 +58,17 @@ function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias,
               </span>
             </div>
           )}
+          {onEditCaps && (
+            <button
+              type="button"
+              onClick={() => onEditCaps(modelId)}
+              className="p-0.5 hover:bg-sidebar rounded text-text-muted hover:text-primary transition-colors"
+              title="Edit capabilities"
+              aria-label={`Edit capabilities for ${modelId}`}
+            >
+              <span className="material-symbols-outlined text-sm">tune</span>
+            </button>
+          )}
         </div>
       </div>
       <button
@@ -71,7 +82,7 @@ function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias,
   );
 }
 
-export default function CompatibleModelsSection({ providerStorageAlias, providerDisplayAlias, modelAliases, customModels, copied, onCopy, onDeleteAlias, onAddCustomModel, onDeleteCustomModel, onImported, connections, isAnthropic }) {
+export default function CompatibleModelsSection({ providerStorageAlias, providerDisplayAlias, modelAliases, customModels, copied, onCopy, onDeleteAlias, onAddCustomModel, onDeleteCustomModel, onImported, onChanged, connections, isAnthropic, onEditCaps }) {
   const [newModel, setNewModel] = useState("");
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -150,6 +161,7 @@ export default function CompatibleModelsSection({ providerStorageAlias, provider
       }
       alert(message);
       await onImported?.();
+      await onChanged?.();
     } catch (error) {
       console.log("Error importing models:", error);
     } finally {
@@ -205,6 +217,7 @@ export default function CompatibleModelsSection({ providerStorageAlias, provider
               onTest={connections.length > 0 ? () => handleTestModel(id) : undefined}
               testStatus={modelTestResults[id]}
               isTesting={testingModelId === id}
+              onEditCaps={onEditCaps}
             />
           ))}
         </div>
@@ -223,6 +236,8 @@ CompatibleModelsSection.propTypes = {
   onDeleteAlias: PropTypes.func.isRequired,
   onAddCustomModel: PropTypes.func.isRequired,
   onImported: PropTypes.func,
+  onChanged: PropTypes.func,
+  onEditCaps: PropTypes.func,
   onDeleteCustomModel: PropTypes.func.isRequired,
   connections: PropTypes.arrayOf(PropTypes.shape({
     id: PropTypes.string,

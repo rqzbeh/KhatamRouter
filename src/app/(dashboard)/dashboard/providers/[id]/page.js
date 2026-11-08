@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -27,6 +27,8 @@ import CustomConfigCard from "./CustomConfigCard";
 import AutoPingScheduleModal from "./AutoPingScheduleModal";
 import MinimaxLeaseButton from "../components/MinimaxLeaseButton.js";
 import { getScheduleSlotLabels } from "@/shared/services/quotaPingSchedule";
+import ModelManagementPanel from "./ModelManagementPanel";
+import ModelOverrideModal from "./ModelOverrideModal";
 
 const ONE_BY_ONE_DELAY_MS = 1000;
 
@@ -92,6 +94,7 @@ export default function ProviderDetailPage() {
   const stopOneByOneRef = useRef(false);
   const [importingQoderModels, setImportingQoderModels] = useState(false);
   const [importingClineModels, setImportingClineModels] = useState(false);
+  const [overrideModalModelId, setOverrideModalModelId] = useState(null);
   const { copied, copy } = useCopyToClipboard();
 
   const AG_RISK_STORAGE_KEY = "ag_risk_confirmed";
@@ -298,6 +301,17 @@ export default function ProviderDetailPage() {
       console.log("Error fetching custom models:", error);
     }
   }, []);
+
+  const handleModelsChanged = useCallback(async () => {
+    await Promise.all([
+      fetchCustomModels(),
+      fetchDisabledModels(),
+      fetchAliases(),
+    ]);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("customModelChanged"));
+    }
+  }, [fetchCustomModels, fetchDisabledModels, fetchAliases]);
 
   // Fetch free models from Kilo API for kilocode provider
   useEffect(() => {
@@ -1164,6 +1178,39 @@ export default function ProviderDetailPage() {
     }
   };
 
+  const activeConnections = connections.filter((conn) => conn.isActive !== false);
+
+  const visibleModelIds = (() => {
+    const ids = new Set();
+    for (const m of models || []) {
+      if (m?.id) ids.add(m.id);
+    }
+    for (const m of kiloFreeModels || []) {
+      if (m?.id) ids.add(m.id);
+    }
+    for (const m of liveModels || []) {
+      const id = m?.id || m?.name;
+      if (id) ids.add(id);
+    }
+    for (const m of suggestedModels || []) {
+      if (m?.id) ids.add(m.id);
+    }
+    const customRows = getProviderCustomModelRows({
+      customModels,
+      modelAliases,
+      providerAlias: providerStorageAlias,
+      builtInModels: models,
+      type: "llm",
+    });
+    for (const m of customRows || []) {
+      if (m?.id) ids.add(m.id);
+    }
+    for (const id of disabledModelIds || []) {
+      if (id) ids.add(id);
+    }
+    return Array.from(ids);
+  })();
+
   const renderModelsSection = () => {
     if (isCompatible) {
       return (
@@ -1179,6 +1226,8 @@ export default function ProviderDetailPage() {
           onAddCustomModel={(modelId) => handleAddCustomModel(modelId, "llm", providerStorageAlias)}
           onDeleteCustomModel={(modelId) => handleDeleteCustomModel(modelId, "llm", providerStorageAlias)}
           onImported={fetchCustomModels}
+          onChanged={handleModelsChanged}
+          onEditCaps={setOverrideModalModelId}
           connections={connections}
           isAnthropic={isAnthropicCompatible}
         />
@@ -1227,6 +1276,7 @@ export default function ProviderDetailPage() {
             isFree={false}
             caps={getCaps(`${providerId}/${model.id}`)}
             thinkingSuffix={resolveThinkingSuffix(model.id)}
+            onEditCaps={setOverrideModalModelId}
           />
         ))}
 
@@ -1253,6 +1303,7 @@ export default function ProviderDetailPage() {
               onDisable={() => handleDisableModel(model.id)}
               caps={getCaps(`${providerId}/${model.id}`)}
               thinkingSuffix={resolveThinkingSuffix(model.id)}
+              onEditCaps={setOverrideModalModelId}
             />
           );
         })}
@@ -1844,6 +1895,12 @@ export default function ProviderDetailPage() {
         {providerId === "zed" && !!liveModelsError && (
           <p className="text-xs text-red-500 mb-3 break-words">{liveModelsError}</p>
         )}
+        <ModelManagementPanel
+          providerId={providerId}
+          connections={activeConnections}
+          visibleModelIds={visibleModelIds}
+          onChanged={handleModelsChanged}
+        />
         {renderModelsSection()}
       </Card>
 
@@ -1998,6 +2055,17 @@ export default function ProviderDetailPage() {
         message={confirmState?.message}
         variant="danger"
       />
+
+      {/* Model Capability Overrides Modal */}
+      {overrideModalModelId && (
+        <ModelOverrideModal
+          isOpen={!!overrideModalModelId}
+          onClose={() => setOverrideModalModelId(null)}
+          providerId={providerId}
+          modelId={overrideModalModelId}
+          onSaved={handleModelsChanged}
+        />
+      )}
     </div>
   );
 }

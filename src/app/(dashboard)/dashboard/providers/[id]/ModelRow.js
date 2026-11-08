@@ -1,7 +1,23 @@
 import PropTypes from "prop-types";
 import CapacityBadges from "@/shared/components/CapacityBadges";
 
-export default function ModelRow({ model, fullModel, alias, copied, onCopy, testStatus, isCustom, isFree, onDeleteAlias, onTest, isTesting, onDisable, caps, thinkingSuffix }) {
+export default function ModelRow({
+  model,
+  fullModel,
+  alias,
+  copied,
+  onCopy,
+  testStatus,
+  isCustom,
+  isFree,
+  onDeleteAlias,
+  onTest,
+  isTesting,
+  onDisable,
+  caps,
+  thinkingSuffix,
+  onEditCaps,
+}) {
   const displayModel = thinkingSuffix ? `${fullModel}(${thinkingSuffix})` : fullModel;
   const resolvedCaps = caps || model?.capabilities || model?.caps || null;
   const borderColor = testStatus === "ok"
@@ -62,6 +78,17 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
               {copied === `model-${model.id}` ? "Copied!" : "Copy"}
             </span>
           </div>
+          {onEditCaps && (
+            <button
+              type="button"
+              onClick={() => onEditCaps(model.id)}
+              className="rounded p-0.5 text-text-muted opacity-100 transition-opacity hover:bg-sidebar hover:text-primary sm:opacity-0 sm:group-hover:opacity-100"
+              title="Edit capabilities"
+              aria-label={`Edit capabilities for ${model.id}`}
+            >
+              <span className="material-symbols-outlined text-sm">tune</span>
+            </button>
+          )}
           {isCustom ? (
             <button
               onClick={onDeleteAlias}
@@ -102,4 +129,5 @@ ModelRow.propTypes = {
   onDisable: PropTypes.func,
   caps: PropTypes.object,
   thinkingSuffix: PropTypes.string,
+  onEditCaps: PropTypes.func,
 };
