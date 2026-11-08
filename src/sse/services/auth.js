@@ -5,6 +5,8 @@ import { MAX_RATE_LIMIT_COOLDOWN_MS } from "open-sse/config/errorConfig.js";
 import { resolveProviderId, FREE_PROVIDERS } from "@/shared/constants/providers.js";
 import { getAntigravityQuotaCache, getAntigravityModelQuota } from "./antigravityQuota.js";
 import { authenticateApiKey } from "@/lib/auth/apiKeyCache.js";
+import { isPoolFit } from "open-sse/services/proxyPoolFitness.js";
+import { selectEligiblePools } from "@/lib/network/proxyHealthPolicy.js";
 import * as log from "../utils/logger.js";
 
 // Mutex to prevent race conditions during account selection
@@ -53,7 +55,10 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       if (strategy !== "none") {
         const allPools = await getProxyPools({ isActive: true });
         const poolIds = allPools.filter(p => p.proxyUrl || p.type === "psiphon" || p.data?.type === "psiphon").map(p => p.id);
-        pickedId = pickProxyPoolId(poolIds, strategy, providerId);
+        // Skip pools cooling down after a proxy failure for this provider; if
+        // every pool is cooling, keep them all so the request is not dropped.
+        const eligible = selectEligiblePools(poolIds, (id) => isPoolFit(id, `${providerId}::*`));
+        pickedId = pickProxyPoolId(eligible, strategy, providerId);
       }
       const resolvedProxy = await resolveConnectionProxyConfig({ proxyPoolId: pickedId || "" });
       return {

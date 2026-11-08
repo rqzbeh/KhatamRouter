@@ -42,6 +42,8 @@ import { isStickinessEnabled, computeSessionKey, getStickyConnection, setStickyC
 import { handleIdempotencyPreRequest, handleIdempotencyPostRequest } from "@/lib/idempotency/index.js";
 import { resolveSmartChoice } from "../services/systemoneRouter.js";
 import { rotate, recordUsage, shouldRotateOn } from "@/lib/network/psiphon/psiphonManager.js";
+import { classifyProxyFailure } from "@/lib/network/proxyHealthPolicy.js";
+import { markPoolUnfit } from "open-sse/services/proxyPoolFitness.js";
 
 /**
  * Handle chat completion request
@@ -555,6 +557,26 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         recordUsage(psiphonPoolId, { requests: 1, tokens });
       }
       return result.response;
+    }
+
+    // Proxy health: a failure that points at the proxy (rate limit, region
+    // block, transport) takes this pool out of the provider's rotation for the
+    // configured cooldown. The next selection skips it; it rejoins on expiry.
+    const failedPoolId = credentials?.providerSpecificData?.connectionProxyPoolId;
+    if (failedPoolId) {
+      const proxyHealth = (await getSettings())?.proxyHealth;
+      const verdict = classifyProxyFailure({
+        status: result.status,
+        errorText: typeof result.error === "string" ? result.error : "",
+        headers: result.response?.headers,
+        providerId: provider,
+        settings: proxyHealth,
+        clientAborted: Boolean(request?.signal?.aborted),
+      });
+      if (verdict) {
+        await markPoolUnfit(failedPoolId, verdict.scope, Date.now() + verdict.durationMs, verdict.reason);
+        log.warn("PROXY", `Pool ${failedPoolId} cooled for ${Math.round(verdict.durationMs / 1000)}s on ${provider}: ${verdict.reason}`);
+      }
     }
 
     // Psiphon transport failure rotation:
