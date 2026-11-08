@@ -37,8 +37,10 @@ describe("wreq-js Packaging & Standalone Distribution (FR-01)", () => {
       const raw = fs.readFileSync(configPath, "utf8");
 
       expect(raw).toContain('"wreq-js"');
-      expect(raw).toContain(
-        'serverExternalPackages: ["bun:sqlite", "ioredis", "open", "@aws-sdk/credential-providers", "wreq-js"]'
+      const configModule = await import("../../next.config.mjs");
+      const nextConfig = configModule.default || configModule;
+      expect(nextConfig.serverExternalPackages).toEqual(
+        expect.arrayContaining(["bun:sqlite", "ioredis", "open", "@aws-sdk/credential-providers", "wreq-js", "undici"])
       );
       // Explanatory comment preserving upstream rationale
       expect(raw).toMatch(/wreq-js resolves its rust native binding by relative require paths/i);

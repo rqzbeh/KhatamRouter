@@ -36,7 +36,7 @@ SPEC_019_VERIFIED
 ```
 
 ### Exact CI Step Execution
-The exact CI step in `.github/workflows/verify.yml` (`unit-core`) includes all 44 test files matching the parity oracle's `TARGETED_019_TEST_FILES`. Prior 35-file subset execution independently run under Bun yielded 469 tests passed, 1 todo, 0 failed (exit 0; captured in `/tmp/k019-exact-ci-tests.txt`), and all 44 test suites in the complete gate union are verified present and passing under Bun.
+The exact CI step in `.github/workflows/verify.yml` (`unit-core`) includes all 44 test files matching the parity oracle's `TARGETED_019_TEST_FILES`. Independent execution of that exact step passed **548 tests, 1 todo across 44 files**, exit 0 (`/tmp/k019-exact-ci44.txt`). The earlier 35-file subset passed 469 tests and 1 todo; it is not substituted for the final 44-file measurement.
 
 ---
 
