@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createProviderNode, getProviderNodes } from "@/models";
 import { OPENAI_COMPATIBLE_PREFIX, ANTHROPIC_COMPATIBLE_PREFIX, CUSTOM_EMBEDDING_PREFIX } from "@/shared/constants/providers";
 import { generateId } from "@/shared/utils";
+import { assertGatewayUrlAllowed, isGatewaySelfHostedAllowed } from "@/lib/network/gatewayTrust.js";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +33,7 @@ export async function GET() {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { name, prefix, apiType, baseUrl, type } = body;
+    const { name, prefix, apiType, baseUrl, type, isSelfHosted, allowInsecureTls } = body;
 
     if (!name?.trim()) {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
@@ -40,6 +41,24 @@ export async function POST(request) {
 
     if (!prefix?.trim()) {
       return NextResponse.json({ error: "Prefix is required" }, { status: 400 });
+    }
+
+    if (allowInsecureTls && !isSelfHosted) {
+      return NextResponse.json({ error: "allowInsecureTls is only allowed for self-hosted nodes" }, { status: 400 });
+    }
+
+    const selfHostedRequested = Boolean(isSelfHosted);
+    const selfHostedPermitted = isGatewaySelfHostedAllowed({
+      request,
+      isSelfHosted: selfHostedRequested,
+      baseUrl,
+    });
+
+    if (selfHostedRequested && !selfHostedPermitted) {
+      return NextResponse.json(
+        { error: "Self-hosted gateway declaration not permitted from proxied or non-local requests" },
+        { status: 400 }
+      );
     }
 
     // Determine type
@@ -50,13 +69,25 @@ export async function POST(request) {
         return NextResponse.json({ error: "Invalid OpenAI compatible API type" }, { status: 400 });
       }
 
+      const effectiveBaseUrl = (baseUrl || OPENAI_COMPATIBLE_DEFAULTS.baseUrl).trim();
+      try {
+        await assertGatewayUrlAllowed(effectiveBaseUrl, {
+          isSelfHosted: selfHostedRequested,
+          trustedHost: new URL(effectiveBaseUrl).host,
+        });
+      } catch (err) {
+        return NextResponse.json({ error: `Invalid base URL: ${err.message}` }, { status: 400 });
+      }
+
       const node = await createProviderNode({
         id: `${OPENAI_COMPATIBLE_PREFIX}${apiType}-${generateId()}`,
         type: "openai-compatible",
         prefix: prefix.trim(),
         apiType,
-        baseUrl: (baseUrl || OPENAI_COMPATIBLE_DEFAULTS.baseUrl).trim(),
+        baseUrl: effectiveBaseUrl,
         name: name.trim(),
+        isSelfHosted: selfHostedRequested,
+        allowInsecureTls: Boolean(allowInsecureTls && selfHostedRequested),
       });
       return NextResponse.json({ node }, { status: 201 });
     }
@@ -68,22 +99,40 @@ export async function POST(request) {
         sanitizedBaseUrl = sanitizedBaseUrl.slice(0, -"/embeddings".length);
       }
 
+      try {
+        await assertGatewayUrlAllowed(sanitizedBaseUrl, {
+          isSelfHosted: selfHostedRequested,
+          trustedHost: new URL(sanitizedBaseUrl).host,
+        });
+      } catch (err) {
+        return NextResponse.json({ error: `Invalid base URL: ${err.message}` }, { status: 400 });
+      }
+
       const node = await createProviderNode({
         id: `${CUSTOM_EMBEDDING_PREFIX}${generateId()}`,
         type: "custom-embedding",
         prefix: prefix.trim(),
         baseUrl: sanitizedBaseUrl,
         name: name.trim(),
+        isSelfHosted: selfHostedRequested,
+        allowInsecureTls: Boolean(allowInsecureTls && selfHostedRequested),
       });
       return NextResponse.json({ node }, { status: 201 });
     }
 
     if (nodeType === "anthropic-compatible") {
-      // Sanitize Base URL: remove trailing slash, and remove trailing /messages if user added it
-      // This prevents double-appending /messages at runtime
       let sanitizedBaseUrl = (baseUrl || ANTHROPIC_COMPATIBLE_DEFAULTS.baseUrl).trim().replace(/\/$/, "");
       if (sanitizedBaseUrl.endsWith("/messages")) {
         sanitizedBaseUrl = sanitizedBaseUrl.slice(0, -9); // remove /messages
+      }
+
+      try {
+        await assertGatewayUrlAllowed(sanitizedBaseUrl, {
+          isSelfHosted: selfHostedRequested,
+          trustedHost: new URL(sanitizedBaseUrl).host,
+        });
+      } catch (err) {
+        return NextResponse.json({ error: `Invalid base URL: ${err.message}` }, { status: 400 });
       }
 
       const node = await createProviderNode({
@@ -92,6 +141,8 @@ export async function POST(request) {
         prefix: prefix.trim(),
         baseUrl: sanitizedBaseUrl,
         name: name.trim(),
+        isSelfHosted: selfHostedRequested,
+        allowInsecureTls: Boolean(allowInsecureTls && selfHostedRequested),
       });
       return NextResponse.json({ node }, { status: 201 });
     }

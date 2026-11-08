@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getProviderNodeById } from "@/models";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider, isCustomEmbeddingProvider, AI_PROVIDERS } from "@/shared/constants/providers";
+import { assertGatewayUrlAllowed, fetchGateway, isGatewaySelfHostedAllowed, sanitizeGatewayError } from "@/lib/network/gatewayTrust.js";
+import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy.js";
 import { getDefaultModel } from "open-sse/config/providerModels.js";
 import { resolveOllamaLocalHost, resolveXiaomiTokenplanBaseUrl, PROVIDERS } from "open-sse/config/providers.js";
 import { openaiToCommandCodeRequest } from "open-sse/translator/request/openai-to-commandcode.js";
@@ -114,15 +116,68 @@ export async function POST(request) {
         if (!node) {
           return NextResponse.json({ error: "OpenAI Compatible node not found" }, { status: 404 });
         }
+
+        const proxy = await resolveConnectionProxyConfig(providerSpecificData || {});
+        if (
+          proxy?.strictProxy === true ||
+          proxy?.connectionProxyEnabled === true ||
+          Boolean(proxy?.vercelRelayUrl) ||
+          Boolean(proxy?.connectionProxyUrl) ||
+          Boolean(proxy?.proxyPoolId) ||
+          Boolean(proxy?.psiphonPoolId)
+        ) {
+          return NextResponse.json(
+            { error: "Configured proxy egress cannot be honored for custom gateway validation (fail-closed)" },
+            { status: 503 }
+          );
+        }
+
+        const isSelfHosted = Boolean(node.isSelfHosted);
+        const allowInsecureTls = Boolean(node.allowInsecureTls && isSelfHosted);
+
+        if (isSelfHosted) {
+          const permitted = isGatewaySelfHostedAllowed({
+            request,
+            isSelfHosted: true,
+            baseUrl: node.baseUrl,
+          });
+          if (!permitted) {
+            return NextResponse.json(
+              { error: "Self-hosted gateway validation not permitted from proxied or non-local requests" },
+              { status: 400 }
+            );
+          }
+        }
+
         const modelsUrl = `${node.baseUrl?.replace(/\/$/, "")}/models`;
-        const res = await fetch(modelsUrl, {
-          headers: { "Authorization": `Bearer ${apiKey}` },
-        });
-        isValid = res.ok;
-        return NextResponse.json({
-          valid: isValid,
-          error: isValid ? null : "Invalid API key",
-        });
+
+        try {
+          await assertGatewayUrlAllowed(modelsUrl, {
+            isSelfHosted,
+            authorizedOrigin: new URL(node.baseUrl).origin,
+          });
+        } catch {
+          return NextResponse.json({ valid: false, error: "Gateway URL not allowed" }, { status: 400 });
+        }
+
+        try {
+          const res = await fetchGateway(modelsUrl, {
+            headers: { "Authorization": `Bearer ${apiKey}` },
+            signal: AbortSignal.timeout(8000),
+          }, {
+            isSelfHosted,
+            allowInsecureTls,
+            authorizedOrigin: new URL(node.baseUrl).origin,
+          });
+          isValid = res.ok;
+          return NextResponse.json({
+            valid: isValid,
+            error: isValid ? null : "Invalid API key",
+          });
+        } catch (err) {
+          const cleanErr = sanitizeGatewayError(err, [apiKey]);
+          return NextResponse.json({ valid: false, error: cleanErr.message }, { status: 500 });
+        }
       }
 
       // Custom Embedding nodes: probe /models (most embedding APIs are OpenAI-compatible)
@@ -131,29 +186,91 @@ export async function POST(request) {
         if (!node) {
           return NextResponse.json({ error: "Custom Embedding node not found" }, { status: 404 });
         }
+
+        const proxy = await resolveConnectionProxyConfig(providerSpecificData || {});
+        if (
+          proxy?.strictProxy === true ||
+          proxy?.connectionProxyEnabled === true ||
+          Boolean(proxy?.vercelRelayUrl) ||
+          Boolean(proxy?.connectionProxyUrl) ||
+          Boolean(proxy?.proxyPoolId) ||
+          Boolean(proxy?.psiphonPoolId)
+        ) {
+          return NextResponse.json(
+            { error: "Configured proxy egress cannot be honored for custom gateway validation (fail-closed)" },
+            { status: 503 }
+          );
+        }
+
+        const isSelfHosted = Boolean(node.isSelfHosted);
+        const allowInsecureTls = Boolean(node.allowInsecureTls && isSelfHosted);
+
+        if (isSelfHosted) {
+          const permitted = isGatewaySelfHostedAllowed({
+            request,
+            isSelfHosted: true,
+            baseUrl: node.baseUrl,
+          });
+          if (!permitted) {
+            return NextResponse.json(
+              { error: "Self-hosted gateway validation not permitted from proxied or non-local requests" },
+              { status: 400 }
+            );
+          }
+        }
+
         const baseUrl = node.baseUrl?.replace(/\/$/, "");
-        const modelsRes = await fetch(`${baseUrl}/models`, {
-          headers: { "Authorization": `Bearer ${apiKey}` },
-        });
-        if (modelsRes.ok) {
-          return NextResponse.json({ valid: true });
+        const modelsUrl = `${baseUrl}/models`;
+
+        try {
+          await assertGatewayUrlAllowed(modelsUrl, {
+            isSelfHosted,
+            authorizedOrigin: new URL(node.baseUrl).origin,
+          });
+        } catch {
+          return NextResponse.json({ valid: false, error: "Gateway URL not allowed" }, { status: 400 });
         }
-        // Auth errors are definitive
-        if (modelsRes.status === 401 || modelsRes.status === 403) {
-          return NextResponse.json({ valid: false, error: "Invalid API key" });
+
+        try {
+          const modelsRes = await fetchGateway(modelsUrl, {
+            headers: { "Authorization": `Bearer ${apiKey}` },
+            signal: AbortSignal.timeout(8000),
+          }, {
+            isSelfHosted,
+            allowInsecureTls,
+            authorizedOrigin: new URL(node.baseUrl).origin,
+          });
+          if (modelsRes.ok) {
+            return NextResponse.json({ valid: true });
+          }
+          if (modelsRes.status === 401 || modelsRes.status === 403) {
+            return NextResponse.json({ valid: false, error: "Invalid API key" });
+          }
+        } catch {
+          // Fall through to /embeddings check
         }
+
         // Fallback: probe /embeddings with a common test model — many providers lack /models
-        const embedRes = await fetch(`${baseUrl}/embeddings`, {
-          method: "POST",
-          headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ model: "test", input: "ping" }),
-        });
-        // 401/403 = bad key; anything else (including 400 "model not found") means key works
-        isValid = embedRes.status !== 401 && embedRes.status !== 403;
-        return NextResponse.json({
-          valid: isValid,
-          error: isValid ? null : "Invalid API key",
-        });
+        try {
+          const embedRes = await fetchGateway(`${baseUrl}/embeddings`, {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ model: "test", input: "ping" }),
+            signal: AbortSignal.timeout(8000),
+          }, {
+            isSelfHosted,
+            allowInsecureTls,
+            authorizedOrigin: new URL(node.baseUrl).origin,
+          });
+          isValid = embedRes.status !== 401 && embedRes.status !== 403;
+          return NextResponse.json({
+            valid: isValid,
+            error: isValid ? null : "Invalid API key",
+          });
+        } catch (err) {
+          const cleanErr = sanitizeGatewayError(err, [apiKey]);
+          return NextResponse.json({ valid: false, error: cleanErr.message }, { status: 500 });
+        }
       }
 
       if (isAnthropicCompatibleProvider(provider)) {
@@ -162,35 +279,89 @@ export async function POST(request) {
           return NextResponse.json({ error: "Anthropic Compatible node not found" }, { status: 404 });
         }
 
+        const proxy = await resolveConnectionProxyConfig(providerSpecificData || {});
+        if (
+          proxy?.strictProxy === true ||
+          proxy?.connectionProxyEnabled === true ||
+          Boolean(proxy?.vercelRelayUrl) ||
+          Boolean(proxy?.connectionProxyUrl) ||
+          Boolean(proxy?.proxyPoolId) ||
+          Boolean(proxy?.psiphonPoolId)
+        ) {
+          return NextResponse.json(
+            { error: "Configured proxy egress cannot be honored for custom gateway validation (fail-closed)" },
+            { status: 503 }
+          );
+        }
+
         let normalizedBase = node.baseUrl?.trim().replace(/\/$/, "") || "";
         if (normalizedBase.endsWith("/messages")) {
           normalizedBase = normalizedBase.slice(0, -9); // remove /messages
         }
 
-        const messagesUrl = `${normalizedBase}/v1/messages`;
+        const isSelfHosted = Boolean(node.isSelfHosted);
+        const allowInsecureTls = Boolean(node.allowInsecureTls && isSelfHosted);
+
+        if (isSelfHosted) {
+          const permitted = isGatewaySelfHostedAllowed({
+            request,
+            isSelfHosted: true,
+            baseUrl: node.baseUrl,
+          });
+          if (!permitted) {
+            return NextResponse.json(
+              { error: "Self-hosted gateway validation not permitted from proxied or non-local requests" },
+              { status: 400 }
+            );
+          }
+        }
+
+        // Avoid duplicating /v1 when baseUrl already ends with /v1
+        const messagesUrl = normalizedBase.endsWith("/v1")
+          ? `${normalizedBase}/messages`
+          : `${normalizedBase}/v1/messages`;
         const model = node.defaultModel || "claude-3-haiku-20240307";
 
-        const res = await fetch(messagesUrl, {
-          method: "POST",
-          headers: {
-            "x-api-key": apiKey,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-            "Authorization": `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            model,
-            max_tokens: 1,
-            messages: [{ role: "user", content: "test" }],
-          }),
-        });
+        try {
+          await assertGatewayUrlAllowed(messagesUrl, {
+            isSelfHosted,
+            authorizedOrigin: new URL(node.baseUrl).origin,
+          });
+        } catch {
+          return NextResponse.json({ valid: false, error: "Gateway URL not allowed" }, { status: 400 });
+        }
 
-        // 400/529 still confirms key accepted; only 401/403 = bad key
-        isValid = res.status !== 401 && res.status !== 403;
-        return NextResponse.json({
-          valid: isValid,
-          error: isValid ? null : "Invalid API key",
-        });
+        try {
+          const res = await fetchGateway(messagesUrl, {
+            method: "POST",
+            headers: {
+              "x-api-key": apiKey,
+              "anthropic-version": "2023-06-01",
+              "content-type": "application/json",
+              "Authorization": `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+              model,
+              max_tokens: 1,
+              messages: [{ role: "user", content: "test" }],
+            }),
+            signal: AbortSignal.timeout(8000),
+          }, {
+            isSelfHosted,
+            allowInsecureTls,
+            authorizedOrigin: new URL(node.baseUrl).origin,
+          });
+
+          // 400/529 still confirms key accepted; only 401/403 = bad key
+          isValid = res.status !== 401 && res.status !== 403;
+          return NextResponse.json({
+            valid: isValid,
+            error: isValid ? null : "Invalid API key",
+          });
+        } catch (err) {
+          const cleanErr = sanitizeGatewayError(err, [apiKey]);
+          return NextResponse.json({ valid: false, error: cleanErr.message }, { status: 500 });
+        }
       }
 
       if (provider === "cloudflare-ai") {
