@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { reconcileCatalog, FIELD_SOURCES } from "@/lib/models/catalogReconcile.js";
 
 const listing = (models, extra = {}) => ({ complete: true, authoritativeEmpty: false, models, ...extra });
-const m = (id, over = {}) => ({ id, name: id, contextWindow: 128000, supportsVision: false, ...over });
+const m = (id, over = {}) => ({ id, name: id, contextWindow: 128000, ...over });
 const prev = (entries) => entries.map((e) => ({ id: e.id, lifecycle: "active", capabilities: {}, ...e }));
 const ids = (list) => list.map((x) => x.id).sort();
 
@@ -202,5 +202,77 @@ describe("reconcileCatalog: robustness and determinism", () => {
       listing: listing([{ id: "a", name: "a", raw: { apiKey: "sk-live-secret-123456", token: "t0k3n-abcdef" } }]),
     });
     expect(JSON.stringify(r)).not.toMatch(/sk-live-secret|t0k3n-abcdef/);
+  });
+});
+
+describe("reconcileCatalog: explicit false vs unstated capability provenance", () => {
+  it("updates prior true to false when typed core input explicitly declares supportsVision: false", () => {
+    const r = reconcileCatalog({
+      previous: prev([{ id: "v1", capabilities: { supportsVision: true } }]),
+      listing: listing([{ id: "v1", name: "v1", supportsVision: false }]),
+    });
+    expect(r.update).toHaveLength(1);
+    expect(r.update[0].changes.supportsVision).toBe(false);
+    expect(r.update[0].capabilities.supportsVision).toBe(false);
+    expect(r.update[0].provenance.supportsVision).toBe(FIELD_SOURCES.LISTING);
+  });
+
+  it("never infers false vision from keyword presence alone in raw (e.g. capabilities: ['tools'])", () => {
+    const r = reconcileCatalog({
+      previous: prev([{ id: "t1", capabilities: { supportsVision: true } }]),
+      listing: listing([{
+        id: "t1",
+        name: "t1",
+        supportsVision: false, // default emitted by normalizer
+        raw: { id: "t1", capabilities: ["tools", "functions"] },
+      }]),
+    });
+    // Vision was not genuinely declared false in raw, so it must not downgrade prior known vision
+    expect(r.update).toEqual([]);
+    expect(ids(r.unchanged)).toEqual(["t1"]);
+  });
+
+  it("updates prior true to false when raw payload genuinely declares vision: false", () => {
+    const r = reconcileCatalog({
+      previous: prev([{ id: "t2", capabilities: { supportsVision: true } }]),
+      listing: listing([{
+        id: "t2",
+        name: "t2",
+        supportsVision: false,
+        raw: { id: "t2", vision: false },
+      }]),
+    });
+    expect(r.update).toHaveLength(1);
+    expect(r.update[0].changes.supportsVision).toBe(false);
+    expect(r.update[0].provenance.supportsVision).toBe(FIELD_SOURCES.LISTING);
+  });
+
+  it("distinguishes unknown from false provenance deliberately", () => {
+    const r = reconcileCatalog({
+      previous: [],
+      listing: listing([
+        { id: "omitted", name: "omitted" },
+        { id: "stated-false", name: "stated-false", supportsVision: false },
+      ]),
+    });
+    const omitted = r.add.find((m) => m.id === "omitted");
+    const statedFalse = r.add.find((m) => m.id === "stated-false");
+
+    expect(omitted.capabilities.supportsVision).toBeUndefined();
+    expect(omitted.provenance.supportsVision).toBe(FIELD_SOURCES.UNKNOWN);
+
+    expect(statedFalse.capabilities.supportsVision).toBe(false);
+    expect(statedFalse.provenance.supportsVision).toBe(FIELD_SOURCES.LISTING);
+  });
+
+  it("refuses to prune when invalid records exist even if complete: true is declared", () => {
+    const r = reconcileCatalog({
+      previous: prev([{ id: "old" }]),
+      listing: { complete: true, models: [m("new"), null, { id: "" }] },
+    });
+    expect(r.remove).toEqual([]);
+    expect(r.skipped.invalid).toBe(2);
+    expect(r.skipped.prune).toBe("invalid_records");
+    expect(ids(r.add)).toEqual(["new"]);
   });
 });

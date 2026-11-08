@@ -589,6 +589,51 @@ const PROVIDER_MODELS_CONFIG = {
 function __respond(body, init) {
   return { body, status: init?.status ?? 200 };
 }
+
+function isSignalPresent(val) {
+  if (val === undefined || val === null || val === false || val === "" || val === 0) return false;
+  if (typeof val === "string") {
+    const s = val.trim().toLowerCase();
+    return s.length > 0 && s !== "false" && s !== "null" && s !== "undefined" && s !== "0";
+  }
+  if (typeof val === "number") return Number.isFinite(val) && val > 0;
+  if (Array.isArray(val)) return val.length > 0;
+  if (typeof val === "object") return Object.keys(val).length > 0;
+  return Boolean(val);
+}
+
+function hasOpenAIPaginationSignal(data) {
+  if (!data || typeof data !== "object") return false;
+  // Strict or string 'true' has_more
+  if (data.has_more === true || (typeof data.has_more === "string" && data.has_more.trim().toLowerCase() === "true")) {
+    return true;
+  }
+  // Check any pagination cursor / link / token / page markers:
+  const candidateKeys = [
+    "next",
+    "next_page",
+    "next_cursor",
+    "nextPageToken",
+    "next_token",
+    "nextToken",
+    "cursor",
+    "after",
+    "after_id",
+  ];
+  for (const k of candidateKeys) {
+    if (isSignalPresent(data[k])) return true;
+  }
+  // Numeric pagination: e.g. page < total_pages
+  if (typeof data.page === "number" && typeof data.total_pages === "number" && data.page < data.total_pages) {
+    return true;
+  }
+  // last_id present along with has_more signal
+  if (isSignalPresent(data.last_id) && data.has_more !== false) {
+    return true;
+  }
+  return false;
+}
+
 // Shared by GET (list) and the import route: returns { body, status } instead of
 // a Response so callers can inspect the listing before deciding what to do.
 export async function resolveProviderModels(request, id) {
@@ -689,12 +734,18 @@ export async function resolveProviderModels(request, id) {
         }
 
         const data = await response.json();
-        const models = data.data || data.models || [];
+        const models = Array.isArray(data?.data)
+          ? data.data
+          : (Array.isArray(data?.models) ? data.models : []);
+        const isArray = Array.isArray(data?.data) || Array.isArray(data?.models);
+        const hasPagination = hasOpenAIPaginationSignal(data);
+        const complete = isArray && !hasPagination;
 
         return __respond({
           provider: connection.provider,
           connectionId: connection.id,
-          models
+          models,
+          complete,
         });
       } catch (err) {
         const sanitized = sanitizeGatewayError(err, [connection.apiKey]);
@@ -761,52 +812,161 @@ export async function resolveProviderModels(request, id) {
         }
       }
 
-      const url = `${baseUrl}/models`;
-      try {
-        await assertGatewayUrlAllowed(url, {
-          isSelfHosted,
-          authorizedOrigin: new URL(node.baseUrl).origin,
-        });
-      } catch (err) {
-        return __respond({ error: `Gateway URL not allowed: ${err.message}` }, { status: 400 });
-      }
+      const gatewayTrust = {
+        isSelfHosted,
+        allowInsecureTls,
+        authorizedOrigin: new URL(node.baseUrl).origin,
+      };
 
-      try {
-        const response = await fetchGateway(url, {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": connection.apiKey,
-            "anthropic-version": "2023-06-01",
-            "Authorization": `Bearer ${connection.apiKey}`
-          },
-          signal: AbortSignal.timeout(MODELS_FETCH_TIMEOUT_MS),
-        }, {
-          isSelfHosted,
-          allowInsecureTls,
-          authorizedOrigin: new URL(node.baseUrl).origin,
-        });
+      const gatewayHeaders = {
+        "Content-Type": "application/json",
+        "x-api-key": connection.apiKey,
+        "anthropic-version": "2023-06-01",
+        "Authorization": `Bearer ${connection.apiKey}`,
+      };
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          return __respond(
-            { error: `Failed to fetch models: ${response.status}` },
-            { status: response.status }
-          );
+      const MAX_PAGES = 20;
+      let pageCount = 0;
+      let afterId = null;
+      let complete = false;
+      let warning = undefined;
+      const allModels = [];
+      const seenCursors = new Set();
+
+      while (pageCount < MAX_PAGES) {
+        pageCount++;
+        const params = new URLSearchParams({ limit: "1000" });
+        if (afterId) {
+          params.set("after_id", afterId);
+        }
+        const pageUrl = `${baseUrl}/models?${params.toString()}`;
+
+        try {
+          await assertGatewayUrlAllowed(pageUrl, gatewayTrust);
+        } catch (err) {
+          if (pageCount === 1) {
+            return __respond({ error: `Gateway URL not allowed: ${err.message}` }, { status: 400 });
+          }
+          warning = `Anthropic pagination stopped: Gateway URL not allowed: ${err.message}`;
+          complete = false;
+          break;
         }
 
-        const data = await response.json();
-        const models = data.data || data.models || [];
+        let response;
+        try {
+          response = await fetchGateway(pageUrl, {
+            method: "GET",
+            headers: gatewayHeaders,
+            signal: AbortSignal.timeout(MODELS_FETCH_TIMEOUT_MS),
+          }, gatewayTrust);
+        } catch (err) {
+          if (pageCount === 1) {
+            const sanitized = sanitizeGatewayError(err, [connection.apiKey]);
+            return __respond({ error: sanitized.message }, { status: 500 });
+          }
+          const sanitized = sanitizeGatewayError(err, [connection.apiKey]);
+          warning = `Anthropic pagination error on page ${pageCount}: ${sanitized.message}`;
+          complete = false;
+          break;
+        }
 
-        return __respond({
-          provider: connection.provider,
-          connectionId: connection.id,
-          models
-        });
-      } catch (err) {
-        const sanitized = sanitizeGatewayError(err, [connection.apiKey]);
-        return __respond({ error: sanitized.message }, { status: 500 });
+        if (!response.ok) {
+          if (pageCount === 1) {
+            const errorText = await response.text();
+            return __respond(
+              { error: `Failed to fetch models: ${response.status}` },
+              { status: response.status }
+            );
+          }
+          try { await response.body?.cancel?.(); } catch {}
+          warning = `Anthropic pagination error on page ${pageCount}: HTTP ${response.status}`;
+          complete = false;
+          break;
+        }
+
+        let data;
+        try {
+          data = await response.json();
+        } catch (jsonErr) {
+          if (pageCount === 1) {
+            return __respond({ error: "Failed to parse models response" }, { status: 502 });
+          }
+          try { await response.body?.cancel?.(); } catch {}
+          warning = `Anthropic pagination error on page ${pageCount}: invalid JSON`;
+          complete = false;
+          break;
+        }
+
+        // Must require a well-formed model array on EVERY page
+        const isArray = Array.isArray(data?.data) || Array.isArray(data?.models);
+        if (!isArray) {
+          if (pageCount === 1) {
+            return __respond({ error: "Anthropic models response lacked a models array" }, { status: 502 });
+          }
+          warning = `Anthropic pagination error on page ${pageCount}: response lacked a models array`;
+          complete = false;
+          break;
+        }
+
+        const pageModels = Array.isArray(data?.data) ? data.data : data.models;
+        allModels.push(...pageModels);
+
+        // Strict boolean check for has_more: reject string "true" or non-boolean values
+        if (data.has_more !== undefined && typeof data.has_more !== "boolean") {
+          warning = `Anthropic pagination error on page ${pageCount}: non-boolean has_more signal`;
+          complete = false;
+          break;
+        }
+
+        // Check for alternate pagination signals that Anthropic should not ignore
+        const hasAlternatePagination =
+          isSignalPresent(data.next) ||
+          isSignalPresent(data.next_page) ||
+          isSignalPresent(data.next_cursor) ||
+          isSignalPresent(data.nextPageToken) ||
+          isSignalPresent(data.cursor);
+
+        if (hasAlternatePagination) {
+          warning = `Anthropic pagination error on page ${pageCount}: unexpected alternate pagination signal present`;
+          complete = false;
+          break;
+        }
+
+        if (data.has_more === true) {
+          const nextLastId = typeof data.last_id === "string" ? data.last_id.trim() : "";
+          if (!nextLastId) {
+            warning = "Anthropic pagination has_more is true but no valid last_id was provided";
+            complete = false;
+            break;
+          }
+          // Cursor cycle detection
+          if (seenCursors.has(nextLastId)) {
+            warning = `Anthropic pagination cycle detected: cursor ${nextLastId} already seen`;
+            complete = false;
+            break;
+          }
+          seenCursors.add(nextLastId);
+          afterId = nextLastId;
+
+          if (pageCount >= MAX_PAGES) {
+            warning = `Anthropic pagination reached maximum limit of ${MAX_PAGES} pages`;
+            complete = false;
+            break;
+          }
+        } else {
+          // Final page has has_more === false or absent after a fully consumed chain
+          complete = true;
+          break;
+        }
       }
+
+      return __respond({
+        provider: connection.provider,
+        connectionId: connection.id,
+        models: allModels,
+        complete,
+        ...(warning ? { warning } : {}),
+      });
     }
 
     const config = PROVIDER_MODELS_CONFIG[connection.provider];
