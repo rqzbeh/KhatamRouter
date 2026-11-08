@@ -16,6 +16,68 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Decides whether the change touches only documentation. Container smoke
+  # builds (and the image publish that follows a master push) are skipped for
+  # docs-only changes; the lint, baseline and unit jobs always run. The
+  # classifier is read from the base commit so a PR cannot redefine its own
+  # scope, and every uncertain case falls back to running everything.
+  changes:
+    name: Verify / Change scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs_only: ${{ steps.scope.outputs.docs_only }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed paths
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          result="docs_only=false"
+          reason="full pipeline (default)"
+          zero="0000000000000000000000000000000000000000"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            reason="manual dispatch always runs everything"
+          elif [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "$zero" ] || ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            reason="base commit unavailable"
+          elif ! git show "${BASE_SHA}:scripts/ci/docs-only.sh" > "$RUNNER_TEMP/docs-only.sh" 2>/dev/null; then
+            reason="classifier absent on base commit"
+          elif ! merge_base=$(git merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null) \
+            || ! files=$(git diff --name-only --no-renames "$merge_base" "$HEAD_SHA" 2>/dev/null); then
+            reason="could not compute the changed paths"
+          elif ! classified=$(printf '%s\n' "$files" | bash "$RUNNER_TEMP/docs-only.sh"); then
+            reason="classifier failed"
+          else
+            result="$classified"
+            reason="classified $(printf '%s\n' "$files" | grep -c . || true) changed path(s)"
+          fi
+          echo "$result" >> "$GITHUB_OUTPUT"
+          mkdir -p "$RUNNER_TEMP/change-scope"
+          echo "$result" > "$RUNNER_TEMP/change-scope/scope.txt"
+          {
+            echo "## Change scope"
+            echo ""
+            echo "\`$result\` ($reason). Container smoke and image publish run unless docs_only=true."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload change scope
+        uses: actions/upload-artifact@v7
+        with:
+          name: change-scope
+          path: ${{ runner.temp }}/change-scope/scope.txt
+          retention-days: 7
+
   typecheck:
     name: Verify / Typecheck
     runs-on: ubuntu-latest
@@ -141,7 +203,8 @@ jobs:
             unit/custom-server-peer-headers.test.js \
             unit/custom-server-h2c.test.js \
             unit/bun-only-guard.test.js \
-            unit/bun-version-consistency.test.js
+            unit/bun-version-consistency.test.js \
+            unit/ci-docs-only.test.js
 
   unit-wave:
     name: Verify / Unit (waves)
@@ -288,7 +351,12 @@ jobs:
 
   smoke:
     name: Smoke (run container, ${{ matrix.arch }})
-    needs: [verify]
+    needs: [verify, changes]
+    # Run unless the change is positively docs-only. A failed or skipped scope
+    # job leaves the output empty, so the smoke still runs (fail toward testing).
+    if: >
+      !cancelled() && needs.verify.result == 'success' &&
+      needs.changes.outputs.docs_only != 'true'
     strategy:
       fail-fast: false
       matrix:

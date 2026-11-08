@@ -25,10 +25,49 @@ env:
   IMAGE_NAME: ${{ github.repository_owner }}/khatamrouter
 
 jobs:
+  # Reads the change scope recorded by the triggering Verify run. A docs-only
+  # master push publishes nothing; a missing or unreadable record publishes as
+  # before. Release and tag events never consult this job.
+  scope:
+    name: Check change scope
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      docs_only: ${{ steps.read.outputs.docs_only }}
+    steps:
+      - name: Download change scope
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: change-scope
+          path: ${{ runner.temp }}/change-scope
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Read change scope
+        id: read
+        shell: bash
+        run: |
+          set -euo pipefail
+          file="$RUNNER_TEMP/change-scope/scope.txt"
+          if [ -f "$file" ] && [ "$(cat "$file")" = "docs_only=true" ]; then
+            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+            echo "Docs-only change: image publish skipped." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+          fi
+
   prepare:
     name: Prepare metadata
+    needs: [scope]
     if: >
-      github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+      !cancelled() && (
+        github.event_name != 'workflow_run' ||
+        (github.event.workflow_run.conclusion == 'success' && needs.scope.outputs.docs_only != 'true')
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
