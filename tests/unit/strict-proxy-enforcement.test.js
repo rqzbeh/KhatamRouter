@@ -13,7 +13,20 @@
 //    attempt. When no proxy URL resolves there is nothing to try, so it
 //    reaches the trailing `return originalFetch(url, options)` and connects
 //    directly.
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+
+const ENV_KEYS = ["HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy"];
+let savedEnv;
+beforeEach(() => {
+  savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+  for (const k of ENV_KEYS) delete process.env[k];
+});
+afterEach(() => {
+  for (const k of ENV_KEYS) {
+    if (savedEnv[k] !== undefined) process.env[k] = savedEnv[k];
+    else delete process.env[k];
+  }
+});
 
 vi.mock("@/models", () => ({
   getProxyPoolById: vi.fn(),
