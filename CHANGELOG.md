@@ -1,3 +1,22 @@
+# v0.5.116 (2026-11-09) — 9router Release Parity (0.5.112..0.5.116)
+
+## Features
+- **CommandCode 1.88.5 alignment & auto-import**: CLI v1.88.5 headers and request translation; loopback-only `GET /api/oauth/commandcode/auto-import` requiring active dashboard session token (`auth_token`), 64 KiB bounded descriptor reads, and `Cache-Control: no-store` headers.
+- **Codex native image generation & GPT Image 2.6**: Native generations, edits retain Responses route; bounded assistant text buffering and safe error propagation.
+- **TTS in-process voice listing**: Shared `listTtsVoices` in `src/lib/ttsVoices.js` serving `/v1/audio/voices` and `/api/media-providers/tts/voices` without HTTP self-fetch loops.
+- **Antigravity Argon quota tracking**: Dedicated Gemini 4 Argon quota tracking and display in `antigravity-weekly.js` and `antigravityQuota.js`.
+- **SenseNova & OpenCode Go model updates**: Added `sensenova-6.8-flash` and `glm-5.3`; OpenCode Go `/inference` endpoints and Messages transport reasoning.
+- **CLI launcher & tray diagnostics**: Fast PID-based launcher status checks (`launcherProcess.js`) and accurate tray startup failure reporting.
+- **Add All Active Models**: Includes no-auth, aliased, and custom models in CLI tool card selection.
+
+## Fixes & Hardening
+- **Transport keep-alive & fresh-socket recovery**: Bounded dead-socket recovery (`isStaleSocketError`) in `proxyFetch.js` retrying once on a fresh socket; strict proxy contract preserved; `FETCH_FRESH_RETRY=off` runtime opt-out provided due to duplicate billing ambiguity on non-idempotent endpoints.
+- **CodeBuddy Intl system prompt preservation**: System prompts preserved; recognized third-party CLI agent identity strings neutralized with fallback (upstream limitation note: whole matching system prompt text is replaced).
+- **Undici external packaging & DNS override removal**: `next.config.mjs` traces external `undici` for per-request connect options; legacy `--dns-result-order=ipv4first` removed from CLI child process spawns to allow HappyEyeballs.
+- **Translator thinking & cache markers**: Preserves intent on OpenAI tool-result turns, retains Claude cache markers for DashScope, preserves DeepSeek thinking budgets on compat nodes, and drops tool references for stripped tools.
+- **Gemini remote MIME & tool results**: Concrete MIME detection for remote image URLs and preservation of Gemini tool results and follow-up parts.
+- **Architecturally inapplicable upstream commits**: Explicit architecture equivalence (removed Node-only files: `f0938ea7`, `e3139a43`); Bun-native `wreq-js` and native `bun:sqlite` provide reliable build-time dependencies.
+
 # Unreleased — Model Import, Batch Testing, Sync Policies & Runtime Overrides (PRs #145–#151)
 
 ## Features

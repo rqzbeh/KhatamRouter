@@ -329,3 +329,61 @@ This section records the synchronization of upstream enhancements from `Vanszs/V
 | **Streaming Tool Name Restoration & ID Synthesis** | `1d480a2d` | `open-sse/utils/stream.js`<br>`open-sse/utils/streamHelpers.js` | `tests/unit/opencode-fingerprint-passthrough-restore.test.js`<br>`tests/unit/stream-tool-call-id.test.js` | In `stream.js`, restored caller tool names on passthrough streams when renamed by OpenCode fingerprint tools (`toolNameMap`), and supported 9-argument signature for passthrough logging. |
 | **Kiro Model Normalization & Grok 4.7 Window** | `6f6f2a61`<br>`bbad970b`<br>`d261f6f3` | `open-sse/config/kiroConstants.js`<br>`open-sse/providers/capabilities.js` | `tests/unit/kiro-model-normalization.test.js`<br>`tests/unit/grok-4.7-context-window.test.js` | Normalized Anthropic model IDs to Kiro upstream aliases in `kiroConstants.js`, and pinned Grok 4.7 context window to 500,000 tokens. |
 
+
+
+# Upstream Ports & Audit Ledger: 9router 0.5.112 → 0.5.116 (Spec 019)
+
+This section records the authoritative parity audit and porting ledger for **Spec 019**, covering all 43 commits across `v0.5.111 (3a978a63)` → `v0.5.112 (1fe586bb)` (14 commits audited inclusively) and `v0.5.112` → `v0.5.116 (1339107e)` (29 new commits).
+
+| # | SHA | Subject | Disposition | Local Evidence & Invariant Notes |
+|---|---|---|---|---|
+| 1 | `e70ea24d` | Fix OpenCode | `ALREADY_EQUIVALENT_SUPERIOR` | open-sse/services/opencodeTlsClient.js:1-120; tests/unit/opencode-tls-client.test.js |
+| 2 | `acb3c080` | feat(codex): add GPT-6.1 Terra | `PORTED` | open-sse/providers/registry/codex.js:57; open-sse/providers/capabilities.js:301; open-sse/providers/pricing.js:93 |
+| 3 | `3fd925ab` | fix(codebuddy): send plugin request/conversation id headers | `PORTED` | open-sse/executors/default.js:50; open-sse/providers/registry/codebuddy-cn.js:40; open-sse/providers/registry/codebuddy-intl.js:40 |
+| 4 | `f3e1f716` | fix(github): apply Claude 5.5 thinking rules to Copilot's dotted model ids | `PORTED` | open-sse/providers/capabilities.js; open-sse/translator/concerns/thinkingUnified.js; tests/unit/github-claude-5-5-thinking.test.js |
+| 5 | `b1effa03` | feat(commandcode): align request headers with official CLI 1.88.0 | `PORTED_HARDENED` | open-sse/shared/commandCodeHeaders.js; open-sse/executors/commandcode.js; open-sse/providers/registry/commandcode.js |
+| 6 | `a199d777` | fix(providers): treat LLM\|id\|secret as opaque token in bulk-add, not name\|key | `PORTED` | src/shared/utils/bulkAdd.js:28; tests/unit/bulk-add-names.test.js |
+| 7 | `ced0cf6e` | fix(nvidia): normalize reasoning aliases for NIM | `PORTED` | open-sse/translator/concerns/paramSupport.js:36,82; tests/unit/param-support.test.js |
+| 8 | `f7f6f5ed` | feat: add Nace Drex provider to the System One lane | `PORTED_HARDENED` | open-sse/providers/registry/nace.js; open-sse/providers/registry/index.js; public/providers/nace.png |
+| 9 | `8db1f4ae` | fix(translator): enforce Gemini protobuf type predicates on schema items and properties | `PORTED` | open-sse/translator/formats/gemini.js:304,374; tests/unit/gemini-schema-array-items-predicate.test.js |
+| 10 | `56dbf466` | fix(chat): reject SSE errors in non-streaming responses | `PORTED` | open-sse/handlers/chatCore/nonStreamingHandler.js:249-265; tests/unit/nonstream-sse-error.test.js |
+| 11 | `3b7acf72` | fix(docker): bundle lazy runtime deps so OpenCode Free resolves | `ALREADY_EQUIVALENT_SUPERIOR` | Dockerfile:1-125; Dockerfile.bun:1-125 |
+| 12 | `d7bb71ce` | fix(deepseek): use noble-hashes port for DeepSeek PoW hash | `PORTED_HARDENED` | open-sse/lib/deepseek-pow-hash.js; tests/unit/deepseek-pow-hash.test.js |
+| 13 | `85d73bd6` | feat(minimax-code): lease auth mode via desktop app named-pipe broker | `PORTED_HARDENED` | open-sse/services/minimaxCodeLease.js:1-509; src/dashboardGuard.js:55-56, 94-95; tests/unit/minimax-code-lease.test.js |
+| 14 | `1fe586bb` | # v0.5.112 (2026-10-28) | `PORTED` | package.json; CHANGELOG.md; docs/UPSTREAM-PORTS.md |
+| 15 | `736be957` | fix(transport): survive DPI-shaped networks on the claude provider | `ADAPT` | open-sse/utils/proxyFetch.js; next.config.mjs; cli/cli.js; tests/unit/transport-019-packaging.test.js; tests/unit/econnreset-repro.test.js |
+| 16 | `f0938ea7` | fix(runtime): keep named exports when loading CJS deps from the runtime dir | `ARCHITECTURALLY_INAPPLICABLE` | open-sse/services/opencodeTlsClient.js; package.json |
+| 17 | `633c82f5` | fix(opencode-go): use Claude reasoning on the Messages transport | `PORTED` | open-sse/providers/registry/opencode-go.js; open-sse/translator/formats/claude.js; tests/unit/opencode-go-deepseek-thinking-injection.test.js; tests/unit/opencode-go-transport-routing.test.js |
+| 18 | `783c9325` | fix(codex-image): use native OAuth image generation safely | `PORTED_HARDENED` | open-sse/handlers/imageProviders/codex.js; open-sse/handlers/imageGenerationCore.js; tests/unit/codex-native-image-generation.test.js |
+| 19 | `cff5328b` | fix(thinking): preserve intent on OpenAI tool-result turns | `PORTED` | open-sse/services/provider.js:167-175; open-sse/translator/concerns/thinkingUnified.js; tests/translator/thinking-tool-result-turns.test.js |
+| 20 | `95dafae3` | fix(opencode): alias declared tool names containing "terminal" on the free tier | `ALREADY_EQUIVALENT` | open-sse/utils/opencodeFingerprint.js:25-31; tests/unit/opencode-fingerprint.test.js |
+| 21 | `a4069daf` | fix(tts): list public voices without dashboard self-fetch auth | `PORTED` | src/lib/ttsVoices.js; src/app/api/v1/audio/voices/route.js; src/app/api/media-providers/tts/voices/route.js; tests/unit/audio-voices-internal-auth.test.js |
+| 22 | `a61b5a6f` | fix(translator): retain Claude cache markers for DashScope targets | `PORTED` | open-sse/translator/request/claude-to-openai.js; open-sse/translator/concerns/message.js; tests/unit/dashscope-claude-cache.test.js |
+| 23 | `9506a59c` | perf(cli): cut launcher startup ~2.5x by skipping machine-wide process scans | `PORTED` | cli/src/cli/utils/launcherProcess.js; cli/cli.js; tests/unit/cli-launcher-process.test.js |
+| 24 | `7ba1d1ca` | fix(gemini): send concrete MIME for remote images | `PORTED` | open-sse/translator/formats/gemini.js; tests/unit/media-019-security.test.js |
+| 25 | `ef2af4de` | fix(translator): preserve all Gemini tool results and follow-up parts | `PORTED` | open-sse/translator/request/gemini-to-openai.js; tests/unit/gemini-request-tool-results.test.js |
+| 26 | `a6d3cdbf` | fix(codex-image): handle upstream image tool failures | `PORTED` | open-sse/handlers/imageProviders/codex.js; tests/unit/image-generation.test.js |
+| 27 | `64a23dc2` | fix(cli): ship deepseek-pow-hash.js next to PoW worker | `ADAPT` | cli/scripts/build-cli.js; tests/unit/cli-build-artifacts.test.js |
+| 28 | `8a833631` | feat(antigravity): track and display separate Gemini 4 Argon quota | `PORTED` | open-sse/services/usage/antigravity-weekly.js; src/sse/services/antigravityQuota.js; src/app/(dashboard)/dashboard/usage/components/ProviderLimits/utils.js; tests/unit/antigravity-weekly-quota.test.js |
+| 29 | `93bec5d8` | fix(fetch): honor requested Jina and Tavily output formats | `PORTED` | open-sse/handlers/fetch/index.js; src/app/(dashboard)/dashboard/media-providers/[kind]/[id]/components/GenericExampleCard.js; tests/unit/web-fetch-formats.test.js |
+| 30 | `333d249d` | fix(kiro): stop splicing unserved regions into service hostnames | `PORTED` | open-sse/executors/kiro.js; tests/unit/kiro-api-key-endpoint-routing.test.js |
+| 31 | `626a0684` | fix(thinking): preserve explicit DeepSeek thinking budgets on compat nodes | `PORTED` | open-sse/services/provider.js; open-sse/translator/concerns/thinkingUnified.js; tests/unit/deepseek-thinking-budget.test.js |
+| 32 | `896ef10c` | feat(codex-image): add GPT Image 2.6 models | `PORTED` | open-sse/config/providerModels.js; open-sse/handlers/imageProviders/codex.js; open-sse/providers/capabilities.js; open-sse/providers/pricing.js; open-sse/providers/registry/codex.js |
+| 33 | `8650b046` | fix(tray): report a tray that never started instead of claiming success | `PORTED` | cli/cli.js; cli/src/cli/commands/start.js; cli/hooks/trayRuntime.js; tests/unit/cli-tray-runtime.test.js |
+| 34 | `b9c34543` | feat(sensenova): add sensenova-6.8-flash and glm-5.3 to model list | `PORTED` | open-sse/providers/registry/sensenova.js; tests/__baseline__/providers-baseline.json |
+| 35 | `963787f7` | fix(proxyFetch): stop reusing dead keep-alive sockets upstream edges drop silently | `ADAPT` | open-sse/config/runtimeConfig.js; open-sse/utils/proxyFetch.js; open-sse/executors/default.js; open-sse/executors/base.js; tests/unit/proxy-keepalive-dead-socket.test.js; tests/unit/transport-019-safety.test.js |
+| 36 | `3ca04639` | fix(codebuddy-intl): preserve client system prompts and sanitize CLI agent identity | `PORTED_HARDENED` | open-sse/executors/codebuddy-intl.js; tests/unit/codebuddy-intl-system-prompt.test.js |
+| 37 | `b114fa9f` | feat(commandcode): align data bridge with CLI v1.88.5 and add CLI auto-import | `ADAPT_WITH_SECURITY_HARDENING` | open-sse/executors/commandcode.js; open-sse/translator/request/openai-to-commandcode.js; src/app/api/oauth/commandcode/auto-import/route.js; src/dashboardGuard.js; tests/unit/commandcode-import-guard.test.js; tests/unit/oauth-commandcode-auto-import.test.js |
+| 38 | `7ef6df56` | fix(opencode-go): use current inference endpoint | `PORTED` | open-sse/providers/registry/opencode-go.js; open-sse/executors/opencode-go.js; open-sse/services/usage/opencode-go.js; tests/unit/opencode-go-models.test.js |
+| 39 | `69d51c0c` | fix(cli-tools): include no-auth, alias and custom models in Add All Active Models | `PORTED` | src/shared/utils/selectableModels.js; src/app/(dashboard)/dashboard/cli-tools/components/GenericCliToolCard.js; tests/unit/cli-tools-add-all-active-models.test.js |
+| 40 | `e3139a43` | fix(runtime): keep runtime installs local during global npm hooks | `ARCHITECTURALLY_INAPPLICABLE` | CLAUDE.md; cli/package.json |
+| 41 | `a3039ab1` | fix(dedupe): drop tool_reference blocks naming stripped tools | `PORTED` | open-sse/utils/toolDeduper.js; open-sse/handlers/chatCore.js; open-sse/translator/schema/blocks.js; tests/unit/tool-dedupe.test.js |
+| 42 | `eaeb54a6` | # v0.5.116 (2026-11-08) | `RELEASE_BOUNDARY` | CHANGELOG.md; cli/package.json |
+| 43 | `1339107e` | 0.5.116 | `RELEASE_BOUNDARY` | package.json |
+
+### Security & Architecture Notes (Spec 019)
+- **CommandCode Auto-Import Hardening**: `GET /api/oauth/commandcode/auto-import` requires loopback access (`isLocalRequest`), active dashboard session JWT (`verifyDashboardAuthToken`), 64 KiB bounded descriptor reads, and `Cache-Control: no-store`.
+- **Transport Dead-Socket Recovery & Opt-Out**: Dead keep-alive socket retry (`isStaleSocketError`) on direct paths in `proxyFetch.js` provides runtime opt-out `FETCH_FRESH_RETRY=off` due to upstream duplicate billing ambiguity on transient failures. Strict proxy contract is preserved without direct fallback.
+- **TTS In-Process Voices**: Shared `listTtsVoices` service in `src/lib/ttsVoices.js` serves voices without internal HTTP self-fetch loops.
+- **CodeBuddy Intl Prompt Preservation**: Client system prompts are preserved and recognized agent markers neutralized (limitation: matching system prompt text is replaced with neutral prompt).
+- **Undici & DNS**: `next.config.mjs` traces external `undici` for per-request connect options; legacy `--dns-result-order=ipv4first` removed from CLI launcher for HappyEyeballs support.
