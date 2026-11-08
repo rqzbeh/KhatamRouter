@@ -42,6 +42,7 @@ function toNativeImageBlock(part) {
       type: OPENAI_BLOCK.IMAGE,
       image: encodeDataUri(parsed.mimeType, parsed.base64),
       mimeType: parsed.mimeType,
+      mediaType: parsed.mimeType,
     };
   }
 
@@ -53,6 +54,7 @@ function toNativeImageBlock(part) {
         type: OPENAI_BLOCK.IMAGE,
         image: part.image,
         mimeType: mime,
+        mediaType: mime,
       };
     }
     const source = part.source;
@@ -62,6 +64,7 @@ function toNativeImageBlock(part) {
         type: OPENAI_BLOCK.IMAGE,
         image: encodeDataUri(mime, source.data),
         mimeType: mime,
+        mediaType: mime,
       };
     }
   }

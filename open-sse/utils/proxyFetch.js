@@ -389,7 +389,8 @@ async function fetchWithTlsFallback(url, options, proxyUrl, proxyOptions = null,
   try {
     // If originalFetch is an explicit test mock (e.g. vi.fn()), allow the test mock to intercept
     if (originalFetch?._isMockFunction && !options?.forceNativeAdapter) {
-      const dispatcher = await getDispatcher(proxyUrl, false, forceFreshSocket);
+      // Tests tell proxied from direct attempts by the dispatcher, so only proxies carry one here.
+      const dispatcher = proxyUrl ? await getDispatcher(proxyUrl, false, forceFreshSocket) : undefined;
       return await originalFetch(url, dispatcher ? { ...options, dispatcher } : options);
     }
 
