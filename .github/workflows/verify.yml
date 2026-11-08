@@ -206,6 +206,28 @@ jobs:
             unit/bun-version-consistency.test.js \
             unit/ci-docs-only.test.js
 
+      - name: Unit tests (models, overrides, proxy & UI)
+        working-directory: tests
+        run: |
+          set -euo pipefail
+          bun x --bun vitest run --reporter=verbose \
+            unit/model-management-ui.test.js \
+            unit/model-select-zed-live-regression.test.js \
+            unit/model-overrides-api.test.js \
+            unit/model-override-runtime-wiring.test.js \
+            unit/model-sync-policy.test.js \
+            unit/model-sync-scheduler.test.js \
+            unit/model-test-batch-classification.test.js \
+            unit/model-test-batch-route.test.js \
+            unit/provider-listing-completeness.test.js \
+            unit/free-proxy-api.test.js \
+            unit/free-proxy-sources.test.js \
+            unit/free-proxy-card-wiring.test.js \
+            unit/model-management-classification.test.js \
+            unit/model-advanced-capabilities.test.js \
+            unit/catalog-reconcile.test.js \
+            unit/capability-per-field.test.js
+
   unit-wave:
     name: Verify / Unit (waves)
     runs-on: ubuntu-latest

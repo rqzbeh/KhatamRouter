@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { Badge, Button, Card, CardSkeleton, Input, Modal, Toggle, ConfirmModal, Select } from "@/shared/components";
 import { PSIPHON_SELECTABLE_REGIONS } from "@/lib/network/psiphon/regions.js";
 import { useNotificationStore } from "@/store/notificationStore";
+import FreeProxySourcesCard from "@/shared/components/FreeProxySourcesCard";
 
 function getStatusVariant(status) {
   if (status === "active") return "success";
@@ -820,6 +821,8 @@ export default function ProxyPoolsPage() {
           <Button size="sm" icon="add" onClick={openCreateModal}>Add Proxy Pool</Button>
         </div>
       </div>
+
+      <FreeProxySourcesCard />
 
       <Card>
         <div className="mb-4 flex flex-wrap items-center gap-2">

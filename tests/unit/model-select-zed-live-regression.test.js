@@ -1,11 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import React from "react";
-import { createRequire } from "node:module";
-
-const req = createRequire(import.meta.url);
-const ReactTestRenderer = req("react-test-renderer");
-const { act } = ReactTestRenderer;
-const { groupModelsByProvider, useLiveProviderModels, default: ModelSelectModal } = req("../../src/shared/components/ModelSelectModal.js");
+import ReactTestRenderer, { act } from "react-test-renderer";
+import ModelSelectModal, { groupModelsByProvider, useLiveProviderModels } from "@/shared/components/ModelSelectModal.js";
 
 // Ensure React act() is enabled for tests
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;

@@ -29,7 +29,41 @@ const BOOLEAN_FIELDS = {
   supportsAudio: ["supportsAudio", "supports_audio", "audioInput", "audio_input"],
   supportsVideo: ["supportsVideo", "supports_video", "videoInput", "video_input"],
   supportsStreaming: ["supportsStreaming", "supports_streaming", "streaming"],
+  supportsImageGeneration: [
+    "supportsImageGeneration",
+    "supports_image_generation",
+    "imageGeneration",
+    "image_generation",
+    "imageOutput",
+    "image_output",
+  ],
+  supportsImageEditing: [
+    "supportsImageEditing",
+    "supports_image_editing",
+    "imageEditing",
+    "image_editing",
+  ],
+  supportsWebSearch: [
+    "supportsWebSearch",
+    "supports_web_search",
+    "webSearch",
+    "web_search",
+    "search",
+  ],
+  supportsWebFetch: [
+    "supportsWebFetch",
+    "supports_web_fetch",
+    "webFetch",
+    "web_fetch",
+  ],
 };
+
+const ADVANCED_BOOLEAN_FIELDS = new Set([
+  "supportsImageGeneration",
+  "supportsImageEditing",
+  "supportsWebSearch",
+  "supportsWebFetch",
+]);
 
 const LIMIT_FIELDS = {
   contextWindow: ["contextWindow", "context_window", "realContext", "real_context", "contextLength", "context_length"],
@@ -170,6 +204,61 @@ function normalizeLayer(layerData) {
     if (out.supportsVision === undefined && modalitiesInput.includes("image")) out.supportsVision = true;
     if (out.supportsAudio === undefined && modalitiesInput.includes("audio")) out.supportsAudio = true;
     if (out.supportsVideo === undefined && modalitiesInput.includes("video")) out.supportsVideo = true;
+  }
+
+  // Derive image generation and editing from explicit kind / type (never model name)
+  const explicitKind = String(
+    unwrap.kind || unwrap.type || unwrap.raw?.kind || unwrap.raw?.type || unwrap.serviceKind || ""
+  ).toLowerCase().trim();
+
+  if (explicitKind) {
+    if (explicitKind === "image" || explicitKind === "text-to-image") {
+      if (out.supportsImageGeneration === undefined) {
+        out.supportsImageGeneration = true;
+      }
+    } else if (explicitKind === "image-to-image" || explicitKind === "inpainting") {
+      if (out.supportsImageEditing === undefined) {
+        out.supportsImageEditing = true;
+      }
+      if (out.supportsImageGeneration === undefined) {
+        out.supportsImageGeneration = true;
+      }
+    } else if (explicitKind === "websearch") {
+      if (out.supportsWebSearch === undefined) {
+        out.supportsWebSearch = true;
+      }
+    } else if (explicitKind === "webfetch") {
+      if (out.supportsWebFetch === undefined) {
+        out.supportsWebFetch = true;
+      }
+    }
+  }
+
+  const rawCaps = Array.isArray(unwrap.capabilities)
+    ? unwrap.capabilities
+    : Array.isArray(unwrap.raw?.capabilities)
+    ? unwrap.raw.capabilities
+    : null;
+  if (rawCaps) {
+    if (rawCaps.includes("edit") || rawCaps.includes("inpainting") || rawCaps.includes("mask")) {
+      if (out.supportsImageEditing === undefined) out.supportsImageEditing = true;
+    }
+  }
+
+  // Modalities output array support (from catalogSource / models.dev)
+  const modalitiesOutput = Array.isArray(unwrap.modalities?.output)
+    ? unwrap.modalities.output
+    : Array.isArray(unwrap.output)
+    ? unwrap.output
+    : null;
+
+  if (modalitiesOutput) {
+    if (out.supportsImageGeneration === undefined && modalitiesOutput.includes("image")) {
+      out.supportsImageGeneration = true;
+    }
+    if (out.supportsAudio === undefined && modalitiesOutput.includes("audio")) {
+      out.supportsAudio = true;
+    }
   }
 
   return out;
@@ -367,10 +456,15 @@ export function resolveModelCapabilities(target, sources = {}, options = {}) {
     }
   }
 
-  // Layer 5: Canonical Exact Model Entry
+  // Layer 5: Canonical Exact Model Entry (and target input declarations)
   const exactModel = modelCaps[raw] || modelCaps[canonical];
-  if (exactModel) {
-    layers.push({ source: "canonical", data: normalizeLayer(exactModel) });
+  const normTarget = normalizeLayer(targetObj);
+  const canonicalMerged = mergeLayerSpecificity([
+    exactModel ? normalizeLayer(exactModel) : null,
+    normTarget,
+  ].filter(Boolean));
+  if (canonicalMerged) {
+    layers.push({ source: "canonical", data: canonicalMerged });
   }
 
   // Layer 6: Pattern Capabilities
@@ -386,8 +480,14 @@ export function resolveModelCapabilities(target, sources = {}, options = {}) {
     }
   }
 
-  // Layer 7: Safe Fallback Floor
-  layers.push({ source: "default", data: normalizeLayer(defaultCaps) });
+  // Layer 7: Safe Fallback Floor (default layer never invents false for advanced fields)
+  const normDefault = normalizeLayer(defaultCaps);
+  if (normDefault) {
+    for (const f of ADVANCED_BOOLEAN_FIELDS) {
+      delete normDefault[f];
+    }
+    layers.push({ source: "default", data: normDefault });
+  }
 
   // Merge fields across cascade
   const resolved = {};
@@ -407,6 +507,14 @@ export function resolveModelCapabilities(target, sources = {}, options = {}) {
         provenance[field] = layer.source;
         break;
       }
+    }
+  }
+
+  // Advanced capability flags: unknown is null, never invent false if no evidence
+  for (const field of ADVANCED_BOOLEAN_FIELDS) {
+    if (resolved[field] === undefined) {
+      resolved[field] = null;
+      provenance[field] = "unknown";
     }
   }
 
@@ -491,6 +599,10 @@ export function resolveModelCapabilities(target, sources = {}, options = {}) {
     supportsAudio: Boolean(resolved.supportsAudio),
     supportsVideo: Boolean(resolved.supportsVideo),
     supportsStreaming: Boolean(resolved.supportsStreaming),
+    supportsImageGeneration: resolved.supportsImageGeneration ?? null,
+    supportsImageEditing: resolved.supportsImageEditing ?? null,
+    supportsWebSearch: resolved.supportsWebSearch ?? null,
+    supportsWebFetch: resolved.supportsWebFetch ?? null,
     thinkingFormat: resolved.thinkingFormat || null,
     source: highestSource,
     provenance,

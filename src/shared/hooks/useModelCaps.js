@@ -45,9 +45,29 @@ function loadModelCaps() {
 // (e.g. any *claude*haiku* id reads as 200k regardless of the provider entry).
 export function resolveCaps(byFull, byId, key) {
   if (!key) return null;
-  if (byFull[key]) return byFull[key];
+  const match = byFull?.[key] || (key.includes("/") ? byId?.[key.slice(key.indexOf("/") + 1)] : byId?.[key]);
+  if (match) {
+    return {
+      supportsImageGeneration: null,
+      supportsImageEditing: null,
+      supportsWebSearch: null,
+      supportsWebFetch: null,
+      provenance: {},
+      ...match,
+      supportsVision: match.supportsVision ?? match.vision ?? false,
+      supportsTools: match.supportsTools ?? match.tools ?? true,
+      supportsReasoning: match.supportsReasoning ?? match.reasoning ?? false,
+      supportsAudio: match.supportsAudio ?? match.audioInput ?? false,
+      supportsVideo: match.supportsVideo ?? match.videoInput ?? false,
+      supportsStreaming: match.supportsStreaming ?? true,
+      imageOutput: match.imageOutput ?? Boolean(match.supportsImageGeneration),
+      search: match.search ?? Boolean(match.supportsWebSearch),
+      vision: match.vision ?? Boolean(match.supportsVision),
+      reasoning: match.reasoning ?? Boolean(match.supportsReasoning),
+      tools: match.tools ?? match.supportsTools ?? true,
+    };
+  }
   const bare = key.includes("/") ? key.slice(key.indexOf("/") + 1) : key;
-  if (byId[bare]) return byId[bare];
   const alias = key.includes("/") ? key.slice(0, key.indexOf("/")) : null;
   const provider = alias ? (ALIAS_TO_ID[alias] || alias) : null;
   const c = getCapabilitiesForModel(provider, bare);
@@ -55,9 +75,35 @@ export function resolveCaps(byFull, byId, key) {
     vision: c.vision,
     search: c.search,
     reasoning: c.reasoning,
+    tools: c.tools !== false,
     contextWindow: c.contextWindow,
     maxOutput: c.maxOutput,
+    supportsVision: Boolean(c.vision),
+    supportsTools: c.tools !== false,
+    supportsReasoning: Boolean(c.reasoning),
+    supportsAudio: Boolean(c.audioInput),
+    supportsVideo: Boolean(c.videoInput),
+    supportsStreaming: c.streaming !== false,
+    supportsImageGeneration: c.imageOutput ? true : null,
+    supportsImageEditing: null,
+    supportsWebSearch: c.search ? true : null,
+    supportsWebFetch: null,
+    imageOutput: Boolean(c.imageOutput),
+    audioInput: Boolean(c.audioInput),
+    videoInput: Boolean(c.videoInput),
+    thinkingFormat: c.thinkingFormat ?? null,
+    provenance: {
+      source: "fallback",
+    },
+    source: "default",
   };
+}
+
+export function invalidateModelCaps() {
+  cache = null;
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("customModelChanged"));
+  }
 }
 
 export function useModelCaps() {
