@@ -1,3 +1,19 @@
+# Unreleased — Model Import, Batch Testing, Sync Policies & Runtime Overrides (PRs #145–#151)
+
+## Features
+- **Provider Model Management UI (PR #150, `e1fb2594`)**: Mount `ModelManagementPanel` and `ModelOverrideModal` on the provider detail page (`src/app/(dashboard)/dashboard/providers/[id]/ModelManagementPanel.js`, `ModelOverrideModal.js`) supporting model import, bounded test-all batches, auto-sync policy scheduling, and modal-based capability override editing directly in the dashboard (known follow-up: summary taxonomy alignment and fresh-install test harness isolation assigned to separate workers).
+- **Built-In Provider Listing Completeness & Discovery (PR #149, `3cdbd654`)**: Validate pagination signals and structural completeness (`src/lib/models/listingCompleteness.js`) across OpenAI-compatible, NVIDIA, Gemini, Anthropic, and Cloudflare gateways; route discovery through `proxyAwareFetch` with fail-closed 503 behavior when configured proxies cannot be reached.
+- **Opt-In Free Proxy Feeds with Inactive Pools (PR #148, `bb05dbb0`)**: Ingest public untrusted feeds from explicit allowlisted sources (oneproxy, proxifly, iplocate) via `src/lib/freeProxyProviders/index.js` behind durable operator risk acknowledgement (`acknowledgedRisk: true`); enforce 2 MiB streaming caps, SSRF/private-IP validation, single-write provenance, concurrency leases, and create pools inactive by default. The companion component (`src/shared/components/FreeProxySourcesCard.js`) is standalone and not currently wired into dashboard pages.
+- **Runtime Capability Overrides & Cache (PR #147, `b0676cfb`)**: Fast synchronous in-memory override resolution (`src/lib/models/overrideCache.js`, `/api/models/overrides`) with a 50,000-row snapshot limit and 5-second TTL cache feeding per-field resolver logic into request routing and model listings, with CRUD endpoints for manual overrides.
+- **Automated Model Sync Scheduling (PR #146, `dbbc2705`)**: Leader-only (and single-process) background model synchronization (`src/lib/models/providerSync.js`, `src/lib/models/providerSyncRuntime.js`) with global and per-provider sync intervals (1h to 7d, default 24h) persisted in SQLite `kv` table under scope `modelSyncPolicy` and key `policy`. Uses bounded cycles with cursor resumption and post-commit reload events.
+- **Bounded Model Test-All with Safe Auto-Disable (PR #145, `9c1cf4ed`)**: Sequential, abortable model testing (`src/lib/models/modelTestBatch.js`, `/api/models/test-batch`) with 6-category error classification (`classifyModelTestResult`) that only disables hard model failures with HTTP 400/404/410 explicit model absence patterns, while quota, rate-limit, auth, billing, and transport failures are classified safely without disabling. Auto-disable requires explicit opt-in (`autoDisable: true`), with audit logging and reversible restoration via `enableModels`.
+
+## Fixes (PR #151)
+- **Test-batch summary counts**: `ModelManagementPanel` counted every canonical result (including `success`) as broken. It now maps the six classifications, and only `hard_model_failure` counts as broken.
+- **Advanced capability flags**: `supportsImageGeneration`, `supportsImageEditing`, `supportsWebSearch` and `supportsWebFetch` overrides now reach the resolver, `/api/models` and `useModelCaps`; with no evidence they stay unknown (`null`).
+- **Free proxy sources UI**: `FreeProxySourcesCard` is mounted on `/dashboard/proxy-pools`.
+- **Tests/CI**: UI tests load one React instance on clean installs; a new CI step runs the Spec 017 model, override, proxy and UI suites.
+
 # Unreleased — Regionhop release pin (v1.27.0)
 
 ## Features
