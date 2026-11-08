@@ -1,6 +1,9 @@
-import { createHash } from "node:crypto";
 import { getAdapter } from "../driver.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
+import {
+  publishKhatamEvent,
+  KHATAM_EVENTS,
+} from "../../redis/events.js";
 
 // Credential keys that must NEVER be persisted in metadata or capabilities
 const SENSITIVE_KEY_REGEX = /^(api[_-]?key|token|secret|password|auth|authorization|private[_-]?key|client[_-]?secret)$/i;
@@ -31,7 +34,7 @@ export function buildOverrideId(source = "manual", provider = "", modelId = "") 
   const encM = encodeURIComponent(m);
   const key = `ovr::${s}::${encP.length}-${encP}::${encM.length}-${encM}`;
   if (key.length <= 384) return key;
-  const hash = createHash("sha256").update(`${p}\0${m}`).digest("hex").slice(0, 32);
+  const hash = Bun.CryptoHasher.hash("sha256", `${p}\0${m}`, "hex").slice(0, 32);
   return `ovr::${s}::${encP.slice(0, 100)}::${hash}`;
 }
 
@@ -47,7 +50,7 @@ export function buildImportedModelId(provider = "", connectionId = "", modelId =
   const encM = encodeURIComponent(m);
   const key = `imp::${encP.length}-${encP}::${encC.length}-${encC}::${encM.length}-${encM}`;
   if (key.length <= 384) return key;
-  const hash = createHash("sha256").update(`${p}\0${c}\0${m}`).digest("hex").slice(0, 32);
+  const hash = Bun.CryptoHasher.hash("sha256", `${p}\0${c}\0${m}`, "hex").slice(0, 32);
   return `imp::${encP.slice(0, 60)}::${encC.slice(0, 60)}::${hash}`;
 }
 
@@ -104,6 +107,7 @@ export async function upsertCapabilityOverride({
   modelPattern = null,
   capabilities = {},
   source = "manual",
+  replace = false,
 }) {
   const normSource = String(source || "manual").trim();
   const p = provider ? String(provider).trim() : null;
@@ -120,7 +124,7 @@ export async function upsertCapabilityOverride({
 
   const db = await getAdapter();
 
-  return db.immediate(() => {
+  const record = db.immediate(() => {
     // Check if an existing row matches this scope
     let existingRow = null;
     if (p && mId) {
@@ -145,7 +149,7 @@ export async function upsertCapabilityOverride({
 
     if (existingRow) {
       const prevCaps = parseJson(existingRow.capabilities_json, {});
-      mergedCaps = { ...prevCaps, ...normCaps };
+      mergedCaps = replace ? normCaps : { ...prevCaps, ...normCaps };
       createdAt = existingRow.created_at || now;
 
       db.run(
@@ -185,6 +189,15 @@ export async function upsertCapabilityOverride({
       updatedAt: now,
     };
   });
+
+  try {
+    publishKhatamEvent(KHATAM_EVENTS.CONFIG_RELOAD, {
+      scope: "settings",
+      timestamp: Date.now(),
+    });
+  } catch {}
+
+  return record;
 }
 
 export async function getCapabilityOverride({
@@ -311,21 +324,37 @@ export async function deleteCapabilityOverride({ provider = null, modelId = null
   const mId = modelId ? String(modelId).trim() : null;
   const pat = modelPattern ? String(modelPattern).trim() : (mId || "*");
 
-  return db.immediate(() => {
+  const deleted = db.immediate(() => {
     let result = null;
     if (p && mId) {
       result = db.run(
         `DELETE FROM model_capability_overrides WHERE provider = ? AND model_id = ? AND source = ?`,
         [p, mId, source]
       );
+    } else if (p) {
+      result = db.run(
+        `DELETE FROM model_capability_overrides WHERE provider = ? AND model_pattern = ? AND source = ?`,
+        [p, pat, source]
+      );
     } else {
       result = db.run(
-        `DELETE FROM model_capability_overrides WHERE model_pattern = ? AND source = ?`,
+        `DELETE FROM model_capability_overrides WHERE (provider IS NULL OR provider = '') AND model_pattern = ? AND source = ?`,
         [pat, source]
       );
     }
-    return { deleted: (result?.changes || 0) > 0 };
+    return (result?.changes || 0) > 0;
   });
+
+  if (deleted) {
+    try {
+      publishKhatamEvent(KHATAM_EVENTS.CONFIG_RELOAD, {
+        scope: "settings",
+        timestamp: Date.now(),
+      });
+    } catch {}
+  }
+
+  return { deleted };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -396,6 +425,15 @@ export async function upsertImportedModel({
       lastSeenAt: now,
     };
   });
+
+  try {
+    publishKhatamEvent(KHATAM_EVENTS.CONFIG_RELOAD, {
+      scope: "settings",
+      timestamp: Date.now(),
+    });
+  } catch {}
+
+  return record;
 }
 
 export async function batchUpsertImportedModels({
@@ -422,7 +460,7 @@ export async function batchUpsertImportedModels({
 
   const db = await getAdapter();
 
-  return db.immediate(() => {
+  const result = db.immediate(() => {
     let added = 0;
     let updated = 0;
 
@@ -479,6 +517,15 @@ export async function batchUpsertImportedModels({
 
     return { added, updated, total: models.length };
   });
+
+  try {
+    publishKhatamEvent(KHATAM_EVENTS.CONFIG_RELOAD, {
+      scope: "settings",
+      timestamp: Date.now(),
+    });
+  } catch {}
+
+  return result;
 }
 
 export async function listImportedModels({
@@ -552,7 +599,7 @@ export async function pruneImportedSnapshot({
 
   const db = await getAdapter();
 
-  return db.immediate(() => {
+  const result = db.immediate(() => {
     // Select all active models for this source that were imported (not manual)
     const existing = db.all(
       `SELECT id, model_id FROM imported_models
@@ -590,6 +637,17 @@ export async function pruneImportedSnapshot({
 
     return { pruned, retainedShared, skipped: false, reason: null };
   });
+
+  if (result.pruned > 0) {
+    try {
+      publishKhatamEvent(KHATAM_EVENTS.CONFIG_RELOAD, {
+        scope: "settings",
+        timestamp: Date.now(),
+      });
+    } catch {}
+  }
+
+  return result;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

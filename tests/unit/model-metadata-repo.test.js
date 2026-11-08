@@ -141,6 +141,20 @@ describe("Model Metadata Persistence & Repository (Spec 017)", () => {
       const impId = buildImportedModelId(hugeProvider, hugeConn, hugeModel);
       expect(impId.length).toBeLessThanOrEqual(384);
     });
+
+    it("deterministic golden test: Unicode/NUL long overflow matches known literal SHA", async () => {
+      const { buildOverrideId, buildImportedModelId } = await import("@/lib/db/repos/modelMetadataRepo.js");
+
+      const p = "provider-αβγ-" + "p".repeat(200);
+      const m = "model-\0-xyz-" + "m".repeat(200);
+      const c = "conn-🌟-" + "c".repeat(200);
+
+      const ovrId = buildOverrideId("manual", p, m);
+      expect(ovrId.split("::").pop()).toBe("4520a8d0ba9fbdfd56d23b812174b346");
+
+      const impId = buildImportedModelId(p, c, m);
+      expect(impId.split("::").pop()).toBe("fbf1303b00e674a155829716f5787fe2");
+    });
   });
 
   describe("Gate 4: immediate transaction rollback on error", () => {
