@@ -65,19 +65,36 @@ function isPresent(v) {
   return true;
 }
 
-// Did the raw upstream record state this capability? Used for the fields whose
-// normalizer default is `false`.
-function rawStates(raw, field) {
+// Did the raw upstream record genuinely declare this capability as false?
+// Never infer keyword presence alone as false evidence (e.g. raw capabilities
+// containing only tools must not imply vision is false).
+function rawDeclaresFalse(raw, field) {
   if (!isObj(raw)) return false;
-  const text = JSON.stringify(Object.keys(raw)).toLowerCase();
-  const hints = {
-    supportsVision: ["modalit", "vision", "image", "architecture", "capabilit", "labels", "input"],
-    supportsTools: ["tool", "function", "capabilit", "labels", "supported_parameters"],
-    supportsReasoning: ["reason", "think", "capabilit", "labels", "supported_parameters"],
-    supportsAudio: ["modalit", "audio", "architecture", "capabilit"],
-    supportsVideo: ["modalit", "video", "architecture", "capabilit"],
-  }[field] || [];
-  return hints.some((h) => text.includes(h));
+  if (field === "supportsVision") {
+    if (raw.supportsVision === false || raw.supports_vision === false || raw.vision === false) return true;
+    if (isObj(raw.capabilities) && (raw.capabilities.supportsVision === false || raw.capabilities.vision === false)) return true;
+    if (isObj(raw.architecture) && (raw.architecture.supportsVision === false || raw.architecture.vision === false)) return true;
+    return false;
+  }
+  if (field === "supportsTools") {
+    if (raw.supportsTools === false || raw.supports_tools === false || raw.tools === false || raw.tool_calling === false || raw.toolCalling === false) return true;
+    if (isObj(raw.capabilities) && (raw.capabilities.supportsTools === false || raw.capabilities.tools === false)) return true;
+    return false;
+  }
+  if (field === "supportsReasoning") {
+    if (raw.supportsReasoning === false || raw.supports_reasoning === false || raw.reasoning === false) return true;
+    if (isObj(raw.capabilities) && (raw.capabilities.supportsReasoning === false || raw.capabilities.reasoning === false)) return true;
+    return false;
+  }
+  if (field === "supportsAudio") {
+    if (raw.supportsAudio === false || raw.supports_audio === false || raw.audio === false) return true;
+    return false;
+  }
+  if (field === "supportsVideo") {
+    if (raw.supportsVideo === false || raw.supports_video === false || raw.video === false) return true;
+    return false;
+  }
+  return false;
 }
 
 function stripSecrets(value, depth = 0) {
@@ -94,15 +111,18 @@ function stripSecrets(value, depth = 0) {
   return value;
 }
 
-// Pull the reconcilable fields out of one normalized listing record. A field is
-// returned only when the listing genuinely stated it.
+// Pull the reconcilable fields out of one listing record.
+// Distinguishes direct explicit fields for typed core inputs from
+// raw declarations on normalized records.
 function listedFields(record) {
   const out = {};
+  const isTypedCoreInput = !("raw" in record) || record.raw === undefined;
+
   for (const field of FIELDS) {
     const v = record[field];
     if (v === undefined || v === null) continue;
     if (field === "contextWindow" || field === "maxOutputTokens") {
-      if (typeof v === "number" && v > 0) out[field] = v;
+      if (typeof v === "number" && Number.isFinite(v) && v > 0) out[field] = v;
       continue;
     }
     if (field === "supportedThinkingEfforts") {
@@ -110,7 +130,17 @@ function listedFields(record) {
       continue;
     }
     if (typeof v === "boolean") {
-      if (v === true || !ABSENT_MEANS_UNKNOWN.has(field) || rawStates(record.raw, field)) out[field] = v;
+      if (v === true) {
+        out[field] = true;
+      } else if (!ABSENT_MEANS_UNKNOWN.has(field)) {
+        out[field] = false;
+      } else if (isTypedCoreInput) {
+        // Direct explicit typed core input explicitly stated false
+        out[field] = false;
+      } else if (rawDeclaresFalse(record.raw, field)) {
+        // Raw upstream payload explicitly stated false
+        out[field] = false;
+      }
     }
   }
   return out;
@@ -162,9 +192,12 @@ export function reconcileCatalog({ previous = [], listing = null, enrichment = {
   }
 
   const verdict = pruneVerdict(listing);
-  const { byId: listed, invalid } = listing && Array.isArray(listing.models)
+  const { byId: listed, invalid: modelsInvalid } = listing && Array.isArray(listing.models)
     ? cleanInvalid(listing.models)
     : { byId: new Map(), invalid: 0 };
+  const rawInvalid = typeof listing?.invalid === "number" ? listing.invalid : 0;
+  const invalid = modelsInvalid + rawInvalid;
+  const pruneRefusal = verdict || (invalid > 0 ? "invalid_records" : null);
 
   const add = [];
   const update = [];
@@ -229,7 +262,7 @@ export function reconcileCatalog({ previous = [], listing = null, enrichment = {
     if (listed.has(id)) continue;
     const prior = prevById.get(id);
     const protectedByManual = Object.keys(manualFieldsFor(overrides, id)).length > 0 || prior.provenance === "manual";
-    if (verdict !== null) continue; // not allowed to prune on this listing
+    if (pruneRefusal !== null) continue; // not allowed to prune on this listing
     if (protectedByManual) {
       stale.push({ id });
       continue;
@@ -244,7 +277,7 @@ export function reconcileCatalog({ previous = [], listing = null, enrichment = {
     remove,
     stale,
     divergences,
-    skipped: { prune: verdict, invalid },
+    skipped: { prune: pruneRefusal, invalid },
   };
   // Defensive scrub: results are persisted, so nothing credential-shaped may ride along.
   return stripSecrets(result);

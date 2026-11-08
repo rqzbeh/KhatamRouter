@@ -12,14 +12,108 @@
 import { normalizeDiscoveredModels } from "./discovery.js";
 import { reconcileCatalog, FIELD_SOURCES } from "./catalogReconcile.js";
 
+const REQUIRED_REPO_METHODS = [
+  "listImportedModels",
+  "batchUpsertImportedModels",
+  "pruneImportedSnapshot",
+  "listCapabilityOverrides",
+  "getCustomModels",
+  "addCustomModel",
+  "deleteCustomModel",
+];
+
 // Discovery results that are not a live, authoritative listing. Pruning on any
-// of these would delete models just because the provider was briefly down.
+// of these would delete models just because the provider was briefly down or
+// because an unknown adapter returned an unpaginated/partial response.
 function isAuthoritative(discovery) {
-  if (!discovery || !Array.isArray(discovery.models)) return false;
+  if (!discovery || typeof discovery !== "object") return false;
+  const models = Array.isArray(discovery.models)
+    ? discovery.models
+    : (Array.isArray(discovery.data) ? discovery.data : null);
+  if (!models) return false;
   if (discovery.warning) return false; // existing route sets this on static fallback
   if (discovery.fallback === true) return false;
   if (discovery.partial === true) return false;
+  // Require explicit completeness evidence rather than inferring 200/no warning
+  // as complete for unknown adapters.
+  if (discovery.complete !== true) return false;
   return true;
+}
+
+// Inspect the raw listing before normalization drops invalid records.
+function inspectRawListing(discovery) {
+  const rawList = Array.isArray(discovery?.models)
+    ? discovery.models
+    : (Array.isArray(discovery?.data) ? discovery.data : (Array.isArray(discovery) ? discovery : null));
+  if (!rawList) return { rawList: [], invalid: 0 };
+  let invalid = 0;
+  for (const item of rawList) {
+    if (!item || typeof item !== "object") {
+      invalid++;
+      continue;
+    }
+    const id =
+      (typeof item.id === "string" && item.id.trim()) ||
+      (typeof item.name === "string" && item.name.trim()) ||
+      (typeof item.model === "string" && item.model.trim());
+    if (!id) {
+      invalid++;
+    }
+  }
+  return { rawList, invalid };
+}
+
+// Page through repository records without hardcoded truncation.
+// If the source cap is reached, mark as capped so pruning is safely skipped.
+async function fetchAllImportedModels(repo, { provider, connectionId, lifecycle }) {
+  if (!repo || typeof repo.listImportedModels !== "function") return [];
+  const PAGE_SIZE = 500;
+  let offset = 0;
+  const all = [];
+  const MAX_RECORDS = 50000;
+  while (true) {
+    const page = await repo.listImportedModels({
+      provider,
+      ...(connectionId ? { connectionId } : {}),
+      ...(lifecycle ? { lifecycle } : {}),
+      limit: PAGE_SIZE,
+      offset,
+    });
+    if (!Array.isArray(page) || page.length === 0) break;
+    all.push(...page);
+    if (page.length < PAGE_SIZE) break;
+    offset += page.length;
+    if (all.length >= MAX_RECORDS) {
+      all.capped = true;
+      break;
+    }
+  }
+  return all;
+}
+
+async function fetchAllCapabilityOverrides(repo, { provider, source }) {
+  if (!repo || typeof repo.listCapabilityOverrides !== "function") return [];
+  const PAGE_SIZE = 500;
+  let offset = 0;
+  const all = [];
+  const MAX_RECORDS = 50000;
+  while (true) {
+    const page = await repo.listCapabilityOverrides({
+      provider,
+      ...(source ? { source } : {}),
+      limit: PAGE_SIZE,
+      offset,
+    });
+    if (!Array.isArray(page) || page.length === 0) break;
+    all.push(...page);
+    if (page.length < PAGE_SIZE) break;
+    offset += page.length;
+    if (all.length >= MAX_RECORDS) {
+      all.capped = true;
+      break;
+    }
+  }
+  return all;
 }
 
 // Capabilities the importer persists, keyed the way the dashboard stores caps.
@@ -47,7 +141,7 @@ function overridesByModel(rows) {
  * @param {string} args.provider        provider id (e.g. "openrouter", "openai-compatible-chat-x")
  * @param {string} args.providerAlias   storage alias customModels uses for this provider
  * @param {string} args.connectionId
- * @param {() => Promise<{models?:Array,warning?:string,error?:string,status?:number}>} args.discover
+ * @param {() => Promise<{models?:Array,warning?:string,error?:string,status?:number,complete?:boolean}>} args.discover
  * @param {object} args.repo            { listImportedModels, batchUpsertImportedModels,
  *                                        pruneImportedSnapshot, listCapabilityOverrides,
  *                                        getCustomModels, addCustomModel, deleteCustomModel }
@@ -67,6 +161,11 @@ export async function importProviderModels({
     throw new Error("importProviderModels: provider, providerAlias, connectionId, discover and repo are required");
   }
 
+  const missingMethods = REQUIRED_REPO_METHODS.filter((m) => typeof repo[m] !== "function");
+  if (missingMethods.length > 0) {
+    throw new Error(`importProviderModels: repo missing required persistence methods: ${missingMethods.join(", ")}`);
+  }
+
   let discovery;
   try {
     discovery = await discover();
@@ -77,25 +176,39 @@ export async function importProviderModels({
     return { ok: false, status: discovery.status || 502, error: discovery.error };
   }
 
+  const { rawList, invalid: rawInvalid } = inspectRawListing(discovery);
   const authoritative = isAuthoritative(discovery);
-  const normalized = normalizeDiscoveredModels(discovery?.models || [], provider);
+  const normalized = normalizeDiscoveredModels(rawList, provider);
 
-  const previousRows = await repo.listImportedModels({ provider, connectionId, lifecycle: "active", limit: 5000 });
+  const previousRows = await fetchAllImportedModels(repo, { provider, connectionId, lifecycle: "active" });
+  const isCapped = Boolean(previousRows.capped);
   const previous = previousRows.map((row) => ({
     id: row.modelId,
     lifecycle: row.lifecycle,
     provenance: row.provenance,
     capabilities: row.capabilities || {},
   }));
-  const overrides = overridesByModel(await repo.listCapabilityOverrides({ provider, source: "manual", limit: 5000 }));
+
+  const overridesRows = await fetchAllCapabilityOverrides(repo, { provider, source: "manual" });
+  if (overridesRows.capped) {
+    return {
+      ok: false,
+      status: 500,
+      error: "Capability overrides query reached safety cap; refusing catalog mutations to preserve manual overrides",
+    };
+  }
+  const overrides = overridesByModel(overridesRows);
+
+  const canPrune = authoritative && !isCapped;
 
   const result = reconcileCatalog({
     previous,
     listing: {
-      complete: authoritative,
-      fallback: !authoritative,
+      complete: canPrune,
+      fallback: !canPrune,
       authoritativeEmpty: false, // an empty live list is never trusted to wipe a catalog
       models: normalized,
+      invalid: rawInvalid,
     },
     enrichment,
     overrides,
@@ -105,7 +218,7 @@ export async function importProviderModels({
     ok: true,
     provider,
     connectionId,
-    authoritative,
+    authoritative: canPrune && rawInvalid === 0,
     warning: discovery?.warning || null,
     added: result.add.map((m) => m.id),
     updated: result.update.map((m) => m.id),
@@ -147,17 +260,31 @@ export async function importProviderModels({
     });
   }
 
-  if (authoritative) {
+  if (canPrune && !result.skipped.prune) {
     await repo.pruneImportedSnapshot({
       provider,
       connectionId,
       activeModelIds: normalized.map((m) => m.id),
       options: { complete: true, authoritativeEmpty: false },
     });
-    for (const id of summary.removed) {
-      const prior = existingCustom.get(id);
-      if (prior && prior.source === "import") {
-        await repo.deleteCustomModel({ providerAlias, id, type: prior.type || "llm" });
+
+    if (summary.removed.length > 0) {
+      // Query other active imported models for the same provider across all connections.
+      // If another connection still advertises a model, preserve the shared model in customModels.
+      const remainingActive = await fetchAllImportedModels(repo, { provider, lifecycle: "active" });
+      if (!remainingActive.capped) {
+        const activeAcrossConnections = new Set(remainingActive.map((r) => r.modelId));
+
+        for (const id of summary.removed) {
+          if (activeAcrossConnections.has(id)) {
+            // Model is still actively advertised by another connection for this provider
+            continue;
+          }
+          const prior = existingCustom.get(id);
+          if (prior && prior.source === "import") {
+            await repo.deleteCustomModel({ providerAlias, id, type: prior.type || "llm" });
+          }
+        }
       }
     }
   }
