@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createRequire } from "module";
+import { spawn } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -31,7 +32,14 @@ describe("launcher PID record", () => {
   });
 
   it("round-trips a record and creates the data dir", () => {
-    const record = { cliPid: 111, serverPid: 222, port: 20128, exe: EXE };
+    const record = {
+      cliPid: 111,
+      serverPid: 222,
+      port: 20128,
+      exe: EXE,
+      cliEntry: "/khatam/cli/cli.js",
+      serverEntry: "/khatam/cli/app/server.js",
+    };
     lp.writePidRecord(file, record);
     expect(lp.readPidRecord(file)).toEqual(record);
   });
@@ -52,10 +60,23 @@ describe("launcher PID record", () => {
     expect(lp.readPidRecord(file)).toBeNull();
   });
 
-  it("drops an invalid serverPid but keeps a valid cliPid", () => {
+  it("drops an invalid serverPid but keeps a valid cliPid and entrypoints", () => {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify({ cliPid: 5, serverPid: "x", port: 1, exe: EXE }));
-    expect(lp.readPidRecord(file)).toEqual({ cliPid: 5, serverPid: null, port: 1, exe: EXE });
+    fs.writeFileSync(file, JSON.stringify({
+      cliPid: 5,
+      serverPid: "x",
+      port: 1,
+      exe: EXE,
+      cliEntry: "/khatam/cli.js",
+      serverEntry: 12345, // invalid type dropped
+    }));
+    expect(lp.readPidRecord(file)).toEqual({
+      cliPid: 5,
+      serverPid: null,
+      port: 1,
+      exe: EXE,
+      cliEntry: "/khatam/cli.js",
+    });
   });
 
   it("removes the record only for its owner", () => {
@@ -106,26 +127,50 @@ describe("stopRecordedInstance", () => {
 
   it("kills the recorded server and CLI", () => {
     const { killed, opts } = deps();
-    const result = lp.stopRecordedInstance({ cliPid: 10, serverPid: 20, exe: EXE }, opts);
+    const result = lp.stopRecordedInstance({
+      cliPid: 10,
+      serverPid: 20,
+      exe: EXE,
+      cliEntry: "/khatam/cli/cli.js",
+      serverEntry: "/khatam/cli/app/server.js",
+    }, opts);
     expect(killed).toEqual([20, 10]);
     expect(result).toEqual([20, 10]);
   });
 
   it("never kills itself", () => {
     const { killed, opts } = deps({ selfPid: 10 });
-    lp.stopRecordedInstance({ cliPid: 10, serverPid: 20, exe: EXE }, opts);
+    lp.stopRecordedInstance({
+      cliPid: 10,
+      serverPid: 20,
+      exe: EXE,
+      cliEntry: "/khatam/cli/cli.js",
+      serverEntry: "/khatam/cli/app/server.js",
+    }, opts);
     expect(killed).toEqual([20]);
   });
 
   it("skips PIDs that are no longer alive", () => {
     const { killed, opts } = deps({ isAlive: (pid) => pid === 20 });
-    lp.stopRecordedInstance({ cliPid: 10, serverPid: 20, exe: EXE }, opts);
+    lp.stopRecordedInstance({
+      cliPid: 10,
+      serverPid: 20,
+      exe: EXE,
+      cliEntry: "/khatam/cli/cli.js",
+      serverEntry: "/khatam/cli/app/server.js",
+    }, opts);
     expect(killed).toEqual([20]);
   });
 
   it("skips a reused PID that now belongs to a different program", () => {
     const { killed, opts } = deps({ matchesExe: (pid) => pid !== 10 });
-    lp.stopRecordedInstance({ cliPid: 10, serverPid: 20, exe: EXE }, opts);
+    lp.stopRecordedInstance({
+      cliPid: 10,
+      serverPid: 20,
+      exe: EXE,
+      cliEntry: "/khatam/cli/cli.js",
+      serverEntry: "/khatam/cli/app/server.js",
+    }, opts);
     expect(killed).toEqual([20]);
   });
 
@@ -137,21 +182,159 @@ describe("stopRecordedInstance", () => {
 
   it("keeps going when one kill throws", () => {
     const { opts } = deps({ killPid: (pid) => { if (pid === 20) throw new Error("denied"); } });
-    expect(lp.stopRecordedInstance({ cliPid: 10, serverPid: 20, exe: EXE }, opts)).toEqual([10]);
+    expect(lp.stopRecordedInstance({
+      cliPid: 10,
+      serverPid: 20,
+      exe: EXE,
+      cliEntry: "/khatam/cli/cli.js",
+      serverEntry: "/khatam/cli/app/server.js",
+    }, opts)).toEqual([10]);
+  });
+
+  it("fails closed on legacy record with exe only and refuses to kill", () => {
+    // Production matcher without mock: legacy records with only exe must not kill
+    const record = { cliPid: 10, serverPid: 20, exe: EXE };
+    const killed = [];
+    const result = lp.stopRecordedInstance(record, {
+      selfPid: 1,
+      isAlive: () => true,
+      killPid: (pid) => killed.push(pid),
+    });
+    expect(result).toEqual([]);
+    expect(killed).toEqual([]);
   });
 });
 
-describe("processMatchesExe", () => {
-  it("recognises the current process by its executable name", () => {
-    expect(lp.processMatchesExe(process.pid, EXE)).toBe(true);
+describe("real process identity & PID reuse safety (production matcher)", () => {
+  let tmpDir;
+  const spawnedProcesses = [];
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "khatam-proc-test-"));
   });
 
-  it("rejects the current process for a different executable name", () => {
-    expect(lp.processMatchesExe(process.pid, "definitely-not-this.exe")).toBe(false);
+  afterEach(() => {
+    for (const p of spawnedProcesses) {
+      try { p.kill("SIGKILL"); } catch {}
+    }
+    spawnedProcesses.length = 0;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("rejects a missing executable name", () => {
-    expect(lp.processMatchesExe(process.pid, "")).toBe(false);
+  it("refuses to kill an unrelated Bun process (e.g. bun -e) even with matching exe name", async () => {
+    const unrelated = spawn("bun", ["-e", "setInterval(() => {}, 1000);"]);
+    spawnedProcesses.push(unrelated);
+    await new Promise((r) => setTimeout(r, 80));
+
+    expect(lp.isPidAlive(unrelated.pid)).toBe(true);
+
+    // Stale PID record pointing to this unrelated Bun process with a Khatam entrypoint
+    const staleRecord = {
+      cliPid: unrelated.pid,
+      serverPid: null,
+      port: 20128,
+      exe: EXE,
+      cliEntry: "/tmp/some/other/khatam/cli.js",
+    };
+
+    // Calling stopRecordedInstance with production processMatchesExe (no mock!)
+    const killed = lp.stopRecordedInstance(staleRecord);
+    expect(killed).toEqual([]);
+    expect(lp.isPidAlive(unrelated.pid)).toBe(true);
+  });
+
+  it("refuses to kill a Bun process with identical parent/basename in a different directory", async () => {
+    // Create /diff/cli/cli.js (same relative parent and basename: cli/cli.js)
+    const diffDir = path.join(tmpDir, "diff", "cli");
+    fs.mkdirSync(diffDir, { recursive: true });
+    const diffScript = path.join(diffDir, "cli.js");
+    fs.writeFileSync(diffScript, "setInterval(() => {}, 1000);");
+
+    const diffProc = spawn("bun", [diffScript]);
+    spawnedProcesses.push(diffProc);
+    await new Promise((r) => setTimeout(r, 80));
+
+    // Expected entrypoint is /target/cli/cli.js
+    const targetScript = path.join(tmpDir, "target", "cli", "cli.js");
+
+    expect(lp.processMatchesExe(diffProc.pid, EXE, targetScript)).toBe(false);
+
+    const record = {
+      cliPid: diffProc.pid,
+      serverPid: null,
+      port: 20128,
+      exe: EXE,
+      cliEntry: targetScript,
+    };
+    expect(lp.stopRecordedInstance(record)).toEqual([]);
+    expect(lp.isPidAlive(diffProc.pid)).toBe(true);
+  });
+
+  it("refuses to match when a process argument merely mentions the expected entrypoint", async () => {
+    const expectedScript = path.join(tmpDir, "expected-server.js");
+    fs.writeFileSync(expectedScript, "setInterval(() => {}, 1000);");
+
+    // Process is running an unrelated script, but passes --config=/path/expected-server.js
+    const unrelated = spawn("bun", ["-e", "setInterval(() => {}, 1000);", `--config=${expectedScript}`]);
+    spawnedProcesses.push(unrelated);
+    await new Promise((r) => setTimeout(r, 80));
+
+    expect(lp.processMatchesExe(unrelated.pid, EXE, expectedScript)).toBe(false);
+  });
+
+  it("refuses to match when --preload or --config flag consumes the expected path as a value", async () => {
+    const expectedScript = path.join(tmpDir, "expected-server.js");
+    const otherScript = path.join(tmpDir, "other-script.js");
+    fs.writeFileSync(expectedScript, "setInterval(() => {}, 1000);");
+    fs.writeFileSync(otherScript, "setInterval(() => {}, 1000);");
+
+    // Process runs other-script.js with --preload expected-server.js
+    const procWithPreload = spawn("bun", ["--preload", expectedScript, otherScript]);
+    spawnedProcesses.push(procWithPreload);
+    await new Promise((r) => setTimeout(r, 80));
+
+    // The script being run is otherScript, so expectedScript must NOT match
+    expect(lp.processMatchesExe(procWithPreload.pid, EXE, expectedScript)).toBe(false);
+
+    // Verify parser directly against flag values
+    expect(lp.verifyExactScriptEntry(["bun", "--preload", expectedScript, otherScript], expectedScript, tmpDir)).toBe(false);
+    expect(lp.verifyExactScriptEntry(["bun", "--config", expectedScript, otherScript], expectedScript, tmpDir)).toBe(false);
+  });
+
+  it("fails closed when script argument is relative but process working directory is unprovable", () => {
+    const targetScript = path.join(tmpDir, "server.js");
+
+    // Relative scriptArg with procCwd = null must fail closed (never assume current process.cwd)
+    expect(lp.verifyExactScriptEntry(["bun", "server.js"], targetScript, null)).toBe(false);
+    expect(lp.verifyExactScriptEntry(["bun", "./server.js"], targetScript, null)).toBe(false);
+
+    // Relative scriptArg WITH valid matching procCwd succeeds
+    expect(lp.verifyExactScriptEntry(["bun", "server.js"], targetScript, tmpDir)).toBe(true);
+  });
+
+  it("successfully terminates a matching own fixture process", async () => {
+    const fixtureScript = path.join(tmpDir, "matching-server.js");
+    fs.writeFileSync(fixtureScript, "setInterval(() => {}, 1000);");
+
+    const matchingProc = spawn("bun", [fixtureScript]);
+    spawnedProcesses.push(matchingProc);
+    await new Promise((r) => setTimeout(r, 80));
+
+    expect(lp.isPidAlive(matchingProc.pid)).toBe(true);
+    expect(lp.processMatchesExe(matchingProc.pid, EXE, fixtureScript)).toBe(true);
+
+    const record = {
+      cliPid: 9999999, // non-existent
+      serverPid: matchingProc.pid,
+      port: 20128,
+      exe: EXE,
+      serverEntry: fixtureScript,
+    };
+
+    const killed = lp.stopRecordedInstance(record);
+    expect(killed).toEqual([matchingProc.pid]);
+    await lp.waitForPidsExit([matchingProc.pid], { timeoutMs: 2000 });
+    expect(lp.isPidAlive(matchingProc.pid)).toBe(false);
   });
 });
 

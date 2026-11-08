@@ -803,7 +803,9 @@ function startServer(updatePromise) {
         cliPid: process.pid,
         serverPid: child.pid || null,
         port,
-        exe: path.basename(bunExecutable || process.execPath)
+        exe: path.basename(bunExecutable || process.execPath),
+        cliEntry: __filename,
+        serverEntry: serverPath,
       });
     } catch { /* non-fatal: next launch falls back to the port check */ }
     return child;
