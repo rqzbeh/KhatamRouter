@@ -53,7 +53,7 @@ export async function importConnectionModels(connection, { signal } = {}) {
     connectionId: connection.id,
     signal,
     discover: async () => {
-      const { body, status } = await resolveProviderModels(null, connection.id);
+      const { body, status } = await resolveProviderModels(null, connection.id, { signal });
       if (status >= 400) return { error: body?.error || "Discovery failed", status };
       return body;
     },
