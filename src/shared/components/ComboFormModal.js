@@ -4,8 +4,10 @@ import { useState, useEffect } from "react";
 import Modal from "./Modal";
 import Input from "./Input";
 import Button from "./Button";
+import Select from "./Select";
 import ModelSelectModal from "./ModelSelectModal";
 import CapacityBadges from "./CapacityBadges";
+import { COOLDOWN_PRESET_OPTIONS } from "open-sse/config/comboCooldown.js";
 
 const VALID_NAME_REGEX = /^[a-zA-Z0-9_.\-]+$/;
 
@@ -54,7 +56,7 @@ function ModelItem({ index, model, isFirst, isLast, onEdit, onMoveUp, onMoveDown
 }
 
 // Reusable Combo create/edit modal. forcePrefix auto-prepends to name.
-export default function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindFilter = null, forcePrefix = "", title }) {
+export default function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindFilter = null, forcePrefix = "", title, strategy = {}, memberCooldownMs = null }) {
   // Strip prefix when editing existing combo so user only edits suffix
   const initialName = combo?.name
     ? (forcePrefix && combo.name.startsWith(forcePrefix) ? combo.name.slice(forcePrefix.length) : combo.name)
@@ -66,9 +68,82 @@ export default function ComboFormModal({ isOpen, combo, onClose, onSave, activeP
   const [nameError, setNameError] = useState("");
   const [modelAliases, setModelAliases] = useState({});
 
+  const initialCooldown = memberCooldownMs ?? strategy?.memberCooldownMs ?? null;
+  const initialMode = initialCooldown === 60_000 || initialCooldown === "1m"
+    ? "1m"
+    : initialCooldown === 300_000 || initialCooldown === "5m"
+      ? "5m"
+      : initialCooldown === 3_600_000 || initialCooldown === "1h"
+        ? "1h"
+        : (typeof initialCooldown === "number" || (typeof initialCooldown === "string" && /^\d+$/.test(initialCooldown)))
+          ? "custom"
+          : "default";
+
+  const [cooldownMode, setCooldownMode] = useState(initialMode);
+  const [customCooldownSec, setCustomCooldownSec] = useState(
+    initialMode === "custom" ? String(Math.round(Number(initialCooldown) / 1000)) : ""
+  );
+  const [cooldownError, setCooldownError] = useState("");
+
+  const validateCooldown = (mode, secStr) => {
+    if (mode !== "custom") {
+      setCooldownError("");
+      return true;
+    }
+    const trimmed = String(secStr || "").trim();
+    if (!trimmed) {
+      setCooldownError("Cooldown duration required when custom is selected");
+      return false;
+    }
+    if (!/^\d+$/.test(trimmed)) {
+      setCooldownError("Must be a whole number of seconds");
+      return false;
+    }
+    const sec = parseInt(trimmed, 10);
+    if (!Number.isSafeInteger(sec) || sec < 10 || sec > 86400) {
+      setCooldownError("Cooldown must be between 10s and 86400s (24h)");
+      return false;
+    }
+    setCooldownError("");
+    return true;
+  };
+
+  const handleCooldownModeChange = (mode) => {
+    setCooldownMode(mode);
+    if (mode === "custom") {
+      validateCooldown(mode, customCooldownSec);
+    } else {
+      setCooldownError("");
+    }
+  };
+
+  const handleCustomCooldownChange = (e) => {
+    const val = e.target.value;
+    setCustomCooldownSec(val);
+    validateCooldown(cooldownMode, val);
+  };
+
   useEffect(() => {
     if (!isOpen) return;
-    fetch("/api/models/alias").then((r) => r.ok ? r.json() : null).then((d) => d && setModelAliases(d.aliases || {})).catch(() => {});
+    const controller = new AbortController();
+    async function loadAliases() {
+      try {
+        const res = await fetch("/api/models/alias", { signal: controller.signal });
+        if (!res.ok) return;
+        const d = await res.json();
+        if (!controller.signal.aborted && d?.aliases) {
+          setModelAliases(d.aliases || {});
+        }
+      } catch (err) {
+        if (err.name !== "AbortError") {
+          console.error("Error fetching modal data:", err);
+        }
+      }
+    }
+    loadAliases();
+    return () => {
+      controller.abort();
+    };
   }, [isOpen]);
 
   const validateName = (value) => {
@@ -104,9 +179,18 @@ export default function ComboFormModal({ isOpen, combo, onClose, onSave, activeP
   };
 
   const handleSave = async () => {
-    if (!validateName(name)) return;
+    if (!validateName(name) || !validateCooldown(cooldownMode, customCooldownSec)) return;
+    let savedCooldown = null;
+    if (cooldownMode === "1m" || cooldownMode === "5m" || cooldownMode === "1h") {
+      savedCooldown = cooldownMode;
+    } else if (cooldownMode === "custom") {
+      const sec = parseInt(customCooldownSec.trim(), 10);
+      if (Number.isSafeInteger(sec) && sec >= 10 && sec <= 86400) {
+        savedCooldown = sec * 1000;
+      }
+    }
     setSaving(true);
-    await onSave({ name: forcePrefix + name.trim(), models });
+    await onSave({ name: forcePrefix + name.trim(), models, memberCooldownMs: savedCooldown });
     setSaving(false);
   };
 
@@ -176,9 +260,39 @@ export default function ComboFormModal({ isOpen, combo, onClose, onSave, activeP
             </button>
           </div>
 
+          <div>
+            <label className="text-sm font-medium mb-1 block">Member Failure Cooldown</label>
+            <Select
+              options={COOLDOWN_PRESET_OPTIONS}
+              value={cooldownMode}
+              onChange={(e) => handleCooldownModeChange(e.target.value)}
+              selectClassName="py-1.5 text-xs"
+            />
+            {cooldownMode === "custom" && (
+              <div className="mt-1.5 flex items-center gap-2">
+                <Input
+                  type="number"
+                  min="10"
+                  max="86400"
+                  value={customCooldownSec}
+                  onChange={handleCustomCooldownChange}
+                  placeholder="e.g. 60"
+                  className="w-32"
+                />
+                <span className="text-xs text-text-muted">seconds (10s – 24h)</span>
+              </div>
+            )}
+            {cooldownError && (
+              <p className="text-[11px] text-red-500 mt-0.5">{cooldownError}</p>
+            )}
+            <p className="text-[10px] text-text-muted mt-0.5">
+              Remove failing members (401/402/403/429/5xx) from rotation across requests for this combo.
+            </p>
+          </div>
+
           <div className="flex flex-col gap-2 pt-1 sm:flex-row">
             <Button onClick={onClose} variant="ghost" fullWidth size="sm">Cancel</Button>
-            <Button onClick={handleSave} fullWidth size="sm" disabled={!name.trim() || !!nameError || saving}>
+            <Button onClick={handleSave} fullWidth size="sm" disabled={!name.trim() || !!nameError || !!cooldownError || saving}>
               {saving ? "Saving..." : isEdit ? "Save" : "Create"}
             </Button>
           </div>

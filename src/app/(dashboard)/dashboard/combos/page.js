@@ -13,6 +13,13 @@ import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { useModelCaps } from "@/shared/hooks/useModelCaps";
 import { aggregateComboCapabilities } from "open-sse/providers/capabilities.js";
 import { resolveProviderId, AI_PROVIDERS } from "@/shared/constants/providers";
+import {
+  isValidMemberCooldown,
+  calculateComboStrategyUpdate,
+  executeComboUpdateTransaction,
+  executeComboCreateTransaction,
+  COOLDOWN_PRESET_OPTIONS,
+} from "./comboUpdateHelper";
 
 // Validate combo name: only a-z, A-Z, 0-9, -, _
 const VALID_NAME_REGEX = /^[a-zA-Z0-9_.\-]+$/;
@@ -85,18 +92,84 @@ export default function CombosPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const { copied, copy } = useCopyToClipboard();
 
+  const fetchData = async () => {
+    try {
+      const [combosRes, providersRes, settingsRes] = await Promise.all([
+        fetch("/api/combos"),
+        fetch("/api/providers"),
+        fetch("/api/settings"),
+      ]);
+      const combosData = await combosRes.json();
+      const providersData = await providersRes.json();
+      const settingsData = settingsRes.ok ? await settingsRes.json() : {};
+
+      // Only LLM combos here - webSearch/webFetch combos belong to media-providers/web
+      if (combosRes.ok) setCombos((combosData.combos || []).filter(c => !c.kind || c.kind === "llm"));
+      if (providersRes.ok) {
+        setActiveProviders((providersData.connections || []).filter((c) => c.isActive !== false));
+      }
+      setComboStrategies(settingsData.comboStrategies || {});
+      const rawAdapter = settingsData.capacityAdapter || {};
+      const normalized = {};
+      for (const cap of CAPACITY_ADAPTER_CAPS) {
+        normalized[cap.key] = normalizeCapEntry(rawAdapter[cap.key]);
+      }
+      setCapacityAdapter(normalized);
+    } catch (error) {
+      console.log("Error fetching data:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    fetchData();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    const controller = new AbortController();
+    async function loadData() {
+      try {
+        const [combosRes, providersRes, settingsRes] = await Promise.all([
+          fetch("/api/combos", { signal: controller.signal }),
+          fetch("/api/providers", { signal: controller.signal }),
+          fetch("/api/settings", { signal: controller.signal }),
+        ]);
+        const combosData = await combosRes.json();
+        const providersData = await providersRes.json();
+        const settingsData = settingsRes.ok ? await settingsRes.json() : {};
+
+        if (controller.signal.aborted) return;
+        // Only LLM combos here - webSearch/webFetch combos belong to media-providers/web
+        if (combosRes.ok) setCombos((combosData.combos || []).filter(c => !c.kind || c.kind === "llm"));
+        if (providersRes.ok) {
+          setActiveProviders((providersData.connections || []).filter((c) => c.isActive !== false));
+        }
+        setComboStrategies(settingsData.comboStrategies || {});
+        const rawAdapter = settingsData.capacityAdapter || {};
+        const normalized = {};
+        for (const cap of CAPACITY_ADAPTER_CAPS) {
+          normalized[cap.key] = normalizeCapEntry(rawAdapter[cap.key]);
+        }
+        setCapacityAdapter(normalized);
+      } catch (error) {
+        if (error.name !== "AbortError") {
+          console.log("Error fetching data:", error);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      }
+    }
+    loadData();
+    return () => {
+      controller.abort();
+    };
+  }, []);
 
   // Drop stale selection when the combo list changes (delete / refresh).
-  useEffect(() => {
-    const alive = new Set(combos.map((c) => c.id));
-    setSelectedIds((prev) => prev.filter((id) => alive.has(id)));
-  }, [combos]);
+  const aliveComboIds = new Set(combos.map((c) => c.id));
+  const activeSelectedIds = selectedIds.filter((id) => aliveComboIds.has(id));
 
-  const selectedCombos = combos.filter((c) => selectedIds.includes(c.id));
-  const someSelected = selectedIds.length > 0;
+  const selectedCombos = combos.filter((c) => activeSelectedIds.includes(c.id));
+  const someSelected = activeSelectedIds.length > 0;
 
   // Case-insensitive search over the combo name and its model ids, so both
   // "deepseek" and "deepseek-v4.1-flash" find the right rows.
@@ -110,7 +183,7 @@ export default function CombosPage() {
 
   // Select-all follows the search: with a query active it must only reach the
   // rows on screen, otherwise the bulk Delete would take out hidden combos.
-  const allSelected = filteredCombos.length > 0 && filteredCombos.every((c) => selectedIds.includes(c.id));
+  const allSelected = filteredCombos.length > 0 && filteredCombos.every((c) => activeSelectedIds.includes(c.id));
 
   const toggleSelect = (id) => {
     setSelectedIds((prev) => (
@@ -184,36 +257,6 @@ export default function CombosPage() {
     }
   };
 
-  const fetchData = async () => {
-    try {
-      const [combosRes, providersRes, settingsRes] = await Promise.all([
-        fetch("/api/combos"),
-        fetch("/api/providers"),
-        fetch("/api/settings"),
-      ]);
-      const combosData = await combosRes.json();
-      const providersData = await providersRes.json();
-      const settingsData = settingsRes.ok ? await settingsRes.json() : {};
-
-      // Only LLM combos here - webSearch/webFetch combos belong to media-providers/web
-      if (combosRes.ok) setCombos((combosData.combos || []).filter(c => !c.kind || c.kind === "llm"));
-      if (providersRes.ok) {
-        setActiveProviders((providersData.connections || []).filter((c) => c.isActive !== false));
-      }
-      setComboStrategies(settingsData.comboStrategies || {});
-      const rawAdapter = settingsData.capacityAdapter || {};
-      const normalized = {};
-      for (const cap of CAPACITY_ADAPTER_CAPS) {
-        normalized[cap.key] = normalizeCapEntry(rawAdapter[cap.key]);
-      }
-      setCapacityAdapter(normalized);
-    } catch (error) {
-      console.log("Error fetching data:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleSetCapacityAdapter = async (next) => {
     setCapacityAdapter(next);
     try {
@@ -228,40 +271,100 @@ export default function CombosPage() {
   };
 
   const handleCreate = async (data) => {
+    const { memberCooldownMs, ...comboData } = data;
+    if (!isValidMemberCooldown(memberCooldownMs)) {
+      alert("Invalid member failure cooldown. Must be 10s..24h or preset (1m, 5m, 1h).");
+      return;
+    }
     try {
-      const res = await fetch("/api/combos", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+      const result = await executeComboCreateTransaction({
+        comboData,
+        memberCooldownMs,
+        comboStrategies,
+        createComboApi: async (body) => {
+          const res = await fetch("/api/combos", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            return { ok: false, error: err.error || "Failed to create combo" };
+          }
+          const created = await res.json().catch(() => null);
+          return { ok: true, data: created };
+        },
+        deleteComboApi: async (comboId) => {
+          const res = await fetch(`/api/combos/${comboId}`, { method: "DELETE" });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            return { ok: false, error: err.error || "Failed to delete created combo" };
+          }
+          return { ok: true };
+        },
+        persistStrategiesApi: persistComboStrategies,
       });
-      if (res.ok) {
-        await fetchData();
-        setShowCreateModal(false);
-      } else {
-        const err = await res.json();
-        alert(err.error || "Failed to create combo");
+
+      if (!result.ok) {
+        alert(result.error);
+        if (result.rollbackAttempted) {
+          await fetchData();
+        }
+        return;
       }
+
+      await fetchData();
+      setShowCreateModal(false);
     } catch (error) {
       console.log("Error creating combo:", error);
+      alert(error.message || "Failed to create combo");
     }
   };
 
   const handleUpdate = async (id, data) => {
+    const oldCombo = combos.find((c) => c.id === id);
+    const { memberCooldownMs, ...comboData } = data;
+
+    if (!isValidMemberCooldown(memberCooldownMs)) {
+      alert("Invalid member failure cooldown. Must be 10s..24h or preset (1m, 5m, 1h).");
+      return;
+    }
+
     try {
-      const res = await fetch(`/api/combos/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+      const result = await executeComboUpdateTransaction({
+        id,
+        oldCombo,
+        newComboData: comboData,
+        memberCooldownMs,
+        comboStrategies,
+        updateComboApi: async (comboId, body) => {
+          const res = await fetch(`/api/combos/${comboId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            return { ok: false, error: err.error || "Failed to update combo" };
+          }
+          return { ok: true };
+        },
+        persistStrategiesApi: persistComboStrategies,
       });
-      if (res.ok) {
-        await fetchData();
-        setEditingCombo(null);
-      } else {
-        const err = await res.json();
-        alert(err.error || "Failed to update combo");
+
+      if (!result.ok) {
+        alert(result.error);
+        if (result.rollbackAttempted) {
+          await fetchData();
+        }
+        return;
       }
+
+      await fetchData();
+      setEditingCombo(null);
     } catch (error) {
       console.log("Error updating combo:", error);
+      alert(error.message || "Failed to update combo");
     }
   };
 
@@ -272,11 +375,15 @@ export default function CombosPage() {
   };
 
   const persistComboStrategies = async (updated) => {
-    await fetch("/api/settings", {
+    const res = await fetch("/api/settings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ comboStrategies: updated }),
     });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || "Failed to update combo settings");
+    }
     setComboStrategies(updated);
   };
 
@@ -339,14 +446,21 @@ export default function CombosPage() {
     });
   };
 
-  // Merge a per-combo strategy patch into settings.comboStrategies. Passing an empty
-  // patch (strategy back to default "fallback") drops the entry entirely.
+  // Merge a per-combo strategy patch into settings.comboStrategies.
+  // Preserves memberCooldownMs and other custom settings when switching fallbackStrategy.
   const handleSetComboStrategy = async (comboName, patch) => {
     try {
       const updated = { ...comboStrategies };
       const next = { ...(updated[comboName] || {}), ...patch };
-      // Prune to keep settings clean: default fallback with no extras = no entry.
+      // If switching fallbackStrategy back to default "fallback", remove the field
       if (!next.fallbackStrategy || next.fallbackStrategy === "fallback") {
+        delete next.fallbackStrategy;
+      }
+      // Only delete entry if no other configuration remains
+      const hasConfig = Object.keys(next).some(
+        (k) => next[k] !== undefined && next[k] !== null && next[k] !== ""
+      );
+      if (!hasConfig) {
         delete updated[comboName];
       } else {
         updated[comboName] = next;
@@ -364,13 +478,19 @@ export default function CombosPage() {
     try {
       const updated = { ...comboStrategies };
       for (const combo of selectedCombos) {
+        const next = { ...(updated[combo.name] || {}) };
         if (!strategy || strategy === "fallback") {
+          delete next.fallbackStrategy;
+        } else {
+          next.fallbackStrategy = strategy;
+        }
+        const hasConfig = Object.keys(next).some(
+          (k) => next[k] !== undefined && next[k] !== null && next[k] !== ""
+        );
+        if (!hasConfig) {
           delete updated[combo.name];
         } else {
-          updated[combo.name] = {
-            ...(updated[combo.name] || {}),
-            fallbackStrategy: strategy,
-          };
+          updated[combo.name] = next;
         }
       }
       await persistComboStrategies(updated);
@@ -606,6 +726,8 @@ export default function CombosPage() {
           key={editingCombo.id}
           isOpen={!!editingCombo}
           combo={editingCombo}
+          strategy={comboStrategies[editingCombo.name] || {}}
+          memberCooldownMs={comboStrategies[editingCombo.name]?.memberCooldownMs}
           onClose={() => setEditingCombo(null)}
           onSave={(data) => handleUpdate(editingCombo.id, data)}
           activeProviders={activeProviders}
@@ -725,6 +847,12 @@ function ComboCard({ combo, getCaps, comboByName = {}, activeProviders = [], cop
                 <span>ctx {fmtK(comboCaps.contextWindow)}</span>
                 <span className="opacity-40">·</span>
                 <span>max {fmtK(comboCaps.maxOutput)}</span>
+                {strategy?.memberCooldownMs && (
+                  <>
+                    <span className="opacity-40">·</span>
+                    <span className="font-mono text-primary">cooldown {typeof strategy.memberCooldownMs === "string" ? strategy.memberCooldownMs : `${strategy.memberCooldownMs / 1000}s`}</span>
+                  </>
+                )}
               </div>
             )}
             {/* Fusion: judge picker (Auto = first model) */}
@@ -1190,7 +1318,7 @@ function ModelItem({ id, index, model, isFirst, isLast, onEdit, onMoveUp, onMove
   );
 }
 
-function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindFilter = null }) {
+function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindFilter = null, strategy = {}, memberCooldownMs = null }) {
   // Initialize state with combo values - key prop on parent handles reset on remount
   const [name, setName] = useState(combo?.name || "");
   const [models, setModels] = useState(combo?.models || []);
@@ -1198,6 +1326,61 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindF
   const [saving, setSaving] = useState(false);
   const [nameError, setNameError] = useState("");
   const [modelAliases, setModelAliases] = useState({});
+
+  const initialCooldown = memberCooldownMs ?? strategy?.memberCooldownMs ?? null;
+  const initialMode = initialCooldown === 60_000 || initialCooldown === "1m"
+    ? "1m"
+    : initialCooldown === 300_000 || initialCooldown === "5m"
+      ? "5m"
+      : initialCooldown === 3_600_000 || initialCooldown === "1h"
+        ? "1h"
+        : (typeof initialCooldown === "number" || (typeof initialCooldown === "string" && /^\d+$/.test(initialCooldown)))
+          ? "custom"
+          : "default";
+
+  const [cooldownMode, setCooldownMode] = useState(initialMode);
+  const [customCooldownSec, setCustomCooldownSec] = useState(
+    initialMode === "custom" ? String(Math.round(Number(initialCooldown) / 1000)) : ""
+  );
+  const [cooldownError, setCooldownError] = useState("");
+
+  const validateCooldown = (mode, secStr) => {
+    if (mode !== "custom") {
+      setCooldownError("");
+      return true;
+    }
+    const trimmed = String(secStr || "").trim();
+    if (!trimmed) {
+      setCooldownError("Cooldown duration required when custom is selected");
+      return false;
+    }
+    if (!/^\d+$/.test(trimmed)) {
+      setCooldownError("Must be a whole number of seconds");
+      return false;
+    }
+    const sec = parseInt(trimmed, 10);
+    if (!Number.isSafeInteger(sec) || sec < 10 || sec > 86400) {
+      setCooldownError("Cooldown must be between 10s and 86400s (24h)");
+      return false;
+    }
+    setCooldownError("");
+    return true;
+  };
+
+  const handleCooldownModeChange = (mode) => {
+    setCooldownMode(mode);
+    if (mode === "custom") {
+      validateCooldown(mode, customCooldownSec);
+    } else {
+      setCooldownError("");
+    }
+  };
+
+  const handleCustomCooldownChange = (e) => {
+    const val = e.target.value;
+    setCustomCooldownSec(val);
+    validateCooldown(cooldownMode, val);
+  };
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -1218,19 +1401,27 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindF
     }
   };
 
-  const fetchModalData = async () => {
-    try {
-      const aliasesRes = await fetch("/api/models/alias");
-      if (!aliasesRes.ok) return;
-      const aliasesData = await aliasesRes.json();
-      setModelAliases(aliasesData.aliases || {});
-    } catch (error) {
-      console.error("Error fetching modal data:", error);
-    }
-  };
-
   useEffect(() => {
-    if (isOpen) fetchModalData();
+    if (!isOpen) return;
+    const controller = new AbortController();
+    async function loadAliases() {
+      try {
+        const res = await fetch("/api/models/alias", { signal: controller.signal });
+        if (!res.ok) return;
+        const d = await res.json();
+        if (!controller.signal.aborted && d?.aliases) {
+          setModelAliases(d.aliases);
+        }
+      } catch (err) {
+        if (err.name !== "AbortError") {
+          console.error("Error fetching modal data:", err);
+        }
+      }
+    }
+    loadAliases();
+    return () => {
+      controller.abort();
+    };
   }, [isOpen]);
 
   const validateName = (value) => {
@@ -1282,9 +1473,18 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindF
   };
 
   const handleSave = async () => {
-    if (!validateName(name)) return;
+    if (!validateName(name) || !validateCooldown(cooldownMode, customCooldownSec)) return;
+    let savedCooldown = null;
+    if (cooldownMode === "1m" || cooldownMode === "5m" || cooldownMode === "1h") {
+      savedCooldown = cooldownMode;
+    } else if (cooldownMode === "custom") {
+      const sec = parseInt(customCooldownSec.trim(), 10);
+      if (Number.isSafeInteger(sec) && sec >= 10 && sec <= 86400) {
+        savedCooldown = sec * 1000;
+      }
+    }
     setSaving(true);
-    await onSave({ name: name.trim(), models });
+    await onSave({ name: name.trim(), models, memberCooldownMs: savedCooldown });
     setSaving(false);
   };
 
@@ -1358,6 +1558,37 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindF
             </button>
           </div>
 
+          {/* Member Failure Cooldown */}
+          <div>
+            <label className="text-sm font-medium mb-1 block">Member Failure Cooldown</label>
+            <Select
+              options={COOLDOWN_PRESET_OPTIONS}
+              value={cooldownMode}
+              onChange={(e) => handleCooldownModeChange(e.target.value)}
+              selectClassName="py-1.5 text-xs"
+            />
+            {cooldownMode === "custom" && (
+              <div className="mt-1.5 flex items-center gap-2">
+                <Input
+                  type="number"
+                  min="10"
+                  max="86400"
+                  value={customCooldownSec}
+                  onChange={handleCustomCooldownChange}
+                  placeholder="e.g. 60"
+                  className="w-32"
+                />
+                <span className="text-xs text-text-muted">seconds (10s – 24h)</span>
+              </div>
+            )}
+            {cooldownError && (
+              <p className="text-[11px] text-red-500 mt-0.5">{cooldownError}</p>
+            )}
+            <p className="text-[10px] text-text-muted mt-0.5">
+              Remove failing members (401/402/403/429/5xx) from rotation across requests for this combo.
+            </p>
+          </div>
+
           {/* Actions */}
           <div className="flex flex-col gap-2 pt-1 sm:flex-row">
             <Button onClick={onClose} variant="ghost" fullWidth size="sm">
@@ -1367,7 +1598,7 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindF
               onClick={handleSave}
               fullWidth
               size="sm"
-              disabled={!name.trim() || !!nameError || saving}
+              disabled={!name.trim() || !!nameError || !!cooldownError || saving}
             >
               {saving ? "Saving..." : isEdit ? "Save" : "Create"}
             </Button>

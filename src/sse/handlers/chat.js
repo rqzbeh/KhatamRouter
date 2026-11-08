@@ -44,6 +44,25 @@ import { resolveSmartChoice } from "../services/systemoneRouter.js";
 import { rotate, recordUsage, shouldRotateOn } from "@/lib/network/psiphon/psiphonManager.js";
 import { classifyProxyFailure } from "@/lib/network/proxyHealthPolicy.js";
 import { markPoolUnfit } from "open-sse/services/proxyPoolFitness.js";
+import { isLocalRequest } from "@/dashboardGuard.js";
+
+/**
+ * Resolve combo member cooldown caller scope.
+ * - Server-authenticated internal requests (isTrustedInternal): null (never globally cool users)
+ * - Authenticated callers: stable keyRecord.id (not secret API key string)
+ * - Unauthenticated local callers: explicit 'local:single-user' scope (via isLocalRequest)
+ * - Remote anonymous callers: null (no cross-request suppression to avoid DoS)
+ */
+export function resolveCooldownScope(request, { keyRecord = null, isTrustedInternal = false } = {}) {
+  if (isTrustedInternal) return null;
+  if (keyRecord?.id !== undefined && keyRecord?.id !== null) {
+    return String(keyRecord.id);
+  }
+  if (request && typeof request === "object" && isLocalRequest(request)) {
+    return "local:single-user";
+  }
+  return null;
+}
 
 /**
  * Handle chat completion request
@@ -222,10 +241,13 @@ export async function handleChat(request, clientRawRequest = null) {
   const combo = modelStr.includes("/") ? null : await getComboByName(modelStr);
   const comboModels = combo && combo.models && combo.models.length > 0 ? combo.models : null;
 
+  const cooldownScope = resolveCooldownScope(request, { keyRecord, isTrustedInternal });
+
   const requestScope = {
     keyRecord,
     keyAccess,
     isTrustedInternal,
+    cooldownScope,
     combo,
   };
 
@@ -285,6 +307,9 @@ export async function handleChat(request, clientRawRequest = null) {
             log,
           })
         : null,
+      cooldownScope,
+      memberCooldownMs: comboCfg.memberCooldownMs ?? null,
+      signal: request?.signal || null,
     }));
   }
 
@@ -303,7 +328,10 @@ export async function handleChat(request, clientRawRequest = null) {
       ),
       log,
       comboName: modelStr,
-      comboStrategy: getActiveAdapterStrategy(requiredCapabilities, settings)
+      comboStrategy: getActiveAdapterStrategy(requiredCapabilities, settings),
+      cooldownScope: null,
+      memberCooldownMs: null,
+      signal: request?.signal || null,
     }));
   }
 
@@ -340,10 +368,15 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       const augmentedModels = await filterAdapterModels(keyAccess, augmentModelsWithCapacityAdapter(comboModels, requiredCapabilities, chatSettings), comboModels);
       const adapterAdded = augmentedModels.filter((m) => !comboModels.includes(m));
 
+      const nestedCooldownScope = requestScope?.cooldownScope !== undefined
+        ? requestScope.cooldownScope
+        : resolveCooldownScope(request, { keyRecord, isTrustedInternal: requestScope?.isTrustedInternal });
+
       const nestedScope = {
         keyRecord,
         keyAccess,
         isTrustedInternal: requestScope?.isTrustedInternal,
+        cooldownScope: nestedCooldownScope,
         combo: (requestScope?.combo && (!requestScope.combo.name || requestScope.combo.name === modelStr)) ? requestScope.combo : null,
       };
 
@@ -397,6 +430,9 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
               log,
             })
           : null,
+        cooldownScope: nestedCooldownScope,
+        memberCooldownMs: comboCfg.memberCooldownMs ?? null,
+        signal: request?.signal || null,
       });
     }
     log.warn("CHAT", "Invalid model format", { model: modelStr });

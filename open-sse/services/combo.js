@@ -16,6 +16,22 @@ import {
   clearStickyComboSession,
   orderModelsByChoice,
 } from "./systemoneRouter.js";
+import { isPolicyRefusal } from "../config/resilienceConfig.js";
+import {
+  MEMBER_COOLDOWN_PRESETS_MS,
+  MIN_MEMBER_COOLDOWN_MS,
+  MAX_MEMBER_COOLDOWN_MS,
+  normalizeMemberCooldownMs,
+  isValidMemberCooldown,
+} from "../config/comboCooldown.js";
+
+export {
+  MEMBER_COOLDOWN_PRESETS_MS,
+  MIN_MEMBER_COOLDOWN_MS,
+  MAX_MEMBER_COOLDOWN_MS,
+  normalizeMemberCooldownMs,
+  isValidMemberCooldown,
+};
 
 // --- 429 storm cooldown & scoped circuit breaking ---------------------------
 // A combo member whose executor just exhausted its 429 retry budget or hit a 5xx
@@ -26,6 +42,10 @@ import {
 // suppression occurs to avoid cross-tenant quota denial-of-service.
 const COMBO_STORM_COOLDOWN_MS = 90 * 1000;
 const TRANSIENT_5XX_COOLDOWN_MS = 45 * 1000;
+
+// Statuses that mean the member itself cannot serve right now, as opposed to
+// this request being wrong. Only these take a member out of rotation.
+const MEMBER_COOLDOWN_STATUSES = new Set([401, 402, 403, 429, 502, 503, 504]);
 const MAX_COOLDOWN_ENTRIES = 1000;
 const MAX_DATE_EPOCH = 8640000000000000;
 const comboModelCooldownMap = new Map(); // `${scope}::${comboName}::${modelStr}` -> entry
@@ -654,8 +674,10 @@ export async function handleComboChat({
   confidenceThreshold = 0.8,
   resolveSmartChoice = null,
   cooldownScope = null,
+  memberCooldownMs = null,
   signal = null,
 }) {
+  const configuredMemberCooldownMs = normalizeMemberCooldownMs(memberCooldownMs);
   const clientSignal = signal || body?.signal || null;
   if (clientSignal?.aborted) {
     return new Response(
@@ -1058,12 +1080,23 @@ export async function handleComboChat({
         }
       }
 
-      // Fallback to next model
+      // Fallback to next model. With a configured member cooldown the member is
+      // removed for that long (never less than an upstream Retry-After); without
+      // one, the built-in 429/5xx defaults apply as before.
+      const defaultDuration = result.status === 429 ? COMBO_STORM_COOLDOWN_MS : TRANSIENT_5XX_COOLDOWN_MS;
+      const baseDuration = configuredMemberCooldownMs ?? defaultDuration;
       const cooldownDuration = retryAfterParsed?.durationMs !== undefined
-        ? retryAfterParsed.durationMs
-        : (result.status === 429 ? COMBO_STORM_COOLDOWN_MS : TRANSIENT_5XX_COOLDOWN_MS);
+        ? (configuredMemberCooldownMs !== null ? Math.max(baseDuration, retryAfterParsed.durationMs) : retryAfterParsed.durationMs)
+        : baseDuration;
 
-      if (result.status === 429 || result.status === 502 || result.status === 503 || result.status === 504) {
+      const isPolicy = isPolicyRefusal(errorText) || isPolicyRefusal(errorBody);
+      const isExemptStatus = result.status === 400 || result.status === 404 || result.status === 422;
+      const shouldCoolMember = !isPolicy && !isExemptStatus && (
+        configuredMemberCooldownMs !== null
+          ? MEMBER_COOLDOWN_STATUSES.has(result.status)
+          : (result.status === 429 || result.status === 502 || result.status === 503 || result.status === 504)
+      );
+      if (shouldCoolMember) {
         markComboModelCooldown(cooldownScope, comboName, modelStr, result.status, cooldownDuration, errorText);
       }
 
@@ -1090,6 +1123,10 @@ export async function handleComboChat({
     let all5xx = true;
     let maxStatus = 503;
     let cachedError = "";
+    // Members cooled by a configured member cooldown can be cooling for an
+    // auth or billing failure (401/402/403). Report that status instead of
+    // pretending it is a 429 quota limit.
+    let nonQuotaStatus = null;
 
     for (const m of rotatedModels) {
       const entry = getCooldownEntry(`${cooldownScope}::${comboName || "*"}::${m}`);
@@ -1097,6 +1134,7 @@ export async function handleComboChat({
         if (entry.until < earliest) earliest = entry.until;
         if (entry.status < 500 || entry.status >= 600) {
           all5xx = false;
+          if (entry.status !== 429 && nonQuotaStatus === null) nonQuotaStatus = entry.status;
         } else {
           maxStatus = entry.status;
         }
@@ -1127,6 +1165,10 @@ export async function handleComboChat({
         );
       }
 
+      if (nonQuotaStatus !== null) {
+        log.warn("COMBO", `All ${coolingCount} members cooling; failing fast with ${nonQuotaStatus} until ${iso || earliest}`);
+        return unavailableResponse(nonQuotaStatus, cachedError || lastError || "All combo models temporarily removed after failures", iso || earliest, human);
+      }
       log.warn("COMBO", `All ${coolingCount} members in quota cooldown; failing fast until ${iso || earliest}`);
       return unavailableResponse(429, cachedError || lastError || "All combo models in cooldown", iso || earliest, human);
     }

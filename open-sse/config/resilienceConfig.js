@@ -110,6 +110,27 @@ export const NON_TRIPPING_STATUS_SET = new Set(NON_TRIPPING_STATUSES);
 // character (`content_policy_violation`), where `\b` would fail to match.
 export const POLICY_FAILURE_PATTERN = /\b(?:content[_\s-]?policy|policy[_\s-]?violation|moderation[_\s-]?blocked|safety[_\s-]?system|blocked\s+by\s+(?:safety|policy))/i;
 
+/** True when an error/message looks like a content-policy or moderation refusal. */
+export function isPolicyRefusal(error) {
+  if (!error) return false;
+  let message = "";
+  if (typeof error === "string") {
+    message = error;
+  } else if (typeof error === "object") {
+    if (typeof error.message === "string") {
+      message = error.message;
+    } else if (error.body !== undefined) {
+      if (typeof error.body === "string") {
+        message = error.body;
+      } else {
+        try { message = JSON.stringify(error.body) || ""; } catch { message = ""; }
+      }
+    }
+  }
+  if (!message) return false;
+  return POLICY_FAILURE_PATTERN.test(message);
+}
+
 /** Truncation bound for any failure reason persisted or logged. */
 export const FAILURE_REASON_MAX_LEN = 160;
 

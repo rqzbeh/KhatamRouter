@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSettings, updateSettings } from "@/lib/localDb";
 import { applyOutboundProxyEnv } from "@/lib/network/outboundProxy";
-import { resetComboRotation } from "open-sse/services/combo.js";
+import { resetComboRotation, normalizeMemberCooldownMs } from "open-sse/services/combo.js";
 import { normalizeProxyHealthSettings } from "@/lib/network/proxyHealthPolicy.js";
 import bcrypt from "bcryptjs";
 
@@ -82,6 +82,31 @@ export async function PATCH(request) {
     if (Object.prototype.hasOwnProperty.call(body, "oidcClientSecret")) {
       if (!body.oidcClientSecret || !String(body.oidcClientSecret).trim()) {
         delete body.oidcClientSecret;
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, "comboStrategies")) {
+      if (body.comboStrategies !== null && typeof body.comboStrategies === "object" && !Array.isArray(body.comboStrategies)) {
+        for (const [comboName, strat] of Object.entries(body.comboStrategies)) {
+          if (strat !== null && typeof strat === "object" && !Array.isArray(strat)) {
+            if (strat.memberCooldownMs !== undefined && strat.memberCooldownMs !== null && strat.memberCooldownMs !== "") {
+              const normalized = normalizeMemberCooldownMs(strat.memberCooldownMs);
+              if (normalized === null) {
+                return NextResponse.json(
+                  { error: `Invalid memberCooldownMs for combo "${comboName}". Must be 10s..24h (integer ms) or preset (1m, 5m, 1h).` },
+                  { status: 400 }
+                );
+              }
+            }
+          } else if (strat !== null && strat !== undefined) {
+            return NextResponse.json(
+              { error: `Invalid strategy for combo "${comboName}". Must be an object.` },
+              { status: 400 }
+            );
+          }
+        }
+      } else if (body.comboStrategies !== null && body.comboStrategies !== undefined) {
+        return NextResponse.json({ error: "comboStrategies must be an object" }, { status: 400 });
       }
     }
 
