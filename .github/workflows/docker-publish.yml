@@ -101,6 +101,12 @@ jobs:
   build:
     name: Build image (${{ matrix.arch }})
     needs: prepare
+    # Explicit condition: without it the default success() also counts a
+    # skipped `scope` (it is workflow_run-only), so a workflow_dispatch build
+    # was skipped together with its whole matrix. A skipped ancestor must not
+    # cascade — only a failed prepare should stop the build.
+    if: >-
+      !cancelled() && needs.prepare.result == 'success'
     strategy:
       fail-fast: false
       matrix:
@@ -162,6 +168,8 @@ jobs:
   merge:
     name: Merge and publish manifest
     needs: [prepare, build]
+    if: >-
+      !cancelled() && needs.build.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
