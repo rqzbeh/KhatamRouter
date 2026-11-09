@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import PropTypes from "prop-types";
 import Card from "./Card";
-import Select from "./Select";
 import Badge from "./Badge";
+import { groupPools, GROUP_LABELS } from "@/lib/network/proxyPoolGroups.js";
 
 const NONE_PROXY_POOL_VALUE = "__none__";
 const STRATEGIES = [
@@ -29,11 +29,13 @@ export default function NoAuthProxyCard({ providerId }) {
   const [savedFlash, setSavedFlash] = useState(false);
   const [cooldown, setCooldown] = useState("off");
   const [cooldownError, setCooldownError] = useState("");
+  const [daemonStatus, setDaemonStatus] = useState("");
+  const [poolError, setPoolError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
     Promise.all([
-      fetch("/api/proxy-pools?isActive=true", { cache: "no-store" }).then((r) => r.ok ? r.json() : { proxyPools: [] }),
+      fetch("/api/proxy-pools", { cache: "no-store" }).then((r) => r.ok ? r.json() : { proxyPools: [] }),
       fetch("/api/settings", { cache: "no-store" }).then((r) => r.ok ? r.json() : {}),
     ]).then(([poolData, settingsData]) => {
       if (cancelled) return;
@@ -111,8 +113,69 @@ export default function NoAuthProxyCard({ providerId }) {
     }
   }, [providerId]);
 
-  const handlePoolChange = (newPoolId) => {
+  const handlePoolChange = async (newPoolId) => {
+    setPoolError("");
+    if (newPoolId === "__create_warp__" || newPoolId === "__create_psiphon__") {
+      const isWarp = newPoolId === "__create_warp__";
+      setDaemonStatus(isWarp ? "Starting WARP daemon…" : "Starting psiphon daemon…");
+      try {
+        const createBody = isWarp
+          ? { name: "WARP (managed)", type: "opencode2api" }
+          : { name: "psiphon", type: "psiphon" };
+        const createRes = await fetch("/api/proxy-pools", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(createBody),
+        });
+        if (!createRes.ok) {
+          const errData = await createRes.json().catch(() => ({}));
+          throw new Error(errData.error || `Failed to create ${isWarp ? "WARP" : "psiphon"} pool`);
+        }
+        const created = await createRes.json();
+        const createdPool = created.proxyPool || created;
+        const newId = createdPool.id;
+        if (!newId) throw new Error("Created pool missing id");
+
+        let testRes = await fetch(`/api/proxy-pools/${newId}/test`, { method: "PUT" });
+        if (testRes.status === 405) {
+          testRes = await fetch(`/api/proxy-pools/${newId}/test`, { method: "POST" });
+        }
+        if (!testRes.ok) {
+          const testErr = await testRes.json().catch(() => ({}));
+          throw new Error(testErr.error || `Failed to test ${isWarp ? "WARP" : "psiphon"} pool`);
+        }
+
+        const poolsRes = await fetch("/api/proxy-pools", { cache: "no-store" });
+        const poolsData = poolsRes.ok ? await poolsRes.json() : {};
+        const freshPools = poolsData.proxyPools || [];
+        setProxyPools(freshPools);
+        setProxyPoolId(newId);
+        await save(newId, rotateStrategy);
+      } catch (err) {
+        setPoolError(err.message || "Failed to configure proxy pool");
+        setProxyPoolId(proxyPoolId);
+      } finally {
+        setDaemonStatus("");
+      }
+      return;
+    }
+
     setProxyPoolId(newPoolId);
+    const selected = proxyPools.find((p) => p.id === newPoolId);
+    if (selected && selected.isActive === false) {
+      try {
+        await fetch(`/api/proxy-pools/${newPoolId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ isActive: true }),
+        });
+        setProxyPools((prev) =>
+          prev.map((p) => (p.id === newPoolId ? { ...p, isActive: true } : p))
+        );
+      } catch (e) {
+        console.log("Failed to activate proxy pool:", e);
+      }
+    }
     save(newPoolId, rotateStrategy);
   };
 
@@ -123,6 +186,60 @@ export default function NoAuthProxyCard({ providerId }) {
 
   const canRotate = proxyPools.length >= 2;
   const isRotation = rotateStrategy !== "none";
+
+  const renderPoolGroups = () => {
+    const grouped = groupPools(proxyPools);
+    const groupsMap = new Map(grouped.map((g) => [g.key, g]));
+
+    return Object.keys(GROUP_LABELS).map((key) => {
+      const group = groupsMap.get(key);
+      const pools = group ? group.pools : [];
+
+      if (key === "psiphon") {
+        return (
+          <optgroup key={key} label={GROUP_LABELS[key]}>
+            {pools.length > 0 ? (
+              pools.map((pool) => (
+                <option key={pool.id} value={pool.id}>
+                  {pool.name}{pool.isActive === false ? " — inactive" : ""}
+                </option>
+              ))
+            ) : (
+              <option value="__create_psiphon__">Create managed psiphon pool…</option>
+            )}
+          </optgroup>
+        );
+      }
+
+      if (key === "opencode2api") {
+        return (
+          <optgroup key={key} label={GROUP_LABELS[key]}>
+            {pools.length > 0 ? (
+              pools.map((pool) => (
+                <option key={pool.id} value={pool.id}>
+                  {pool.name}{pool.isActive === false ? " — inactive" : ""}
+                </option>
+              ))
+            ) : (
+              <option value="__create_warp__">Create managed WARP pool…</option>
+            )}
+          </optgroup>
+        );
+      }
+
+      if (!group || pools.length === 0) return null;
+
+      return (
+        <optgroup key={key} label={group.label}>
+          {pools.map((pool) => (
+            <option key={pool.id} value={pool.id}>
+              {pool.name}{pool.isActive === false ? " — inactive" : ""}
+            </option>
+          ))}
+        </optgroup>
+      );
+    });
+  };
 
   return (
     <Card>
@@ -137,17 +254,31 @@ export default function NoAuthProxyCard({ providerId }) {
         {savedFlash && <Badge variant="success" size="sm">Saved</Badge>}
       </div>
 
-      <Select
-        label="Proxy Pool"
-        value={proxyPoolId}
-        onChange={(e) => handlePoolChange(e.target.value)}
-        disabled={saving || isRotation}
-        options={[
-          { value: NONE_PROXY_POOL_VALUE, label: "None (direct)" },
-          ...proxyPools.map((pool) => ({ value: pool.id, label: pool.name })),
-        ]}
-        hint={isRotation ? "Pool selector is ignored when rotation is active — all active pools are used." : undefined}
-      />
+      <div className="flex flex-col gap-1.5">
+        <label className="text-sm font-medium text-text-main">
+          {daemonStatus || "Proxy Pool"}
+        </label>
+        <div className="relative">
+          <select
+            value={proxyPoolId}
+            onChange={(e) => handlePoolChange(e.target.value)}
+            disabled={saving || isRotation || !!daemonStatus}
+            className="w-full py-2.5 px-3 pr-10 text-sm text-text-main bg-surface-2 border border-transparent rounded-[10px] appearance-none focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500/40 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed text-[16px] sm:text-sm"
+          >
+            <option value={NONE_PROXY_POOL_VALUE}>None (direct)</option>
+            {renderPoolGroups()}
+          </select>
+          <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-text-muted">
+            <span className="material-symbols-outlined text-[20px]">expand_more</span>
+          </div>
+        </div>
+        {poolError && <p className="text-xs text-red-500">{poolError}</p>}
+        {isRotation && (
+          <p className="text-xs text-text-muted">
+            Pool selector is ignored when rotation is active — all active pools are used.
+          </p>
+        )}
+      </div>
 
       <div className="flex flex-col gap-2 mt-4">
         <label className="text-sm font-medium text-text-main">Rotation Strategy</label>

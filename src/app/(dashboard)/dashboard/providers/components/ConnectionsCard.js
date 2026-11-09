@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getStatusVariant as getConnectionStatusVariant } from "@/shared/utils/connectionStatus";
 import PropTypes from "prop-types";
-import { Card, Badge, Button, Modal, Select, Toggle, EditConnectionModal, ConfirmModal } from "@/shared/components";
+import { Card, Badge, Button, Modal, Toggle, EditConnectionModal, ConfirmModal } from "@/shared/components";
+import { groupPools } from "@/lib/network/proxyPoolGroups.js";
 
 // ── CooldownTimer ──────────────────────────────────────────────
 function CooldownTimer({ until }) {
@@ -73,6 +74,7 @@ function ConnectionRow({ connection, proxyPools, isOAuth, isFirst, isLast, onMov
     check();
     const t = modelLockUntil ? setInterval(check, 1000) : null;
     return () => { if (t) clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modelLockUntil]);
 
   useEffect(() => {
@@ -149,7 +151,7 @@ function ConnectionRow({ connection, proxyPools, isOAuth, isFirst, isLast, onMov
                 <div className="absolute right-0 top-full mt-1 z-50 bg-bg border border-border rounded-lg shadow-lg py-1 min-w-[160px]">
                   <button onClick={() => handleSelectProxy("__none__")} className={`w-full text-left px-3 py-1.5 text-sm hover:bg-black/5 dark:hover:bg-white/5 ${!boundProxyPoolId ? "text-primary font-medium" : "text-text-main"}`}>None</button>
                   {(proxyPools || []).map((pool) => (
-                    <button key={pool.id} onClick={() => handleSelectProxy(pool.id)} className={`w-full text-left px-3 py-1.5 text-sm hover:bg-black/5 dark:hover:bg-white/5 ${boundProxyPoolId === pool.id ? "text-primary font-medium" : "text-text-main"}`}>{pool.name}</button>
+                    <button key={pool.id} onClick={() => handleSelectProxy(pool.id)} className={`w-full text-left px-3 py-1.5 text-sm hover:bg-black/5 dark:hover:bg-white/5 ${boundProxyPoolId === pool.id ? "text-primary font-medium" : "text-text-main"}`}>{pool.name}{pool.isActive === false ? " — inactive" : ""}</button>
                   ))}
                 </div>
               )}
@@ -271,8 +273,25 @@ function AddApiKeyModal({ isOpen, provider, providerName, proxyPools, onSave, on
           <label className="text-xs text-text-muted mb-1 block">Priority</label>
           <input type="number" className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary" value={formData.priority} onChange={(e) => setFormData({ ...formData, priority: Number.parseInt(e.target.value) || 1 })} />
         </div>
-        <Select label="Proxy Pool" value={formData.proxyPoolId} onChange={(e) => setFormData({ ...formData, proxyPoolId: e.target.value })}
-          options={[{ value: NONE, label: "None" }, ...(proxyPools || []).map((p) => ({ value: p.id, label: p.name }))]} />
+        <div>
+          <label className="text-xs text-text-muted mb-1 block">Proxy Pool</label>
+          <select
+            className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary text-text-main"
+            value={formData.proxyPoolId}
+            onChange={(e) => setFormData({ ...formData, proxyPoolId: e.target.value })}
+          >
+            <option value={NONE}>None</option>
+            {groupPools(proxyPools || []).map((group) => (
+              <optgroup key={group.key} label={group.label}>
+                {group.pools.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}{p.isActive === false ? " — inactive" : ""}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </div>
         <div className="flex gap-2">
           <Button onClick={handleSubmit} fullWidth disabled={!formData.name || !formData.apiKey || saving}>
             {saving ? "Saving..." : "Save"}
@@ -310,7 +329,7 @@ export default function ConnectionsCard({ providerId, isOAuth }) {
     try {
       const [connRes, proxyRes, settingsRes] = await Promise.all([
         fetch("/api/providers", { cache: "no-store" }),
-        fetch("/api/proxy-pools?isActive=true", { cache: "no-store" }),
+        fetch("/api/proxy-pools", { cache: "no-store" }),
         fetch("/api/settings", { cache: "no-store" }),
       ]);
       const connData = await connRes.json();
@@ -325,6 +344,7 @@ export default function ConnectionsCard({ providerId, isOAuth }) {
     finally { setLoading(false); }
   }, [providerId]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { fetch_(); }, [fetch_]);
 
   const saveStrategy = async (strategy, stickyLimit) => {
