@@ -7,6 +7,9 @@
 
 ## Fixes
 - **Free proxy sources were unreachable**: `FreeProxySourcesCard` existed but was never rendered and was missing from `src/shared/components/index.js`, so the merged ingestion feature had no UI entry point. It is now exported from the components barrel (PR #151 mounts it on `/dashboard/proxy-pools`).
+- **Sidecar degradation instead of a dead pool**: a daemon that cannot initialize WARP is relaunched once over the host IP (logged, remembered per pool, surfaced as `warpEnabled: false`) instead of failing the whole pool with 503. A 429/403 now retries the same daemon, which has already swapped the exit; a restart is reserved for a daemon that is genuinely gone.
+- **Orphaned sidecar daemons are reaped**: the run-file name only encoded the gateway pid, so a SIGKILLed gateway left its daemon holding a loopback port and WARP exits forever. The child pid is now recorded next to the config and the startup sweep kills it.
+- **Sidecar hardening**: the rewrite only applies to OpenCode origins (a connection bound to a sidecar pool pointing at another vendor is no longer silently answered by the daemon); an existing binary is reused only when it is executable; `tar` extraction is bounded; `stopSidecar` clears the degraded WARP choice so a rotate retries WARP.
 
 # v0.5.116 (2026-11-09) — 9router Release Parity (0.5.112..0.5.116)
 

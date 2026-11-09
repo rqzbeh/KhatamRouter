@@ -238,7 +238,7 @@ Wave 7.5 establishes an uncompromised native Bun architecture and default Redis 
 
 ## Wave 18 — OpenCode Unlimited Egress & Real Proxy Rotation
 
-**Status**: 🟡 In progress (branch `018-opencode-unlimited-sidecar`). Spec at [`specs/018-opencode-unlimited-sidecar`](./specs/018-opencode-unlimited-sidecar).
+**Status**: ✅ Shipped (PR #154, squash-merged to `master`). Spec at [`specs/018-opencode-unlimited-sidecar`](./specs/018-opencode-unlimited-sidecar), operator docs at [`docs/OPENCODE2API.md`](./docs/OPENCODE2API.md).
 
 OpenCode's free tier counts quota per egress IPv6 `/64`, so a static proxy is burned once flagged and a Psiphon tunnel that only rotates *after* a full re-establish makes the caller wait. This wave adds a first-class bounded egress mechanism and makes the existing one swap instantly.
 
