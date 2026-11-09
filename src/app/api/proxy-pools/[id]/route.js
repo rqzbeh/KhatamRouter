@@ -104,6 +104,16 @@ export async function GET(request, { params }) {
   }
 }
 
+// PATCH /api/proxy-pools/[id] - Partial update (alias of PUT)
+//
+// Both verbs run the same normalize-and-update path: this route has always
+// taken whole-pool PUTs, but activation is a partial concern ("isActive":
+// true) and clients reach for PATCH. Keeping one implementation avoids the
+// two verbs drifting apart.
+export async function PATCH(request, { params }) {
+  return PUT(request, { params });
+}
+
 // PUT /api/proxy-pools/[id] - Update proxy pool
 export async function PUT(request, { params }) {
   try {
