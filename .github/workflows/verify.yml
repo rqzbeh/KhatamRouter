@@ -11,8 +11,12 @@ on:
 permissions:
   contents: read
 
+# Pushes are grouped per commit, not per branch: a later docs-only push used to
+# cancel the still-running Verify of the previous merge commit, which also
+# skipped the image publish that follows a green run. One group per sha keeps
+# that run alive; re-pushing the same commit still supersedes itself.
 concurrency:
-  group: verify-${{ github.event.pull_request.number || github.ref }}
+  group: verify-${{ github.event.pull_request.number || format('{0}-{1}', github.ref, github.sha) }}
   cancel-in-progress: true
 
 jobs:
