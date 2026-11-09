@@ -37,11 +37,19 @@ const nextConfig = {
   // its own optional native dependency graph, so it must stay external too.
   // wreq-js resolves its rust native binding by relative require paths from its own
   // package dir — bundling breaks those paths ("Failed to load native module").
-  serverExternalPackages: ["bun:sqlite", "ioredis", "open", "@aws-sdk/credential-providers", "wreq-js"],
+  // undici must stay external too: webpack's vendored copy drops per-request
+  // `dispatcher` connect options (ecdhCurve) — the built server then RSTs on
+  // DPI-shaped networks while the dev server (real undici) passes.
+  serverExternalPackages: ["bun:sqlite", "ioredis", "open", "@aws-sdk/credential-providers", "wreq-js", "undici"],
   turbopack: {
     root: tracingRoot
   },
   outputFileTracingRoot: tracingRoot,
+  outputFileTracingIncludes: {
+    // serverExternalPackages keeps undici external; dynamic import("undici")
+    // alone doesn't pull it into the trace, so force-ship the real package.
+    "*": ["./node_modules/undici/**/*"]
+  },
   images: {
     unoptimized: true
   },

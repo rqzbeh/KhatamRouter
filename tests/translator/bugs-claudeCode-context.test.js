@@ -55,8 +55,7 @@ describe("Claude Code CLI context → OpenAI", () => {
   });
 
   // claude-to-openai.js:155-173 — tool_result image block stringified into raw JSON
-  // KNOWN BUG
-  it.fails("tool_result image block is preserved", () => {
+  it("tool_result image block is preserved", () => {
     const out = T(FORMATS.CLAUDE, FORMATS.OPENAI, {
       messages: [
         { role: "assistant", content: [{ type: "tool_use", id: "call_1", name: "screenshot", input: {} }] },
@@ -69,5 +68,46 @@ describe("Claude Code CLI context → OpenAI", () => {
     });
     const tool = out.messages.find((m) => m.role === "tool");
     expect(tool?.content, "image turned into raw JSON").not.toMatch(/^\[/);
+  });
+
+  it("forwards Claude output_config.effort to CommandCode params.reasoning_effort", () => {
+    for (const eff of ["low", "medium", "high", "max"]) {
+      const out = translateRequest(
+        FORMATS.CLAUDE,
+        FORMATS.COMMANDCODE,
+        "deepseek/deepseek-v4.1-flash",
+        {
+          output_config: { effort: eff },
+          messages: [{ role: "user", content: "hi" }],
+        },
+        true,
+        null,
+        "commandcode"
+      );
+      expect(out.params.reasoning_effort).toBe(eff);
+    }
+  });
+
+  it("translates Claude tool_result without tool name into valid CommandCode toolName", () => {
+    const out = translateRequest(
+      FORMATS.CLAUDE,
+      FORMATS.COMMANDCODE,
+      "deepseek/deepseek-v4.1-flash",
+      {
+        messages: [
+          { role: "user", content: "read" },
+          { role: "assistant", content: [{ type: "tool_use", id: "tu_1", name: "Read", input: { path: "x" } }] },
+          { role: "user", content: [{ type: "tool_result", tool_use_id: "tu_1", content: "hello" }] },
+        ],
+      },
+      true,
+      null,
+      "commandcode"
+    );
+
+    const toolMsg = out.params.messages.find((m) => m.role === "tool");
+    expect(toolMsg).toBeDefined();
+    expect(toolMsg.content[0].toolName).toBe("Read");
+    expect(toolMsg.content[0].output).toEqual({ type: "text", value: "hello" });
   });
 });

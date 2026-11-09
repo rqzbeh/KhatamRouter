@@ -6,7 +6,42 @@
 - **Psiphon warm standby ring**: `warmStandby` (0–4, default 2) keeps pre-established tunnels verified to the same standard as the active one. `rotate()` now promotes a standby synchronously (≤250 ms target), bumps the generation, and refills the ring in the background while pruning surplus tunnels — so a burned Psiphon exit no longer stalls the request through a full re-establish. Requests get a 2→4 rotation budget with a generation guard.
 
 ## Fixes
-- **Free proxy sources were unreachable**: `FreeProxySourcesCard` existed but was never rendered and was missing from `src/shared/components/index.js`, so the merged ingestion feature had no UI entry point. It is now exported and mounted on the Proxy Pools page.
+- **Free proxy sources were unreachable**: `FreeProxySourcesCard` existed but was never rendered and was missing from `src/shared/components/index.js`, so the merged ingestion feature had no UI entry point. It is now exported from the components barrel (PR #151 mounts it on `/dashboard/proxy-pools`).
+
+# v0.5.116 (2026-11-09) — 9router Release Parity (0.5.112..0.5.116)
+
+## Features
+- **CommandCode 1.88.5 alignment & auto-import**: CLI v1.88.5 headers and request translation; loopback-only `GET /api/oauth/commandcode/auto-import` requiring active dashboard session token (`auth_token`), 64 KiB bounded descriptor reads, and `Cache-Control: no-store` headers.
+- **Codex native image generation & GPT Image 2.6**: Native generations, edits retain Responses route; bounded assistant text buffering and safe error propagation.
+- **TTS in-process voice listing**: Shared `listTtsVoices` in `src/lib/ttsVoices.js` serving `/v1/audio/voices` and `/api/media-providers/tts/voices` without HTTP self-fetch loops.
+- **Antigravity Argon quota tracking**: Dedicated Gemini 4 Argon quota tracking and display in `antigravity-weekly.js` and `antigravityQuota.js`.
+- **SenseNova & OpenCode Go model updates**: Added `sensenova-6.8-flash` and `glm-5.3`; OpenCode Go `/inference` endpoints and Messages transport reasoning.
+- **CLI launcher & tray diagnostics**: Fast PID-based launcher status checks (`launcherProcess.js`) and accurate tray startup failure reporting.
+- **Add All Active Models**: Includes no-auth, aliased, and custom models in CLI tool card selection.
+
+## Fixes & Hardening
+- **Transport keep-alive & fresh-socket recovery**: Bounded dead-socket recovery (`isStaleSocketError`) in `proxyFetch.js` retrying once on a fresh socket; strict proxy contract preserved; `FETCH_FRESH_RETRY=off` runtime opt-out provided due to duplicate billing ambiguity on non-idempotent endpoints.
+- **CodeBuddy Intl system prompt preservation**: System prompts preserved; recognized third-party CLI agent identity strings neutralized with fallback (upstream limitation note: whole matching system prompt text is replaced).
+- **Undici external packaging & DNS override removal**: `next.config.mjs` traces external `undici` for per-request connect options; legacy `--dns-result-order=ipv4first` removed from CLI child process spawns to allow HappyEyeballs.
+- **Translator thinking & cache markers**: Preserves intent on OpenAI tool-result turns, retains Claude cache markers for DashScope, preserves DeepSeek thinking budgets on compat nodes, and drops tool references for stripped tools.
+- **Gemini remote MIME & tool results**: Concrete MIME detection for remote image URLs and preservation of Gemini tool results and follow-up parts.
+- **Architecturally inapplicable upstream commits**: Explicit architecture equivalence (removed Node-only files: `f0938ea7`, `e3139a43`); Bun-native `wreq-js` and native `bun:sqlite` provide reliable build-time dependencies.
+
+# Unreleased — Model Import, Batch Testing, Sync Policies & Runtime Overrides (PRs #145–#151)
+
+## Features
+- **Provider Model Management UI (PR #150, `e1fb2594`)**: Mount `ModelManagementPanel` and `ModelOverrideModal` on the provider detail page (`src/app/(dashboard)/dashboard/providers/[id]/ModelManagementPanel.js`, `ModelOverrideModal.js`) supporting model import, bounded test-all batches, auto-sync policy scheduling, and modal-based capability override editing directly in the dashboard (known follow-up: summary taxonomy alignment and fresh-install test harness isolation assigned to separate workers).
+- **Built-In Provider Listing Completeness & Discovery (PR #149, `3cdbd654`)**: Validate pagination signals and structural completeness (`src/lib/models/listingCompleteness.js`) across OpenAI-compatible, NVIDIA, Gemini, Anthropic, and Cloudflare gateways; route discovery through `proxyAwareFetch` with fail-closed 503 behavior when configured proxies cannot be reached.
+- **Opt-In Free Proxy Feeds with Inactive Pools (PR #148, `bb05dbb0`)**: Ingest public untrusted feeds from explicit allowlisted sources (oneproxy, proxifly, iplocate) via `src/lib/freeProxyProviders/index.js` behind durable operator risk acknowledgement (`acknowledgedRisk: true`); enforce 2 MiB streaming caps, SSRF/private-IP validation, single-write provenance, concurrency leases, and create pools inactive by default. The companion component (`src/shared/components/FreeProxySourcesCard.js`) is standalone and not currently wired into dashboard pages.
+- **Runtime Capability Overrides & Cache (PR #147, `b0676cfb`)**: Fast synchronous in-memory override resolution (`src/lib/models/overrideCache.js`, `/api/models/overrides`) with a 50,000-row snapshot limit and 5-second TTL cache feeding per-field resolver logic into request routing and model listings, with CRUD endpoints for manual overrides.
+- **Automated Model Sync Scheduling (PR #146, `dbbc2705`)**: Leader-only (and single-process) background model synchronization (`src/lib/models/providerSync.js`, `src/lib/models/providerSyncRuntime.js`) with global and per-provider sync intervals (1h to 7d, default 24h) persisted in SQLite `kv` table under scope `modelSyncPolicy` and key `policy`. Uses bounded cycles with cursor resumption and post-commit reload events.
+- **Bounded Model Test-All with Safe Auto-Disable (PR #145, `9c1cf4ed`)**: Sequential, abortable model testing (`src/lib/models/modelTestBatch.js`, `/api/models/test-batch`) with 6-category error classification (`classifyModelTestResult`) that only disables hard model failures with HTTP 400/404/410 explicit model absence patterns, while quota, rate-limit, auth, billing, and transport failures are classified safely without disabling. Auto-disable requires explicit opt-in (`autoDisable: true`), with audit logging and reversible restoration via `enableModels`.
+
+## Fixes (PR #151)
+- **Test-batch summary counts**: `ModelManagementPanel` counted every canonical result (including `success`) as broken. It now maps the six classifications, and only `hard_model_failure` counts as broken.
+- **Advanced capability flags**: `supportsImageGeneration`, `supportsImageEditing`, `supportsWebSearch` and `supportsWebFetch` overrides now reach the resolver, `/api/models` and `useModelCaps`; with no evidence they stay unknown (`null`).
+- **Free proxy sources UI**: `FreeProxySourcesCard` is mounted on `/dashboard/proxy-pools`.
+- **Tests/CI**: UI tests load one React instance on clean installs; a new CI step runs the Spec 017 model, override, proxy and UI suites.
 
 # Unreleased — Regionhop release pin (v1.27.0)
 

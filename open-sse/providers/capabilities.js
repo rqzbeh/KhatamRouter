@@ -137,6 +137,13 @@ export const MODEL_CAPABILITIES = {
 
   // Gemini image-gen / OpenAI image / xai image variants
   "gpt-image-1":       { imageOutput: true, tools: false },
+  "gpt-image-1.5":     { imageOutput: true, tools: false },
+  "gpt-image-2":       { imageOutput: true, tools: false },
+  "gpt-image-2.5":     { imageOutput: true, tools: false },
+  "gpt-image-2.5-flare": { imageOutput: true, tools: false },
+  "gpt-image-2.5-sunburst": { imageOutput: true, tools: false },
+  "gpt-image-2.6-flare": { imageOutput: true, tools: false },
+  "gpt-image-2.6-sunburst": { imageOutput: true, tools: false },
 
   // GLM vision variants (text GLM has no vision) — 5.3-Flash and 5V-Turbo are
   // natively multimodal per z.ai, and 5.3-Flash carries the full 1M window.
@@ -519,6 +526,7 @@ export const PATTERN_CAPABILITIES = [
   { pattern: "*nanobanana*",    caps: { vision: true, imageOutput: true } },
 
   // ── OpenAI GPT-6.x (vision + thinking + web search) ──────────────
+  { pattern: "*gpt-image*",     caps: { imageOutput: true, tools: false } },
   // Image variants ("-image" suffix) are image models, not chat models — first
   // match wins, so they must precede the generic family entry below.
   { pattern: "*gpt-6*image*",   caps: { imageOutput: true } },

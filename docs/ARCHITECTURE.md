@@ -1,6 +1,6 @@
-# 9Router Architecture
+# KhatamRouter Architecture
 
-_Last updated: 2026-02-06_
+_Model-management and persistence sections updated: 2026-11-09. Earlier upstream lifecycle descriptions are retained for context; the SQLite section below supersedes legacy `db.json` references._
 
 ## Executive Summary
 
@@ -123,6 +123,8 @@ Management domains:
 - Provider nodes: `src/app/api/provider-nodes*`
 - OAuth: `src/app/api/oauth/*`
 - Keys/aliases/combos/pricing: `src/app/api/keys*`, `src/app/api/models/alias`, `src/app/api/combos*`, `src/app/api/pricing`
+- Models, import & overrides: `src/app/api/models/*`, `src/app/api/models/test-batch/*`, `src/app/api/models/sync-policy/*`, `src/app/api/models/overrides/*`, `src/app/api/providers/[id]/models/*`
+- Free proxy feeds (opt-in): `src/app/api/settings/free-proxies/*`
 - Usage: `src/app/api/usage/*`
 - Sync/cloud: `src/app/api/sync/*`, `src/app/api/cloud/*`
 - CLI tooling helpers: `src/app/api/cli-tools/*`
@@ -138,8 +140,42 @@ Main flow modules:
 - Model parse/resolve: `src/sse/services/model.js`, `open-sse/services/model.js`
 - Account fallback logic: `open-sse/services/accountFallback.js`
 - Translation registry: `open-sse/translator/index.js`
+- Capability override resolution & cache: `src/lib/models/capabilities.js`, `src/lib/models/overrideCache.js`
+- Test batch runner: `src/lib/models/modelTestBatch.js`
+- Provider sync scheduler: `src/lib/models/providerSync.js`, `src/lib/models/providerSyncRuntime.js`
 - Stream transformations: `open-sse/utils/stream.js`, `open-sse/utils/streamHandler.js`
 - Usage extraction/normalization: `open-sse/utils/usageTracking.js`
+
+## 2b) Model Intelligence, Import Pipeline & Runtime Overrides (Spec 017)
+
+### Model Catalog Reconcile & Import Pipeline
+- **Modules**: `src/lib/models/importOrchestrator.js`, `src/lib/models/catalogReconcile.js`, `src/lib/models/listingCompleteness.js`.
+- **Completeness Guards**: Requires adapter-proven pagination completeness (OpenAI pagination indicators, Anthropic cursor chains, Cloudflare account ID and mapping validation, Antigravity completeness markers) before pruning obsolete models from `imported_models`. Records with parsing errors refuse pruning and fail closed to add/update-only mode.
+- **Shared Source Protection**: Models advertised across multiple active connections (`shared_across_connections`) are protected from deletion. Explicit false capabilities are persisted safely without inferring false from unknown attributes.
+- **Proxy-Aware Discovery**: `src/app/api/providers/[id]/models/route.js` routes upstream discovery through `proxyAwareFetch`, failing closed with HTTP 503 only when a required outbound proxy cannot be honored.
+
+### Synchronous Runtime Overrides Snapshot Cache
+- **Modules**: `src/lib/models/overrideCache.js`, `src/app/api/models/overrides/route.js`, `src/lib/db/repos/modelMetadataRepo.js`.
+- **Cache Contract**: In-memory snapshot cache bounded at 50,000 rows (`MAX_SNAPSHOT_ROWS`), with a 5-second TTL (`MAX_CACHE_TTL_MS`). Provides synchronous resolution (`getOverrideSourcesSync`) via `getAdapterSync` to eliminate N+1 DB lookups in request routing.
+- **Lifecycle & Coherence**: Initialized at server startup in `src/instrumentation.js`. Local mutations invalidate the cache synchronously (zero stale window) and broadcast `config_reload` events across cluster workers after SQLite commit.
+- **Integration**: Feeds 7-tier per-field capability resolution (`src/lib/models/capabilities.js`) directly into request routing (`src/sse/handlers/chat.js`) and model listings (`/api/models`).
+
+### Background Model Sync Scheduling
+- **Modules**: `src/lib/models/providerSync.js`, `src/lib/models/providerSyncRuntime.js`.
+- **Leader Guard**: Background sync runs exclusively on the cluster leader process (`KHATAM_WORKER_ROLE === "leader"`), or in single-process mode when `KHATAM_WORKER_ROLE` is unset, skipping non-leader cluster workers in `src/shared/services/initializeApp.js`.
+- **Policy Storage & Bounds**: Global and per-provider sync policies (intervals 1h to 7d, default 24h) are stored in the SQLite `kv` table under scope `modelSyncPolicy` and key `policy`.
+- **Safety Limits**: Bounded execution with a 5-minute global cycle ceiling (`GLOBAL_RUN_MAX_MS`), 30-second per-connection timeout (`DEFAULT_PER_CONNECTION_TIMEOUT_MS`), 10-second operation timeout (`OP_TIMEOUT_MS`), and max 100 connections per run (`MAX_CONNECTIONS_PER_RUN`). Supports cancellation via `AbortSignal` and resumes via connection cursor.
+
+### Bounded Model Test-All Engine
+- **Modules**: `src/lib/models/modelTestBatch.js`, `src/app/api/models/test-batch/route.js`, `src/lib/db/repos/disabledModelsRepo.js`.
+- **Probe Architecture**: Sequential, bounded test probes using provider aggregate routing rather than connection-pinned routes, exercising real provider execution logic.
+- **Classification Taxonomy**: `classifyModelTestResult` maps outcomes into six explicit categories (`MODEL_TEST_CLASSIFICATION`): `success`, `hard_model_failure`, `quota_cost`, `access_restriction`, `rate_limited`, and `transport_indeterminate`.
+- **Safe Auto-Disable**: Only hard model failures (HTTP 400/404/410 with explicit model absence patterns, excluding ambiguous access patterns, schema validation errors, and content refusals) are eligible for auto-disable, and only when the caller explicitly opts in with `autoDisable: true`. Quota, billing, rate limit, auth, access, and indeterminate transport errors never disable models. Disabling logs an audit record and is reversible via `enableModels`.
+
+### Opt-In Free Proxy Ingestion (Backend API)
+- **Modules**: `src/lib/freeProxyProviders/index.js`, `src/app/api/settings/free-proxies/*`.
+- **Guard Rails**: Ingestion from explicitly allowlisted public, untrusted feeds (oneproxy, proxifly, iplocate) is disabled by default behind durable operator risk acknowledgement (`acknowledgedRisk: true`). Enforces a 2 MiB streaming cap (`MAX_FEED_BYTES`), 15s timeout, SSRF/private-IP candidate filtering, concurrency lease locking, and creates pools in an inactive state.
+- **UI Surface**: `FreeProxySourcesCard` on `/dashboard/proxy-pools` (PR #151). Mount reads policy only; sync is an explicit action.
 
 ## 3) Persistence and Acceleration Layer
 
@@ -417,7 +453,7 @@ erDiagram
 
 Physical storage files:
 
-- main state: `${DATA_DIR}/db.json` (or `~/.9router/db.json`)
+- main state: Native `bun:sqlite` WAL database at `${DATA_DIR}/db/data.sqlite` (or `~/.9router/db/data.sqlite`). Note: legacy references to `db.json` in upstream diagrams represent pre-migration architecture; native `bun:sqlite` is the dominant and sole operational state engine in KhatamRouter.
 - usage stats: `~/.9router/usage.json`
 - request log lines: `~/.9router/log.txt`
 - optional translator/request debug sessions: `<repo>/logs/...`

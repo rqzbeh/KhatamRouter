@@ -1,0 +1,1077 @@
+{
+  "boundaries": {
+    "v0_5_111": {
+      "version": "0.5.111",
+      "sha": "3a978a631ad65529c06e48ce495092d5bba29f46",
+      "provenance": "git tag v0.5.111",
+      "status": "tagged"
+    },
+    "v0_5_112": {
+      "version": "0.5.112",
+      "sha": "1fe586bb1cf35e1ed0cb2150a8ef7d1db040b21d",
+      "provenance": "git tag v0.5.112",
+      "status": "tagged",
+      "spec013_prior_coverage": {
+        "commit_count": 14,
+        "local_pr": "#119",
+        "local_sha": "9b56a40a12949d197749e5885efe976db14a7160"
+      }
+    },
+    "v0_5_116": {
+      "version": "0.5.116",
+      "sha": "1339107e624d1ab150c6a0c2c2ee22caa7e9db2f",
+      "changelog_sha": "eaeb54a66a4ff0f4aa5e933cfa41f5cb25952441",
+      "provenance": "upstream master commits 1339107e (package.json 0.5.116) and eaeb54a6 (CHANGELOG.md # v0.5.116); untagged on git/GitHub releases",
+      "status": "package_version_commit_untagged",
+      "exists": true,
+      "commit_count_after_v0_5_112": 29
+    }
+  },
+  "audit_summary": {
+    "requested_interval": "0.5.112 -> 0.5.116",
+    "v0_5_112_audited_commits": 14,
+    "v0_5_112_to_v0_5_116_new_commits": 29,
+    "total_commits_audited": 43,
+    "intermediate_releases_found": "None (upstream jumped directly from 0.5.112 to 0.5.116; no 0.5.113, 0.5.114, 0.5.115 tags or version bumps exist)",
+    "v0_5_116_exists_upstream": true,
+    "v0_5_116_tag_exists": false
+  },
+  "clusters": [
+    {
+      "id": "transport-network-resilience",
+      "name": "Transport & Network Resilience",
+      "commits": [
+        "736be957",
+        "963787f7",
+        "333d249d"
+      ],
+      "disposition": "ADAPT",
+      "rationale": "Adapt undici 8 / happy eyeballs / keepalive timeouts and fresh socket retries to Bun runtime; enforce AWS region restrictions in kiro executor."
+    },
+    {
+      "id": "provider-opencode-go",
+      "name": "OpenCode Go Endpoint & Reasoning Migration",
+      "commits": [
+        "633c82f5",
+        "7ef6df56"
+      ],
+      "disposition": "APPLICABLE",
+      "rationale": "Migrates endpoints from retired /zen/go/v1 to /inference/go/* and enables adaptive thinking on Claude transport."
+    },
+    {
+      "id": "provider-commandcode",
+      "name": "CommandCode CLI v1.88.5 Alignment & Auto-Import",
+      "commits": [
+        "b114fa9f"
+      ],
+      "disposition": "ADAPT_WITH_SECURITY_HARDENING",
+      "rationale": "Aligns wire protocol with CLI 1.88.5 and imports auth.json; MUST add ALWAYS_PROTECTED + LOCAL_ONLY_PATHS in dashboardGuard.js."
+    },
+    {
+      "id": "provider-codebuddy",
+      "name": "CodeBuddy Intl System Prompt & WAF Sanitization",
+      "commits": [
+        "3ca04639"
+      ],
+      "disposition": "APPLICABLE",
+      "rationale": "Forwards user system prompts and sanitizes CLI agent identity markers."
+    },
+    {
+      "id": "codex-media",
+      "name": "Codex Image & Media Updates",
+      "commits": [
+        "783c9325",
+        "a6d3cdbf",
+        "896ef10c",
+        "7ba1d1ca"
+      ],
+      "disposition": "APPLICABLE",
+      "rationale": "Routes Codex image generation to native Images API safely, adds GPT Image 2.6 models, and sends concrete MIME for Gemini remote images."
+    },
+    {
+      "id": "translator-thinking-routing",
+      "name": "Translator & Thinking Logic Refinements",
+      "commits": [
+        "cff5328b",
+        "626a0684",
+        "a61b5a6f",
+        "ef2af4de",
+        "a3039ab1"
+      ],
+      "disposition": "APPLICABLE",
+      "rationale": "Preserves thinking on tool-result turns, retains explicit DeepSeek thinking budgets, preserves Claude cache markers for DashScope, keeps all Gemini tool parts, and cleans tool_reference blocks."
+    },
+    {
+      "id": "provider-catalog-models",
+      "name": "Provider Quota & Catalog Updates",
+      "commits": [
+        "8a833631",
+        "b9c34543",
+        "93bec5d8"
+      ],
+      "disposition": "APPLICABLE",
+      "rationale": "Antigravity Gemini 4 Argon quota separation, SenseNova model list update, Jina/Tavily web fetch output formats."
+    },
+    {
+      "id": "tts-audio",
+      "name": "TTS Voices In-Process Service Refactoring",
+      "commits": [
+        "a4069daf"
+      ],
+      "disposition": "APPLICABLE",
+      "rationale": "Eliminates HTTP self-fetch loop by extracting shared in-process ttsVoices service."
+    },
+    {
+      "id": "cli-launcher-tools",
+      "name": "CLI Launcher Optimization & Dashboard Tools",
+      "commits": [
+        "9506a59c",
+        "64a23dc2",
+        "8650b046",
+        "69d51c0c"
+      ],
+      "disposition": "APPLICABLE",
+      "rationale": "PID-file launcher optimization, PoW worker packaging, tray startup verification, and CLI tools active model expansion."
+    },
+    {
+      "id": "opencode-terminal-aliasing",
+      "name": "OpenCode Free Tier Terminal Tool Aliasing",
+      "commits": [
+        "95dafae3"
+      ],
+      "disposition": "ALREADY_EQUIVALENT",
+      "rationale": "Already ported and verified in KhatamRouter PR #124 (commit 6d911210, Spec 016)."
+    },
+    {
+      "id": "runtime-packaging-inapplicable",
+      "name": "Architecturally Inapplicable Runtime Files",
+      "commits": [
+        "f0938ea7",
+        "e3139a43"
+      ],
+      "disposition": "ARCHITECTURALLY_INAPPLICABLE",
+      "rationale": "Modifies lazyRuntime.js and sqliteRuntime.js, which are removed in KhatamRouter per Bun-only and no-dynamic-npm invariants."
+    },
+    {
+      "id": "release-boundaries",
+      "name": "Release Boundaries & Version Commits",
+      "commits": [
+        "eaeb54a6",
+        "1339107e"
+      ],
+      "disposition": "RELEASE_BOUNDARY",
+      "rationale": "Changelog and version bump marking official v0.5.116 release."
+    }
+  ],
+  "commits": [
+    {
+      "sha": "e70ea24d4e2399f59680bbdc71159195ffbdc500",
+      "shortSha": "e70ea24d",
+      "author": "decolua",
+      "date": "2026-10-28T15:49:55+07:00",
+      "subject": "Fix OpenCode",
+      "files": [
+        "open-sse/services/lazyRuntime.js"
+      ],
+      "release": "0.5.112",
+      "range": "prior_v0.5.112",
+      "cluster": "runtime-packaging",
+      "disposition": "ALREADY_EQUIVALENT_SUPERIOR",
+      "behavior": "Workaround dynamic ESM createRequire import in runtime downloader for OpenCode Free dependencies.",
+      "securityConcerns": "Dynamic runtime package downloads via npm introduce unauthenticated remote code execution and supply-chain risk.",
+      "rationale": "KhatamRouter strictly prohibits dynamic runtime package downloads via npm. Resolved natively at build time via wreq-js optionalDependency under Bun in PR #78 (Spec 012).",
+      "localEvidence": "open-sse/services/opencodeTlsClient.js:1-120; tests/unit/opencode-tls-client.test.js"
+    },
+    {
+      "sha": "acb3c080ddcafc9e32971af8b8240214b5950952",
+      "shortSha": "acb3c080",
+      "author": "Cristiano",
+      "date": "2026-10-28T15:51:53+07:00",
+      "subject": "feat(codex): add GPT-6.1 Terra",
+      "files": [
+        "open-sse/providers/capabilities.js",
+        "open-sse/providers/pricing.js",
+        "open-sse/providers/registry/codex.js",
+        "tests/unit/codex-gpt6-lite.test.js"
+      ],
+      "release": "0.5.112",
+      "range": "prior_v0.5.112",
+      "cluster": "codex-models",
+      "disposition": "PORTED",
+      "behavior": "Adds gpt-6.1-terra model with responsesLite support, 500k context window, pricing, and thinking configuration.",
+      "securityConcerns": "None. Model metadata addition.",
+      "rationale": "Ported in Spec 013 (PR #119 commit 9b56a40a).",
+      "localEvidence": "open-sse/providers/registry/codex.js:57; open-sse/providers/capabilities.js:301; open-sse/providers/pricing.js:93"
+    },
+    {
+      "sha": "3fd925abfabb7cbe95e602cddff67a62246a13e6",
+      "shortSha": "3fd925ab",
+      "author": "Jerxx",
+      "date": "2026-10-28T15:51:23+07:00",
+      "subject": "fix(codebuddy): send plugin request/conversation id headers",
+      "files": [
+        "CHANGELOG.md",
+        "open-sse/executors/default.js",
+        "open-sse/providers/registry/codebuddy-cn.js",
+        "open-sse/providers/registry/codebuddy-intl.js",
+        "tests/unit/codebuddy-block-backoff.test.js",
+        "tests/unit/codebuddy-channel-headers.test.js"
+      ],
+      "release": "0.5.112",
+      "range": "prior_v0.5.112",
+      "cluster": "provider-codebuddy",
+      "disposition": "PORTED",
+      "behavior": "Sends official CodeBuddy conversation and request headers (X-Request-ID, X-Conversation-ID) to avoid channel blocks.",
+      "securityConcerns": "Header injection prevented by sanitizing request/conversation UUIDs.",
+      "rationale": "Ported in Spec 013 (PR #119 commit 9b56a40a).",
+      "localEvidence": "open-sse/executors/default.js:50; open-sse/providers/registry/codebuddy-cn.js:40; open-sse/providers/registry/codebuddy-intl.js:40"
+    },
+    {
+      "sha": "f3e1f716a3bf522ed74e6566f9049e52c28d2f93",
+      "shortSha": "f3e1f716",
+      "author": "blackthunder0812",
+      "date": "2026-10-28T15:51:52+07:00",
+      "subject": "fix(github): apply Claude 5.5 thinking rules to Copilot's dotted model ids",
+      "files": [
+        "open-sse/providers/capabilities.js",
+        "open-sse/translator/concerns/thinkingUnified.js",
+        "tests/unit/github-claude-5-5-thinking.test.js"
+      ],
+      "release": "0.5.112",
+      "range": "prior_v0.5.112",
+      "cluster": "translator-thinking",
+      "disposition": "PORTED",
+      "behavior": "Applies Claude 5.5 thinking rules to GitHub Copilot dotted model names (e.g. claude-3.5-sonnet).",
+      "securityConcerns": "None.",
+      "rationale": "Ported in Spec 013 (PR #119 commit 9b56a40a).",
+      "localEvidence": "open-sse/providers/capabilities.js; open-sse/translator/concerns/thinkingUnified.js; tests/unit/github-claude-5-5-thinking.test.js"
+    },
+    {
+      "sha": "b1effa03c12b76e1df6c6014fe274044f7b46b17",
+      "shortSha": "b1effa03",
+      "author": "Bertho Joris",
+      "date": "2026-10-28T15:52:25+07:00",
+      "subject": "feat(commandcode): align request headers with official CLI 1.88.0",
+      "files": [
+        "open-sse/executors/commandcode.js",
+        "open-sse/providers/registry/commandcode.js",
+        "open-sse/services/usage/commandcode.js",
+        "open-sse/shared/commandCodeHeaders.js",
+        "open-sse/translator/request/openai-to-commandcode.js",
+        "src/app/api/providers/validate/route.js",
+        "tests/__baseline__/providers-baseline.json",
+        "tests/unit/commandcode-headers.test.js",
+        "tests/unit/commandcode-usage.test.js"
+      ],
+      "release": "0.5.112",
+      "range": "prior_v0.5.112",
+      "cluster": "provider-commandcode",
+      "disposition": "PORTED_HARDENED",
+      "behavior": "Replaces hardcoded version 0.25.7 with official CLI 1.88.0 identity headers and synchronizes conversation session IDs.",
+      "securityConcerns": "Path slugification guarded against directory traversal and path leakage.",
+      "rationale": "Ported in Spec 013 (PR #119 commit 9b56a40a).",
+      "localEvidence": "open-sse/shared/commandCodeHeaders.js; open-sse/executors/commandcode.js; open-sse/providers/registry/commandcode.js"
+    },
+    {
+      "sha": "a199d777d6e304f560777aecb10c74d0e058e17e",
+      "shortSha": "a199d777",
+      "author": "thienpv",
+      "date": "2026-10-28T16:00:04+07:00",
+      "subject": "fix(providers): treat LLM|id|secret as opaque token in bulk-add, not name|key",
+      "files": [
+        "src/shared/utils/bulkAdd.js",
+        "tests/unit/bulk-add-opaque-keys.test.js"
+      ],
+      "release": "0.5.112",
+      "range": "prior_v0.5.112",
+      "cluster": "dashboard-providers",
+      "disposition": "PORTED",
+      "behavior": "Treats Muse keys formatted as LLM|id|secret as opaque tokens during bulk key add instead of splitting on first pipe.",
+      "securityConcerns": "Prevents credential truncation during bulk import.",
+      "rationale": "Ported in Spec 013 (PR #119 commit 9b56a40a).",
+      "localEvidence": "src/shared/utils/bulkAdd.js:28; tests/unit/bulk-add-names.test.js"
+    },
+    {
+      "sha": "ced0cf6e6c5583e82d7d66e2555712b5dbbf7809",
+      "shortSha": "ced0cf6e",
+      "author": "minhnhat166",
+      "date": "2026-10-28T16:00:50+07:00",
+      "subject": "fix(nvidia): normalize reasoning aliases for NIM",
+      "files": [
+        "open-sse/translator/concerns/paramSupport.js",
+        "tests/unit/nvidia-nim-reasoning-alias.test.js"
+      ],
+      "release": "0.5.112",
+      "range": "prior_v0.5.112",
+      "cluster": "provider-nvidia",
+      "disposition": "PORTED",
+      "behavior": "Renames reasoning to reasoning_content for NVIDIA NIM to avoid duplicate-field 400 Bad Request errors.",
+      "securityConcerns": "None.",
+      "rationale": "Ported in Spec 013 (PR #119 commit 9b56a40a).",
+      "localEvidence": "open-sse/translator/concerns/paramSupport.js:36,82; tests/unit/param-support.test.js"
+    },
+    {
+      "sha": "f7f6f5ed11e6c10f3c7a2a90c4cc6f6fe4859561",
+      "shortSha": "f7f6f5ed",
+      "author": "Thanh Tuan",
+      "date": "2026-10-28T16:01:03+07:00",
+      "subject": "feat: add Nace Drex provider to the System One lane",
+      "files": [
+        "open-sse/providers/registry/index.js",
+        "open-sse/providers/registry/nace.js",
+        "public/providers/nace.png",
+        "tests/__baseline__/alias-baseline.json",
+        "tests/__baseline__/providers-baseline.json"
+      ],
+      "release": "0.5.112",
+      "range": "prior_v0.5.112",
+      "cluster": "provider-registry",
+      "disposition": "PORTED_HARDENED",
+      "behavior": "Adds Nace Drex provider with drex-max and drex-v2.0 models to System One lane.",
+      "securityConcerns": "Regenerated registry index automatically to prevent manual tampering.",
+      "rationale": "Ported in Spec 013 (PR #119 commit 9b56a40a).",
+      "localEvidence": "open-sse/providers/registry/nace.js; open-sse/providers/registry/index.js; public/providers/nace.png"
+    },
+    {
+      "sha": "8db1f4ae58429a9d0c13449d3a9a72d9aafa89dc",
+      "shortSha": "8db1f4ae",
+      "author": "Bertho Joris",
+      "date": "2026-10-28T16:01:40+07:00",
+      "subject": "fix(translator): enforce Gemini protobuf type predicates on schema items and properties",
+      "files": [
+        "open-sse/translator/formats/gemini.js",
+        "tests/unit/gemini-schema-array-items-predicate.test.js"
+      ],
+      "release": "0.5.112",
+      "range": "prior_v0.5.112",
+      "cluster": "translator-gemini",
+      "disposition": "PORTED",
+      "behavior": "Strips items from non-array schemas and properties/required from non-object schemas in Gemini translator to prevent 400 errors.",
+      "securityConcerns": "None.",
+      "rationale": "Ported in Spec 013 (PR #119 commit 9b56a40a).",
+      "localEvidence": "open-sse/translator/formats/gemini.js:304,374; tests/unit/gemini-schema-array-items-predicate.test.js"
+    },
+    {
+      "sha": "56dbf466f10787d284b09bd28e35c0f7171b6d06",
+      "shortSha": "56dbf466",
+      "author": "blackthunder0812",
+      "date": "2026-10-28T16:07:59+07:00",
+      "subject": "fix(chat): reject SSE errors in non-streaming responses",
+      "files": [
+        "open-sse/handlers/chatCore/nonStreamingHandler.js",
+        "tests/unit/nonstream-sse-error.test.js"
+      ],
+      "release": "0.5.112",
+      "range": "prior_v0.5.112",
+      "cluster": "routing-errors",
+      "disposition": "PORTED",
+      "behavior": "Extracts clamped HTTP status codes (400-599 or 502) from SSE error frames in non-streaming responses instead of returning phantom 200 OK.",
+      "securityConcerns": "Prevents masking upstream security or auth errors as successful 200 OK responses.",
+      "rationale": "Ported in Spec 013 (PR #119 commit 9b56a40a).",
+      "localEvidence": "open-sse/handlers/chatCore/nonStreamingHandler.js:249-265; tests/unit/nonstream-sse-error.test.js"
+    },
+    {
+      "sha": "3b7acf72a5611705b9a5f5923430175ad159d3c1",
+      "shortSha": "3b7acf72",
+      "author": "decolua",
+      "date": "2026-10-28T16:07:43+07:00",
+      "subject": "fix(docker): bundle lazy runtime deps so OpenCode Free resolves",
+      "files": [
+        "Dockerfile",
+        "Dockerfile.bun"
+      ],
+      "release": "0.5.112",
+      "range": "prior_v0.5.112",
+      "cluster": "docker-runtime",
+      "disposition": "ALREADY_EQUIVALENT_SUPERIOR",
+      "behavior": "Ran npm install wreq-js playwright-core during Docker build to compensate for lazy runtime dynamic imports.",
+      "securityConcerns": "Reintroduces npm and non-deterministic package installation into Docker builds.",
+      "rationale": "Superseded in KhatamRouter PR #78 and Spec 013. KhatamRouter bundles wreq-js natively via Bun with byte-identical Dockerfiles.",
+      "localEvidence": "Dockerfile:1-125; Dockerfile.bun:1-125"
+    },
+    {
+      "sha": "d7bb71ced4bd9aac1fcb53a91cb3776144ebedb7",
+      "shortSha": "d7bb71ce",
+      "author": "fanyzp",
+      "date": "2026-10-28T16:13:13+07:00",
+      "subject": "fix(deepseek): use noble-hashes port for DeepSeek PoW hash",
+      "files": [
+        "open-sse/lib/deepseek-pow-hash.js",
+        "open-sse/lib/deepseek-pow-worker.mjs",
+        "open-sse/lib/deepseek-pow.js",
+        "tests/unit/deepseek-pow.test.js"
+      ],
+      "release": "0.5.112",
+      "range": "prior_v0.5.112",
+      "cluster": "deepseek-pow",
+      "disposition": "PORTED_HARDENED",
+      "behavior": "Inlines pure-JS Keccak/SHA3-256 implementation for DeepSeek PoW challenge solver.",
+      "securityConcerns": "Upstream lacked input validation; KhatamRouter added strict input validation (difficulty ceiling 250,000, hex regex check) to prevent DoS.",
+      "rationale": "Ported in Spec 013 (PR #119 commit 9b56a40a).",
+      "localEvidence": "open-sse/lib/deepseek-pow-hash.js; tests/unit/deepseek-pow-hash.test.js"
+    },
+    {
+      "sha": "85d73bd60ebd3950f8a0bc603f4b79a2856cc141",
+      "shortSha": "85d73bd6",
+      "author": "decolua",
+      "date": "2026-10-28T16:14:35+07:00",
+      "subject": "feat(minimax-code): lease auth mode via desktop app named-pipe broker",
+      "files": [
+        "CHANGELOG.md",
+        "open-sse/executors/minimax-code.js",
+        "open-sse/providers/registry/index.js",
+        "open-sse/providers/registry/minimax-code-global.js",
+        "open-sse/providers/registry/minimax-code.js",
+        "open-sse/services/minimaxCodeLease.js",
+        "open-sse/services/minimaxCodeUsage.js",
+        "src/app/(dashboard)/providers/[id]/AddApiKeyModal.js",
+        "src/app/api/oauth/minimax-code-global/lease/route.js",
+        "src/app/api/oauth/minimax-code/lease-connect/route.js",
+        "src/app/api/oauth/minimax-code/lease/route.js",
+        "src/sse/handlers/chat.js",
+        "src/sse/services/tokenRefresh.js",
+        "tests/unit/minimax-code-lease.test.js"
+      ],
+      "release": "0.5.112",
+      "range": "prior_v0.5.112",
+      "cluster": "provider-minimax",
+      "disposition": "PORTED_HARDENED",
+      "behavior": "Implements desktop IPC named-pipe lease broker for MiniMax Code credentials.",
+      "securityConcerns": "Added 64KB frame ceiling, path traversal protection, loopback-only check, Redis cross-worker caching, and ephemeral in-memory storage (never stored in SQLite).",
+      "rationale": "Ported in Spec 013 (PR #119 commit 9b56a40a).",
+      "localEvidence": "open-sse/services/minimaxCodeLease.js:1-509; src/dashboardGuard.js:55-56, 94-95; tests/unit/minimax-code-lease.test.js"
+    },
+    {
+      "sha": "1fe586bb1cf35e1ed0cb2150a8ef7d1db040b21d",
+      "shortSha": "1fe586bb",
+      "author": "decolua",
+      "date": "2026-10-28T16:43:56+07:00",
+      "subject": "# v0.5.112 (2026-10-28)",
+      "files": [
+        "CHANGELOG.md",
+        "package.json"
+      ],
+      "release": "0.5.112",
+      "range": "prior_v0.5.112",
+      "cluster": "release-boundary",
+      "disposition": "PORTED",
+      "behavior": "Official release commit and changelog for v0.5.112.",
+      "securityConcerns": "None.",
+      "rationale": "Version bumped and changelog recorded in KhatamRouter PR #119 and #120.",
+      "localEvidence": "package.json; CHANGELOG.md; docs/UPSTREAM-PORTS.md"
+    },
+    {
+      "sha": "736be95716147a5cf8f1e99f9a2e8e8481d9c688",
+      "shortSha": "736be957",
+      "author": "decolua",
+      "date": "2026-10-31T17:24:11+07:00",
+      "subject": "fix(transport): survive DPI-shaped networks on the claude provider",
+      "files": [
+        "cli/cli.js",
+        "cli/package.json",
+        "next.config.mjs",
+        "open-sse/utils/proxyFetch.js",
+        "package.json",
+        "src/app/api/providers/[id]/test/testUtils.js",
+        "tests/unit/econnreset-repro.test.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "transport-network-resilience",
+      "disposition": "ADAPT",
+      "behavior": "Configures happy eyeballs (autoSelectFamily: true, 250ms fallback) and X25519 TLS curve on undici Agent to survive DPI RST on api.anthropic.com; routes Claude token refresh in testUtils through proxyAwareFetch; drops ipv4first flag.",
+      "securityConcerns": "DPI bypass must not compromise TLS certificate validation. Strict SSL and MITM certificate handling preserved.",
+      "rationale": "Adapt to Bun runtime environment while preserving proxyAwareFetch in testUtils and curved TLS ClientHello configuration.",
+      "localEvidence": "open-sse/utils/proxyFetch.js; next.config.mjs; cli/cli.js; tests/unit/transport-019-packaging.test.js; tests/unit/econnreset-repro.test.js"
+    },
+    {
+      "sha": "f0938ea7151545837ae24e33577607a8cee0f90e",
+      "shortSha": "f0938ea7",
+      "author": "decolua",
+      "date": "2026-11-05T14:47:47+07:00",
+      "subject": "fix(runtime): keep named exports when loading CJS deps from the runtime dir",
+      "files": [
+        "open-sse/services/lazyRuntime.js",
+        "tests/unit/lazy-runtime-esm-entry.test.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "runtime-packaging",
+      "disposition": "ARCHITECTURALLY_INAPPLICABLE",
+      "behavior": "Fixes named exports extraction when dynamically loading CJS modules from lazyRuntime directory.",
+      "securityConcerns": "lazyRuntime.js performs arbitrary child-process npm installs at runtime, introducing severe RCE and supply-chain vulnerabilities.",
+      "rationale": "KhatamRouter constitutionally prohibits lazyRuntime.js and dynamic npm installs. OpenCode dependencies (wreq-js) are built-in native Bun optionalDependencies (PR #78, #119).",
+      "localEvidence": "open-sse/services/opencodeTlsClient.js; package.json"
+    },
+    {
+      "sha": "633c82f565807dca3d7ba51c03e8dde0aa7f7e82",
+      "shortSha": "633c82f5",
+      "author": "chisewaguri",
+      "date": "2026-11-05T16:03:39+07:00",
+      "subject": "fix(opencode-go): use Claude reasoning on the Messages transport",
+      "files": [
+        "open-sse/providers/registry/opencode-go.js",
+        "open-sse/translator/formats/claude.js",
+        "tests/__baseline__/providers-baseline.json",
+        "tests/unit/opencode-go-deepseek-thinking-injection.test.js",
+        "tests/unit/opencode-go-transport-routing.test.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "provider-opencode-go",
+      "disposition": "PORTED",
+      "behavior": "Sets thinkingFormat: 'claude-adaptive' on OpenCode Go Messages transport and passes adaptive thinking blocks to DeepSeek models.",
+      "securityConcerns": "None.",
+      "rationale": "Clean port to enable adaptive thinking for OpenCode Go DeepSeek models.",
+      "localEvidence": "open-sse/providers/registry/opencode-go.js; open-sse/translator/formats/claude.js; tests/unit/opencode-go-deepseek-thinking-injection.test.js; tests/unit/opencode-go-transport-routing.test.js"
+    },
+    {
+      "sha": "783c9325f37e32d9a9121146a58ed3e833f16264",
+      "shortSha": "783c9325",
+      "author": "FuatCemOzyazici",
+      "date": "2026-11-05T16:03:52+07:00",
+      "subject": "fix(codex-image): use native OAuth image generation safely",
+      "files": [
+        "open-sse/handlers/imageGenerationCore.js",
+        "open-sse/handlers/imageProviders/codex.js",
+        "open-sse/providers/registry/codex.js",
+        "tests/unit/codex-native-image-generation.test.js",
+        "tests/unit/image-generation.test.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "codex-media",
+      "disposition": "PORTED_HARDENED",
+      "behavior": "Routes standard GPT Image requests to native Codex Images endpoint instead of Responses SSE path which failed with complexity=medium error.",
+      "securityConcerns": "Credentials and account IDs passed securely via Authorization and chatgpt-account-id headers.",
+      "rationale": "Clean port for reliable Codex OAuth image generation.",
+      "localEvidence": "open-sse/handlers/imageProviders/codex.js; open-sse/handlers/imageGenerationCore.js; tests/unit/codex-native-image-generation.test.js"
+    },
+    {
+      "sha": "cff5328b89d0974d89c8c911e5464cbb026ee49b",
+      "shortSha": "cff5328b",
+      "author": "Sutarto Jordan Chrisfivo",
+      "date": "2026-11-06T09:46:02+07:00",
+      "subject": "fix(thinking): preserve intent on OpenAI tool-result turns",
+      "files": [
+        "open-sse/services/provider.js",
+        "open-sse/translator/index.js",
+        "tests/translator/thinking-tool-result-turns.test.js",
+        "tests/unit/provider-thinking-config.test.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "translator-thinking",
+      "disposition": "PORTED",
+      "behavior": "Retains body.thinking when last message is role: 'tool' (OpenAI tool-result turns), preventing budget deletion during multi-turn tool calling.",
+      "securityConcerns": "None.",
+      "rationale": "Clean port fixing thinking budget preservation during agent tool loops.",
+      "localEvidence": "open-sse/services/provider.js:167-175; open-sse/translator/concerns/thinkingUnified.js; tests/translator/thinking-tool-result-turns.test.js"
+    },
+    {
+      "sha": "95dafae3ad3e9fd8e4b4ec0f6aa8567f285086ff",
+      "shortSha": "95dafae3",
+      "author": "Erfan Bagheri",
+      "date": "2026-11-06T09:48:15+07:00",
+      "subject": "fix(opencode): alias declared tool names containing \"terminal\" on the free tier",
+      "files": [
+        "open-sse/utils/opencodeFingerprint.js",
+        "tests/unit/opencode-fingerprint.test.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "provider-opencode",
+      "disposition": "ALREADY_EQUIVALENT",
+      "behavior": "Aliases tool names matching /terminal/i to run_command to bypass OpenCode free tier 429 gate.",
+      "securityConcerns": "None.",
+      "rationale": "Already ported and verified in KhatamRouter PR #124 (commit 6d911210, Spec 016).",
+      "localEvidence": "open-sse/utils/opencodeFingerprint.js:25-31; tests/unit/opencode-fingerprint.test.js"
+    },
+    {
+      "sha": "a4069daf0dc36299db7c869c8049cfa41a9e83ca",
+      "shortSha": "a4069daf",
+      "author": "mj10612",
+      "date": "2026-11-06T09:51:04+07:00",
+      "subject": "fix(tts): list public voices without dashboard self-fetch auth",
+      "files": [
+        "src/app/api/media-providers/tts/voices/route.js",
+        "src/app/api/v1/audio/voices/route.js",
+        "src/lib/ttsVoices.js",
+        "tests/unit/audio-voices-internal-auth.test.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "tts-audio",
+      "disposition": "PORTED",
+      "behavior": "Extracts voice fetching into shared in-process src/lib/ttsVoices.js, allowing /v1/audio/voices to respond to API-key clients without triggering dashboard 401.",
+      "securityConcerns": "Eliminates insecure HTTP self-fetch loop, reducing latency and SSRF surface.",
+      "rationale": "Clean architectural fix replacing internal HTTP self-fetch with in-process module call.",
+      "localEvidence": "src/lib/ttsVoices.js; src/app/api/v1/audio/voices/route.js; src/app/api/media-providers/tts/voices/route.js; tests/unit/audio-voices-internal-auth.test.js"
+    },
+    {
+      "sha": "a61b5a6f39cb65ab709d65fa20851c3c9af10a51",
+      "shortSha": "a61b5a6f",
+      "author": "mj10612",
+      "date": "2026-11-06T09:59:41+07:00",
+      "subject": "fix(translator): retain Claude cache markers for DashScope targets",
+      "files": [
+        "open-sse/translator/concerns/message.js",
+        "open-sse/translator/index.js",
+        "open-sse/translator/request/claude-to-openai.js",
+        "tests/unit/dashscope-claude-cache.test.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "translator-caching",
+      "disposition": "PORTED",
+      "behavior": "Preserves Claude cache_control markers and system block boundaries when translating to DashScope OpenAI targets.",
+      "securityConcerns": "None.",
+      "rationale": "Clean port enabling prompt caching on DashScope models.",
+      "localEvidence": "open-sse/translator/request/claude-to-openai.js; open-sse/translator/concerns/message.js; tests/unit/dashscope-claude-cache.test.js"
+    },
+    {
+      "sha": "9506a59c7f8b138cbeb1a8d2789a39252823dbbd",
+      "shortSha": "9506a59c",
+      "author": "zeroonek",
+      "date": "2026-11-06T10:00:18+07:00",
+      "subject": "perf(cli): cut launcher startup ~2.5x by skipping machine-wide process scans",
+      "files": [
+        "cli/cli.js",
+        "cli/src/cli/utils/launcherProcess.js",
+        "tests/unit/cli-launcher-process.test.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "cli-launcher",
+      "disposition": "PORTED",
+      "behavior": "Saves PID in <dataDir>/launcher.pid and stops recorded processes directly instead of running machine-wide process scans (PowerShell/WMI/ps).",
+      "securityConcerns": "PID reuse validation checks executable identity (/proc/<pid>/exe, tasklist, ps).",
+      "rationale": "Clean optimization for CLI package.",
+      "localEvidence": "cli/src/cli/utils/launcherProcess.js; cli/cli.js; tests/unit/cli-launcher-process.test.js"
+    },
+    {
+      "sha": "7ba1d1ca21ab61fd8e867bea99e2e1f783e5986e",
+      "shortSha": "7ba1d1ca",
+      "author": "Hai Trinh",
+      "date": "2026-11-06T10:13:23+07:00",
+      "subject": "fix(gemini): send concrete MIME for remote images",
+      "files": [
+        "open-sse/translator/formats/gemini.js",
+        "tests/unit/multimodal-drop-lock.test.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "translator-gemini",
+      "disposition": "PORTED",
+      "behavior": "Infers concrete MIME from image extension instead of emitting generic image/* which Google Antigravity rejects with 400.",
+      "securityConcerns": "MIME type chosen from fixed whitelist to prevent header injection.",
+      "rationale": "Clean bug fix for Gemini remote image handling.",
+      "localEvidence": "open-sse/translator/formats/gemini.js; tests/unit/media-019-security.test.js"
+    },
+    {
+      "sha": "ef2af4defaf5b72af93964c0d565b5fca43b0aee",
+      "shortSha": "ef2af4de",
+      "author": "mj10612",
+      "date": "2026-11-06T10:16:45+07:00",
+      "subject": "fix(translator): preserve all Gemini tool results and follow-up parts",
+      "files": [
+        "open-sse/translator/request/gemini-to-openai.js",
+        "tests/unit/gemini-request-tool-results.test.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "translator-gemini",
+      "disposition": "PORTED",
+      "behavior": "Collects all function responses in parts loop instead of early return on first functionResponse, preserving parallel tool execution results.",
+      "securityConcerns": "None.",
+      "rationale": "Clean fix for parallel tool calls in Gemini to OpenAI translation.",
+      "localEvidence": "open-sse/translator/request/gemini-to-openai.js; tests/unit/gemini-request-tool-results.test.js"
+    },
+    {
+      "sha": "a6d3cdbf7ece0de79671f4890f3d0a9ac5c035fc",
+      "shortSha": "a6d3cdbf",
+      "author": "Hai Trinh",
+      "date": "2026-11-06T10:28:50+07:00",
+      "subject": "fix(codex-image): handle upstream image tool failures",
+      "files": [
+        "open-sse/handlers/imageProviders/codex.js",
+        "tests/unit/image-generation.test.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "codex-media",
+      "disposition": "PORTED",
+      "behavior": "Stops sending reasoning.effort=medium on Codex image tool requests and surfaces real upstream errors.",
+      "securityConcerns": "None.",
+      "rationale": "Clean fix companion to 783c9325.",
+      "localEvidence": "open-sse/handlers/imageProviders/codex.js; tests/unit/image-generation.test.js"
+    },
+    {
+      "sha": "64a23dc2b63cd71ed234ca51bee5a29a13a215c1",
+      "shortSha": "64a23dc2",
+      "author": "fanyzp",
+      "date": "2026-11-06T10:48:40+07:00",
+      "subject": "fix(cli): ship deepseek-pow-hash.js next to PoW worker",
+      "files": [
+        "cli/scripts/build-cli.js",
+        "tests/unit/cli-build-artifacts.test.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "cli-packaging",
+      "disposition": "ADAPT",
+      "behavior": "Ensures deepseek-pow-hash.js is packaged alongside deepseek-pow-worker.mjs in CLI build bundle.",
+      "securityConcerns": "None.",
+      "rationale": "Adapt to KhatamRouter CLI packaging scripts.",
+      "localEvidence": "cli/scripts/build-cli.js; tests/unit/cli-build-artifacts.test.js"
+    },
+    {
+      "sha": "8a83363109886d7c4f836ec5c315c6095709cfb6",
+      "shortSha": "8a833631",
+      "author": "mr-robot77",
+      "date": "2026-11-06T11:02:23+07:00",
+      "subject": "feat(antigravity): track and display separate Gemini 4 Argon quota",
+      "files": [
+        "open-sse/services/usage/antigravity-weekly.js",
+        "open-sse/services/usage/google.js",
+        "src/app/(dashboard)/usage/components/ProviderLimits/utils.js",
+        "src/sse/services/antigravityQuota.js",
+        "tests/unit/antigravity-quota-routing.test.js",
+        "tests/unit/antigravity-weekly-dashboard.test.js",
+        "tests/unit/antigravity-weekly-quota.test.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "provider-antigravity",
+      "disposition": "PORTED",
+      "behavior": "Separates Gemini 4 Argon quota tracking and display from shared Gemini weekly pool in Antigravity.",
+      "securityConcerns": "None.",
+      "rationale": "Clean feature addition for Antigravity Google AI Pro plans.",
+      "localEvidence": "open-sse/services/usage/antigravity-weekly.js; src/sse/services/antigravityQuota.js; src/app/(dashboard)/dashboard/usage/components/ProviderLimits/utils.js; tests/unit/antigravity-weekly-quota.test.js"
+    },
+    {
+      "sha": "93bec5d8bf818276a09a896ad280825130ae5fcd",
+      "shortSha": "93bec5d8",
+      "author": "mj10612",
+      "date": "2026-11-06T11:01:12+07:00",
+      "subject": "fix(fetch): honor requested Jina and Tavily output formats",
+      "files": [
+        "open-sse/handlers/fetch/index.js",
+        "src/app/(dashboard)/tools/[kind]/[id]/components/GenericExampleCard.js",
+        "tests/unit/jina-reader-fetch.test.js",
+        "tests/unit/web-fetch-formats.test.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "tools-web-fetch",
+      "disposition": "PORTED",
+      "behavior": "Forwards requested formats to Jina Reader (x-respond-with header) and Tavily (format body field) with validation against registry.",
+      "securityConcerns": "Validation prevents format parameter reflection from injecting arbitrary content.",
+      "rationale": "Clean fix for web fetch tool format compliance.",
+      "localEvidence": "open-sse/handlers/fetch/index.js; src/app/(dashboard)/dashboard/media-providers/[kind]/[id]/components/GenericExampleCard.js; tests/unit/web-fetch-formats.test.js"
+    },
+    {
+      "sha": "333d249dfb63c29c20a12131279a07a40892f5af",
+      "shortSha": "333d249d",
+      "author": "thienpv",
+      "date": "2026-11-06T11:02:16+07:00",
+      "subject": "fix(kiro): stop splicing unserved regions into service hostnames",
+      "files": [
+        "open-sse/executors/kiro.js",
+        "tests/unit/kiro-api-key-endpoint-routing.test.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "provider-kiro",
+      "disposition": "PORTED",
+      "behavior": "Restricts Amazon service hostname region splicing to served regions (q: us-east-1, eu-central-1; codewhisperer: us-east-1), preventing NXDOMAIN hangs and origin spoofing.",
+      "securityConcerns": "Prevents SSRF and authorization bearer token leakage to attacker-controlled domains via arbitrary region strings.",
+      "rationale": "Security-critical fix for Kiro endpoint routing.",
+      "localEvidence": "open-sse/executors/kiro.js; tests/unit/kiro-api-key-endpoint-routing.test.js"
+    },
+    {
+      "sha": "626a0684a7a76fd9925f189dcc859735efbbb1de",
+      "shortSha": "626a0684",
+      "author": "mj10612",
+      "date": "2026-11-08T17:21:28+07:00",
+      "subject": "fix(thinking): preserve explicit DeepSeek thinking budgets on compat nodes",
+      "files": [
+        "open-sse/services/provider.js",
+        "open-sse/translator/formats/deepseek.js",
+        "tests/unit/deepseek-thinking-budget.test.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "translator-thinking",
+      "disposition": "PORTED",
+      "behavior": "Preserves explicit client-supplied thinking.budget_tokens on openai-compatible-* nodes instead of replacing with bare boolean.",
+      "securityConcerns": "None.",
+      "rationale": "Clean fix for vLLM/SGLang compatibility.",
+      "localEvidence": "open-sse/services/provider.js; open-sse/translator/concerns/thinkingUnified.js; tests/unit/deepseek-thinking-budget.test.js"
+    },
+    {
+      "sha": "896ef10ce63be264b457765015d3a0ed9c9e6872",
+      "shortSha": "896ef10c",
+      "author": "Sofia",
+      "date": "2026-11-08T17:22:19+07:00",
+      "subject": "feat(codex-image): add GPT Image 2.6 models",
+      "files": [
+        "open-sse/config/providerModels.js",
+        "open-sse/handlers/imageProviders/codex.js",
+        "open-sse/providers/capabilities.js",
+        "open-sse/providers/pricing.js",
+        "open-sse/providers/registry/codex.js",
+        "tests/__baseline__/providers-baseline.json",
+        "tests/unit/image-generation.test.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "codex-media",
+      "disposition": "PORTED",
+      "behavior": "Registers gpt-image-2.6-flare and gpt-image-2.6-sunburst models with capabilities, pricing, and image generation handlers.",
+      "securityConcerns": "None.",
+      "rationale": "Clean model addition.",
+      "localEvidence": "open-sse/config/providerModels.js; open-sse/handlers/imageProviders/codex.js; open-sse/providers/capabilities.js; open-sse/providers/pricing.js; open-sse/providers/registry/codex.js"
+    },
+    {
+      "sha": "8650b04611e98f6415853c8930953219e8ef1711",
+      "shortSha": "8650b046",
+      "author": "blackthunder0812",
+      "date": "2026-11-08T17:24:36+07:00",
+      "subject": "fix(tray): report a tray that never started instead of claiming success",
+      "files": [
+        "cli/cli.js",
+        "cli/src/cli/commands/start.js",
+        "cli/src/cli/utils/trayRuntime.js",
+        "tests/unit/cli-tray-runtime.test.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "cli-launcher",
+      "disposition": "PORTED",
+      "behavior": "Verifies tray process startup and returns descriptive error instead of falsely reporting tray success.",
+      "securityConcerns": "None.",
+      "rationale": "Clean fix for CLI tray runtime status.",
+      "localEvidence": "cli/cli.js; cli/src/cli/commands/start.js; cli/hooks/trayRuntime.js; tests/unit/cli-tray-runtime.test.js"
+    },
+    {
+      "sha": "b9c34543b4d6cf833bbe47b59ca7b768bc5b4e14",
+      "shortSha": "b9c34543",
+      "author": "钛白",
+      "date": "2026-11-08T17:25:48+07:00",
+      "subject": "feat(sensenova): add sensenova-6.8-flash and glm-5.3 to model list",
+      "files": [
+        "open-sse/providers/registry/sensenova.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "provider-sensenova",
+      "disposition": "PORTED",
+      "behavior": "Adds sensenova-6.8-flash and glm-5.3 to SenseNova provider registry model list.",
+      "securityConcerns": "None.",
+      "rationale": "Clean model list update.",
+      "localEvidence": "open-sse/providers/registry/sensenova.js; tests/__baseline__/providers-baseline.json"
+    },
+    {
+      "sha": "963787f73fe00bd068b786cf93f69c4c4fea96c2",
+      "shortSha": "963787f7",
+      "author": "minhnhat166",
+      "date": "2026-11-06T10:44:18+07:00",
+      "subject": "fix(proxyFetch): stop reusing dead keep-alive sockets upstream edges drop silently",
+      "files": [
+        "open-sse/config/runtimeConfig.js",
+        "open-sse/executors/base.js",
+        "open-sse/executors/default.js",
+        "open-sse/utils/proxyFetch.js",
+        "tests/unit/proxy-fetch-keepalive.test.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "transport-network-resilience",
+      "disposition": "ADAPT",
+      "behavior": "Caps keep-alive socket TTL (default 4s), classifies stale sockets, retries once on fresh socket when keep-alive connection dropped silently; drops stream_options on non-streaming requests in default executor.",
+      "securityConcerns": "Fresh socket retry specifically excludes DNS/TLS errors and bare 'fetch failed' to prevent duplicate billing.",
+      "rationale": "Adapt keep-alive capping and stale-socket recovery to KhatamRouter's custom proxyFetch implementation, and drop stream_options in default.js.",
+      "localEvidence": "open-sse/config/runtimeConfig.js; open-sse/utils/proxyFetch.js; open-sse/executors/default.js; open-sse/executors/base.js; tests/unit/proxy-keepalive-dead-socket.test.js; tests/unit/transport-019-safety.test.js"
+    },
+    {
+      "sha": "3ca0463989976a311302869bdc25684c37b56468",
+      "shortSha": "3ca04639",
+      "author": "AhooraZen",
+      "date": "2026-11-08T17:31:42+07:00",
+      "subject": "fix(codebuddy-intl): preserve client system prompts and sanitize CLI agent identity",
+      "files": [
+        "open-sse/executors/codebuddy-intl.js",
+        "tests/unit/codebuddy-intl-system-prompt.test.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "provider-codebuddy",
+      "disposition": "PORTED_HARDENED",
+      "behavior": "Forwards user system prompts and sanitizes CLI agent identity markers to prevent Tencent WAF blocks on CodeBuddy Intl.",
+      "securityConcerns": "Preserves user prompt content while sanitizing trigger tokens.",
+      "rationale": "Clean fix for CodeBuddy Intl gateway.",
+      "localEvidence": "open-sse/executors/codebuddy-intl.js; tests/unit/codebuddy-intl-system-prompt.test.js"
+    },
+    {
+      "sha": "b114fa9f6fd50e7b2405fed9b01a09eed3e5cfa2",
+      "shortSha": "b114fa9f",
+      "author": "alwaghani",
+      "date": "2026-11-08T17:35:20+07:00",
+      "subject": "feat(commandcode): align data bridge with CLI v1.88.5 and add CLI auto-import",
+      "files": [
+        "open-sse/executors/commandcode.js",
+        "open-sse/providers/registry/commandcode.js",
+        "open-sse/shared/commandCodeHeaders.js",
+        "open-sse/translator/concerns/thinkingUnified.js",
+        "open-sse/translator/concerns/usage.js",
+        "open-sse/translator/request/claude-to-openai.js",
+        "open-sse/translator/request/openai-to-commandcode.js",
+        "src/app/(dashboard)/providers/[id]/AddApiKeyModal.js",
+        "src/app/api/oauth/commandcode/auto-import/route.js",
+        "tests/__baseline__/providers-baseline.json",
+        "tests/translator/bugs-claudeCode-context.test.js",
+        "tests/translator/bugs-gemini-cursor-commandcode.test.js",
+        "tests/translator/real/commandcode.real.test.js",
+        "tests/unit/commandcode-headers.test.js",
+        "tests/unit/commandcode-to-openai.test.js",
+        "tests/unit/commandcode-usage.test.js",
+        "tests/unit/oauth-commandcode-auto-import.test.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "provider-commandcode",
+      "disposition": "ADAPT_WITH_SECURITY_HARDENING",
+      "behavior": "Aligns Command Code provider with official CLI v1.88.5 (tool tracking, error formatting, max_tokens 64k) and adds GET /api/oauth/commandcode/auto-import to import ~/.commandcode/auth.json.",
+      "securityConcerns": "CRITICAL: Upstream omitted dashboardGuard authentication and localhost-only checks on /api/oauth/commandcode/auto-import! KhatamRouter MUST add it to ALWAYS_PROTECTED and LOCAL_ONLY_PATHS in src/dashboardGuard.js to prevent remote unauthenticated reading of local credentials.",
+      "rationale": "Port protocol alignments and auto-import, with mandatory security hardening in dashboardGuard.js.",
+      "localEvidence": "open-sse/executors/commandcode.js; open-sse/translator/request/openai-to-commandcode.js; src/app/api/oauth/commandcode/auto-import/route.js; src/dashboardGuard.js; tests/unit/commandcode-import-guard.test.js; tests/unit/oauth-commandcode-auto-import.test.js"
+    },
+    {
+      "sha": "7ef6df5615118fcf041aaeb588618e233a8446a6",
+      "shortSha": "7ef6df56",
+      "author": "Sofia",
+      "date": "2026-11-08T17:35:41+07:00",
+      "subject": "fix(opencode-go): use current inference endpoint",
+      "files": [
+        "open-sse/executors/opencode-go.js",
+        "open-sse/providers/registry/opencode-go.js",
+        "open-sse/services/usage/opencode-go.js",
+        "open-sse/translator/concerns/paramSupport.js",
+        "src/app/api/providers/[id]/test/testUtils.js",
+        "src/app/api/providers/validate/route.js",
+        "tests/__baseline__/providers-baseline.json",
+        "tests/unit/opencode-go-models.test.js",
+        "tests/unit/opencode-go-muse-spark-responses.test.js",
+        "tests/unit/opencode-go-session.test.js",
+        "tests/unit/opencode-go-transport-routing.test.js",
+        "tests/unit/opencode-go-usage.test.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "provider-opencode-go",
+      "disposition": "PORTED",
+      "behavior": "Updates OpenCode Go from retired /zen/go/v1 (which answers 403) to current https://opencode.ai/inference/go/* endpoints.",
+      "securityConcerns": "None.",
+      "rationale": "Essential endpoint migration for OpenCode Go provider.",
+      "localEvidence": "open-sse/providers/registry/opencode-go.js; open-sse/executors/opencode-go.js; open-sse/services/usage/opencode-go.js; tests/unit/opencode-go-models.test.js"
+    },
+    {
+      "sha": "69d51c0c3f2d85b3f9aee10fd5f1e1ff5b1d30ef",
+      "shortSha": "69d51c0c",
+      "author": "yohansyahck",
+      "date": "2026-11-08T17:59:08+07:00",
+      "subject": "fix(cli-tools): include no-auth, alias and custom models in Add All Active Models",
+      "files": [
+        "src/app/(dashboard)/cli-tools/components/GenericCliToolCard.js",
+        "src/shared/utils/selectableModels.js",
+        "tests/unit/cli-tools-add-all-active-models.test.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "dashboard-cli-tools",
+      "disposition": "PORTED",
+      "behavior": "Expands Add All Active Models helper to include free no-auth providers (OpenCode Free), user aliases, and custom models while excluding disabled models.",
+      "securityConcerns": "None.",
+      "rationale": "Clean dashboard usability enhancement.",
+      "localEvidence": "src/shared/utils/selectableModels.js; src/app/(dashboard)/dashboard/cli-tools/components/GenericCliToolCard.js; tests/unit/cli-tools-add-all-active-models.test.js"
+    },
+    {
+      "sha": "e3139a43033d5947cd8e24a554644144150a3325",
+      "shortSha": "e3139a43",
+      "author": "mj10612",
+      "date": "2026-11-08T18:06:10+07:00",
+      "subject": "fix(runtime): keep runtime installs local during global npm hooks",
+      "files": [
+        "cli/hooks/sqliteRuntime.js",
+        "tests/unit/runtime-install-scope.test.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "runtime-packaging",
+      "disposition": "ARCHITECTURALLY_INAPPLICABLE",
+      "behavior": "Passes --global=false to runNpmInstall helper in cli/hooks/sqliteRuntime.js.",
+      "securityConcerns": "N/A for KhatamRouter.",
+      "rationale": "KhatamRouter deleted cli/hooks/sqliteRuntime.js and uses bun:sqlite natively without Node/npm installation hooks.",
+      "localEvidence": "CLAUDE.md; cli/package.json"
+    },
+    {
+      "sha": "a3039ab141c4dfc71aab434cdd2c94579bceaa42",
+      "shortSha": "a3039ab1",
+      "author": "decolua",
+      "date": "2026-11-08T18:23:23+07:00",
+      "subject": "fix(dedupe): drop tool_reference blocks naming stripped tools",
+      "files": [
+        "open-sse/handlers/chatCore.js",
+        "open-sse/translator/schema/blocks.js",
+        "open-sse/utils/toolDeduper.js",
+        "tests/unit/tool-dedupe.test.js"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "translator-dedupe",
+      "disposition": "PORTED",
+      "behavior": "Drops dangling tool_reference blocks when tools are stripped by MCP dedupe, avoiding 400 Bad Request on strict upstreams (z.ai code 1210).",
+      "securityConcerns": "None.",
+      "rationale": "Clean fix for MCP tool deduplication.",
+      "localEvidence": "open-sse/utils/toolDeduper.js; open-sse/handlers/chatCore.js; open-sse/translator/schema/blocks.js; tests/unit/tool-dedupe.test.js"
+    },
+    {
+      "sha": "eaeb54a66a4ff0f4aa5e933cfa41f5cb25952441",
+      "shortSha": "eaeb54a6",
+      "author": "decolua",
+      "date": "2026-11-08T18:48:07+07:00",
+      "subject": "# v0.5.116 (2026-11-08)",
+      "files": [
+        "CHANGELOG.md",
+        "cli/package.json"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "release-boundary",
+      "disposition": "RELEASE_BOUNDARY",
+      "behavior": "Adds changelog for v0.5.116 and sets cli/package.json version to 0.5.116.",
+      "securityConcerns": "None.",
+      "rationale": "Marks authoritative v0.5.116 changelog boundary.",
+      "localEvidence": "CHANGELOG.md; cli/package.json"
+    },
+    {
+      "sha": "1339107e624d1ab150c6a0c2c2ee22caa7e9db2f",
+      "shortSha": "1339107e",
+      "author": "decolua",
+      "date": "2026-11-08T18:48:45+07:00",
+      "subject": "0.5.116",
+      "files": [
+        "package.json"
+      ],
+      "release": "0.5.116",
+      "range": "new_v0.5.112_to_v0.5.116",
+      "cluster": "release-boundary",
+      "disposition": "RELEASE_BOUNDARY",
+      "behavior": "Bumps root package.json version to 0.5.116.",
+      "securityConcerns": "None.",
+      "rationale": "Marks authoritative v0.5.116 root package boundary.",
+      "localEvidence": "package.json"
+    }
+  ]
+}

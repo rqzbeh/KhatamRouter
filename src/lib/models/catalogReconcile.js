@@ -29,6 +29,10 @@ const FIELDS = [
   "supportsAudio",
   "supportsVideo",
   "supportedThinkingEfforts",
+  "supportsImageGeneration",
+  "supportsImageEditing",
+  "supportsWebSearch",
+  "supportsWebFetch",
 ];
 
 // Capabilities a /models listing usually does not state. When the normalizer
@@ -40,6 +44,10 @@ const ABSENT_MEANS_UNKNOWN = new Set([
   "supportsReasoning",
   "supportsAudio",
   "supportsVideo",
+  "supportsImageGeneration",
+  "supportsImageEditing",
+  "supportsWebSearch",
+  "supportsWebFetch",
 ]);
 
 // Credential-shaped keys only. A bare /token/ would also match legitimate
@@ -94,21 +102,115 @@ function rawDeclaresFalse(raw, field) {
     if (raw.supportsVideo === false || raw.supports_video === false || raw.video === false) return true;
     return false;
   }
+  if (field === "supportsImageGeneration") {
+    if (
+      raw.supportsImageGeneration === false ||
+      raw.supports_image_generation === false ||
+      raw.imageGeneration === false ||
+      raw.image_generation === false ||
+      raw.imageOutput === false ||
+      raw.image_output === false
+    ) return true;
+    if (
+      isObj(raw.capabilities) &&
+      (raw.capabilities.supportsImageGeneration === false ||
+        raw.capabilities.imageGeneration === false ||
+        raw.capabilities.imageOutput === false)
+    ) return true;
+    return false;
+  }
+  if (field === "supportsImageEditing") {
+    if (
+      raw.supportsImageEditing === false ||
+      raw.supports_image_editing === false ||
+      raw.imageEditing === false ||
+      raw.image_editing === false
+    ) return true;
+    if (
+      isObj(raw.capabilities) &&
+      (raw.capabilities.supportsImageEditing === false ||
+        raw.capabilities.imageEditing === false)
+    ) return true;
+    return false;
+  }
+  if (field === "supportsWebSearch") {
+    if (
+      raw.supportsWebSearch === false ||
+      raw.supports_web_search === false ||
+      raw.webSearch === false ||
+      raw.web_search === false ||
+      raw.search === false
+    ) return true;
+    if (
+      isObj(raw.capabilities) &&
+      (raw.capabilities.supportsWebSearch === false ||
+        raw.capabilities.webSearch === false ||
+        raw.capabilities.search === false)
+    ) return true;
+    return false;
+  }
+  if (field === "supportsWebFetch") {
+    if (
+      raw.supportsWebFetch === false ||
+      raw.supports_web_fetch === false ||
+      raw.webFetch === false ||
+      raw.web_fetch === false
+    ) return true;
+    if (
+      isObj(raw.capabilities) &&
+      (raw.capabilities.supportsWebFetch === false ||
+        raw.capabilities.webFetch === false)
+    ) return true;
+    return false;
+  }
   return false;
 }
 
+const FIELD_ALIASES = {
+  supportsVision: ["supportsVision", "supports_vision", "vision"],
+  supportsTools: ["supportsTools", "supports_tools", "tools", "tool_calling", "toolCalling"],
+  supportsReasoning: ["supportsReasoning", "supports_reasoning", "reasoning"],
+  supportsAudio: ["supportsAudio", "supports_audio", "audioInput", "audio"],
+  supportsVideo: ["supportsVideo", "supports_video", "videoInput", "video"],
+  supportsImageGeneration: [
+    "supportsImageGeneration",
+    "supports_image_generation",
+    "imageGeneration",
+    "image_generation",
+    "imageOutput",
+    "image_output",
+  ],
+  supportsImageEditing: [
+    "supportsImageEditing",
+    "supports_image_editing",
+    "imageEditing",
+    "image_editing",
+  ],
+  supportsWebSearch: [
+    "supportsWebSearch",
+    "supports_web_search",
+    "webSearch",
+    "web_search",
+    "search",
+  ],
+  supportsWebFetch: [
+    "supportsWebFetch",
+    "supports_web_fetch",
+    "webFetch",
+    "web_fetch",
+  ],
+};
+
 function stripSecrets(value, depth = 0) {
-  if (depth > 4) return undefined;
+  if (typeof value !== "object" || value === null) return value;
+  if (depth > 6) return undefined;
   if (Array.isArray(value)) return value.map((v) => stripSecrets(v, depth + 1));
-  if (isObj(value)) {
-    const out = {};
-    for (const [k, v] of Object.entries(value)) {
-      if (SECRET_KEY.test(k)) continue;
-      out[k] = stripSecrets(v, depth + 1);
-    }
-    return out;
+  const out = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (SECRET_KEY.test(k)) continue;
+    out[k] = stripSecrets(v, depth + 1);
   }
-  return value;
+  return out;
 }
 
 // Pull the reconcilable fields out of one listing record.
@@ -119,7 +221,54 @@ function listedFields(record) {
   const isTypedCoreInput = !("raw" in record) || record.raw === undefined;
 
   for (const field of FIELDS) {
-    const v = record[field];
+    let v = record[field];
+    if (v === undefined && FIELD_ALIASES[field]) {
+      for (const alias of FIELD_ALIASES[field]) {
+        if (record[alias] !== undefined) {
+          v = record[alias];
+          break;
+        }
+      }
+    }
+    if (v === undefined && isObj(record.capabilities) && FIELD_ALIASES[field]) {
+      for (const alias of FIELD_ALIASES[field]) {
+        if (record.capabilities[alias] !== undefined) {
+          v = record.capabilities[alias];
+          break;
+        }
+      }
+    }
+    if (v === undefined && isObj(record.raw) && FIELD_ALIASES[field]) {
+      for (const alias of FIELD_ALIASES[field]) {
+        if (record.raw[alias] === true) {
+          v = true;
+          break;
+        }
+        if (isObj(record.raw.capabilities) && record.raw.capabilities[alias] === true) {
+          v = true;
+          break;
+        }
+      }
+    }
+
+    // Explicit kind mapping (not model name!)
+    if (v === undefined) {
+      const explicitKind = String(
+        record.kind || record.type || record.raw?.kind || record.raw?.type || ""
+      ).toLowerCase().trim();
+      if (explicitKind) {
+        if (field === "supportsImageGeneration" && (explicitKind === "image" || explicitKind === "text-to-image" || explicitKind === "image-to-image" || explicitKind === "inpainting")) {
+          v = true;
+        } else if (field === "supportsImageEditing" && (explicitKind === "image-to-image" || explicitKind === "inpainting")) {
+          v = true;
+        } else if (field === "supportsWebSearch" && explicitKind === "websearch") {
+          v = true;
+        } else if (field === "supportsWebFetch" && explicitKind === "webfetch") {
+          v = true;
+        }
+      }
+    }
+
     if (v === undefined || v === null) continue;
     if (field === "contextWindow" || field === "maxOutputTokens") {
       if (typeof v === "number" && Number.isFinite(v) && v > 0) out[field] = v;

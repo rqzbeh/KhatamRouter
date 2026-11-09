@@ -12,6 +12,95 @@ const TAB_KEYS = {
   OVERRIDES: "overrides",
 };
 
+export function summarizeModelTestResults(results) {
+  let passed = 0;
+  let broken = 0;
+  let quotaErrors = 0;
+  let accessErrors = 0;
+  let transportErrors = 0;
+  let skipped = 0;
+
+  if (results && typeof results === "object") {
+    for (const resItem of Object.values(results)) {
+      if (!resItem || typeof resItem !== "object") {
+        transportErrors++;
+        continue;
+      }
+
+      if (resItem.tested === false || resItem.status === "skipped") {
+        skipped++;
+        continue;
+      }
+
+      const cls = String(resItem.classification || "").toLowerCase().trim();
+      const statusCode = Number(resItem.statusCode ?? resItem.status) || null;
+      const reason = String(resItem.reason || "").toLowerCase().trim();
+
+      if (cls === "success" || cls === "ok" || cls === "passed") {
+        passed++;
+      } else if (
+        cls === "quota_cost" ||
+        cls === "rate_limited" ||
+        cls === "quota" ||
+        cls === "rate_limit"
+      ) {
+        quotaErrors++;
+      } else if (
+        cls === "access_restriction" ||
+        cls === "access" ||
+        cls === "auth" ||
+        cls === "forbidden"
+      ) {
+        accessErrors++;
+      } else if (cls === "hard_model_failure") {
+        broken++;
+      } else if (
+        cls === "transport_indeterminate" ||
+        cls === "transport" ||
+        cls === "network" ||
+        cls === "timeout"
+      ) {
+        if (
+          statusCode === 401 ||
+          statusCode === 403 ||
+          reason === "auth_failure" ||
+          reason === "forbidden" ||
+          reason === "access_restricted" ||
+          reason === "permission_denied" ||
+          /auth|access|forbidden|permission/.test(reason)
+        ) {
+          accessErrors++;
+        } else {
+          transportErrors++;
+        }
+      } else {
+        if (
+          statusCode === 401 ||
+          statusCode === 403 ||
+          reason === "auth_failure" ||
+          reason === "forbidden" ||
+          reason === "access_restricted" ||
+          reason === "permission_denied" ||
+          /auth|access|forbidden|permission/.test(reason)
+        ) {
+          accessErrors++;
+        } else {
+          transportErrors++;
+        }
+      }
+    }
+  }
+
+  return {
+    passed,
+    broken,
+    quotaErrors,
+    accessErrors,
+    transportErrors,
+    skipped,
+  };
+}
+
 export default function ModelManagementPanel({
   providerId,
   connections = [],
@@ -143,20 +232,9 @@ export default function ModelManagementPanel({
       const summary = data.summary || {};
       const results = data.results || {};
 
-      let passed = 0;
-      let broken = 0;
-      let quotaErrors = 0;
-      let accessErrors = 0;
-      let transportErrors = 0;
-
-      for (const resItem of Object.values(results)) {
-        const cls = String(resItem.classification || "").toLowerCase();
-        if (cls === "ok" || cls === "passed") passed++;
-        else if (cls === "quota" || cls === "rate_limit") quotaErrors++;
-        else if (cls === "access" || cls === "auth" || cls === "forbidden") accessErrors++;
-        else if (cls === "transport" || cls === "network" || cls === "timeout") transportErrors++;
-        else broken++;
-      }
+      const hasResults = results && typeof results === "object" && Object.keys(results).length > 0;
+      const counts = summarizeModelTestResults(results);
+      const effectiveBroken = hasResults ? counts.broken : (data.broken ?? data.failingCount ?? 0);
 
       setTestSummary({
         batchId: data.batchId,
@@ -164,13 +242,13 @@ export default function ModelManagementPanel({
         executionNote: data.executionNote || null,
         totalTested: summary.tested ?? rawModelIds.length,
         total: summary.total ?? rawModelIds.length,
-        passed: passed || (data.passed ?? data.okCount ?? 0),
-        broken: broken || (data.broken ?? data.failingCount ?? 0),
-        quotaErrors: quotaErrors || (data.quota ?? data.quotaCount ?? 0),
-        accessErrors: accessErrors || (data.access ?? data.accessCount ?? 0),
-        transportErrors: transportErrors || (data.transport ?? data.transportCount ?? 0),
-        disabledCount: summary.disabled ?? (data.disabledCount ?? (autoDisable ? (broken || (data.broken ?? 0)) : 0)),
-        skippedCount: summary.skipped ?? (data.skippedCount ?? 0),
+        passed: hasResults ? counts.passed : (data.passed ?? data.okCount ?? 0),
+        broken: effectiveBroken,
+        quotaErrors: hasResults ? counts.quotaErrors : (data.quota ?? data.quotaCount ?? 0),
+        accessErrors: hasResults ? counts.accessErrors : (data.access ?? data.accessCount ?? 0),
+        transportErrors: hasResults ? counts.transportErrors : (data.transport ?? data.transportCount ?? 0),
+        disabledCount: summary.disabled ?? (data.disabledCount ?? (autoDisable ? effectiveBroken : 0)),
+        skippedCount: summary.skipped ?? (hasResults ? counts.skipped : (data.skippedCount ?? 0)),
         stoppedEarly: data.stoppedEarly === true,
         stopReason: data.stopReason || null,
         results,
@@ -178,7 +256,7 @@ export default function ModelManagementPanel({
         totalBatches,
       });
 
-      if ((summary.disabled ?? 0) > 0 || data.disabledCount > 0 || (autoDisable && broken > 0)) {
+      if ((summary.disabled ?? 0) > 0 || (data.disabledCount ?? 0) > 0 || (autoDisable && effectiveBroken > 0)) {
         onChanged?.();
       }
     } catch (err) {
