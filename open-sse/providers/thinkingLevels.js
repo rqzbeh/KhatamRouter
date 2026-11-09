@@ -56,6 +56,7 @@ const PATTERN_THINKING = [
   // ahead of the unqualified *mimo*v2.6* one below — that one describes Xiaomi's
   // own API, and its [none..xhigh] set would make max unreachable here (the
   // deepseek wire branch clamps max→high when the declared set lacks it).
+  { provider: "opencode-warp", pattern: "*mimo*v2.6*", levels: ["none", "minimal", "low", "medium", "high", "xhigh", "max"] },
   { provider: "opencode", pattern: "*mimo*v2.6*", levels: ["none", "minimal", "low", "medium", "high", "xhigh", "max"] },
   { provider: "oc", pattern: "*mimo*v2.6*", levels: ["none", "minimal", "low", "medium", "high", "xhigh", "max"] },
   { provider: "opencode-zen", pattern: "*mimo*v2.6*", levels: ["none", "minimal", "low", "medium", "high", "xhigh", "max"] },

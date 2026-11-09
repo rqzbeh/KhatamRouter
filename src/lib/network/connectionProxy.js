@@ -8,6 +8,10 @@ import {
   isOpencodeSidecarPool,
   ensureSidecar,
 } from "@/lib/network/opencode2api/sidecarManager.js";
+import {
+  MANAGED_SIDECAR_URL,
+  MANAGED_SIDECAR_POOL_ID,
+} from "@/lib/network/opencode2api/config.js";
 
 // Safely normalize any value into a trimmed string.
 function normalizeString(value) {
@@ -98,7 +102,23 @@ export async function resolveConnectionProxyConfig(
      * -----------------------------
      */
     if (proxyPoolId) {
-      const proxyPool = await getProxyPoolById(proxyPoolId);
+      let proxyPool = await getProxyPoolById(proxyPoolId);
+
+      // The WARP provider (opencode-warp) binds a virtual pool id and no row
+      // exists for it. Synthesize the managed pool so the sidecar branch below
+      // runs. Without this a deleted/never-created row falls through to
+      // source:"none" and the request egresses over the server IP — the one
+      // real leak this lane exists to prevent.
+      if (!proxyPool && proxyPoolId === MANAGED_SIDECAR_POOL_ID) {
+        proxyPool = {
+          id: proxyPoolId,
+          type: "opencode2api",
+          proxyUrl: MANAGED_SIDECAR_URL,
+          isActive: true,
+          strictProxy: true,
+          data: {},
+        };
+      }
 
       const proxyUrl = normalizeString(proxyPool?.proxyUrl);
       const noProxy = normalizeString(proxyPool?.noProxy);

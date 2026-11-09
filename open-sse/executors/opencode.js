@@ -290,7 +290,7 @@ function isMessagesModel(model) {
   return MESSAGES_MODELS.has(baseModelId(model));
 }
 
-function resolveOpencodeSession(body, credentials, providerSessionId, clientTool) {
+function resolveOpencodeSession(body, credentials, providerSessionId, clientTool, providerId = "opencode") {
   const headers = credentials?.rawHeaders || {};
   const native = nativeSession(headers);
   if (native) return native;
@@ -313,7 +313,7 @@ function resolveOpencodeSession(body, credentials, providerSessionId, clientTool
         headers,
         body,
         connectionId: credentials?.connectionId,
-        scope: "opencode",
+        scope: providerId,
       });
     } catch {
       viaManager = null;
@@ -387,7 +387,7 @@ function sanitizeResponsesItems(body) {
   });
 }
 
-function normalizeOpencodeReasoning(model, body) {
+function normalizeOpencodeReasoning(model, body, providerId = "opencode") {
   const current = body.reasoning;
   const currentReasoning = current && typeof current === "object" && !Array.isArray(current)
     ? current
@@ -398,7 +398,7 @@ function normalizeOpencodeReasoning(model, body) {
   if (typeof requestedEffort !== "string") return;
 
   const cleanModel = baseModelId(model || body.model);
-  const supportedLevels = getThinkingLevels("opencode", cleanModel);
+  const supportedLevels = getThinkingLevels(providerId, cleanModel);
   let effort = requestedEffort.toLowerCase().trim();
   if ((effort === "max" || effort === "ultra") && supportedLevels?.length && !supportedLevels.includes(effort)) {
     if (effort === "ultra" && supportedLevels.includes("max")) effort = "max";
@@ -421,13 +421,22 @@ function dropAdaptiveReasoningEffort(body) {
 }
 
 export class OpenCodeExecutor extends BaseExecutor {
-  constructor() {
-    super("opencode", PROVIDERS.opencode);
+  // The id is parameterised because the WARP lane (opencode-warp) reuses this
+  // executor over the same upstream; only the egress differs.
+  constructor(id = "opencode") {
+    super(id, PROVIDERS[id]);
+    this.providerId = id;
   }
 
   prepareRequestCredentials({ body, credentials, providerSessionId, clientTool } = {}) {
     const sourceCredentials = credentials || {};
-    const session = resolveOpencodeSession(body, sourceCredentials, providerSessionId, clientTool);
+    const session = resolveOpencodeSession(
+      body,
+      sourceCredentials,
+      providerSessionId,
+      clientTool,
+      this.providerId
+    );
 
     return {
       ...sourceCredentials,
@@ -459,7 +468,7 @@ export class OpenCodeExecutor extends BaseExecutor {
       }
       delete body.max_tokens;
       delete body.max_completion_tokens;
-      normalizeOpencodeReasoning(model, body);
+      normalizeOpencodeReasoning(model, body, this.providerId);
       body.stream = true;
       body.store = false;
       normalizeResponsesTools(body);
