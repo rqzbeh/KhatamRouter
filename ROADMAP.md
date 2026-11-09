@@ -247,6 +247,21 @@ OpenCode's free tier counts quota per egress IPv6 `/64`, so a static proxy is bu
 - **Psiphon warm ring (US3)**: pre-established verified standby tunnels, synchronous promotion on rotation (≤250 ms target) with a generation guard, background refill and pruning, and a 2→4 per-request rotation budget — no more gateway-side teardown stall on the request path.
 - **Free proxy source card (US4)**: `FreeProxySourcesCard` was dead code, never rendered and never exported. It is mounted on the Proxy Pools page (landed in parallel as PR #151, so this wave only had to keep it wired and gated rather than re-add it).
 
+---
+
+## Wave 20 — Free-Proxy Usability & WARP Provider Lane
+
+**Status**: 🚧 In progress (branch `020-freeproxy-usability`). Spec at [`specs/020-freeproxy-usability`](./specs/020-freeproxy-usability).
+
+Imported free pools existed but were unusable where it counts: they were invisible in every provider picker (which filtered to `isActive=true`), dumped flat by the hundred, and overwhelmingly dead because nothing proved they worked. Measured on the live box: 33 of 120 candidates could open a tunnel, only 9 of 120 could reach the upstream — roughly two usable pools out of 196 imported.
+
+- **Probes that can fail**: `testProxyUrl` imported bare `undici`, which under Bun resolves to a native `fetch` stub that accepts and ignores `dispatcher`; every test passed on the host socket. Requests now resolve the real package through `undiciRuntime.js`.
+- **Grouped pickers, activation in place**: provider and connections pool pickers list every pool grouped by parent source (Psiphon, WARP, 1proxy, Proxifly, IPLocate, manual); picking an inactive one activates it. The pool page gets the same grouping, collapsed by default, with search.
+- **Connectivity gate on import**: sync only accepts candidates that answer `https://opencode.ai/zen/v1/models` through the proxy (GET, 6 s, 8 in flight, stop at the cap), imports them **active**, and prunes dead free-owned pools after an hour.
+- **Feeds that still exist**: `oneproxy` 404'd and `proxifly` returned one random proxy per call. They now point at the ProxyScrape v4 and jsDelivr bulk lists; the SSRF/allowlist guards are unchanged.
+- **`opencode-warp` provider (`ocw`)**: a first-class lane on the free Zen models whose egress is always the bundled WARP daemon, so the exit IP rotates instead of the single shared IP earning `403 FreeTierError`. Strict fail-closed: a missing daemon is a 503, never a silent direct request.
+- **`PATCH` on a pool**: activation is a partial update and clients reach for `PATCH`; it answers 405 before, now it is a `PUT` alias.
+
 ## Wave 9 — Upstream Parity & Security Hardening
 
 **Status**: 🟢 Shipped (Branch `spec/009-upstream-port`, 44 candidates landed across 19 commits)
