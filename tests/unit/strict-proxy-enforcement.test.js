@@ -13,7 +13,7 @@
 //    attempt. When no proxy URL resolves there is nothing to try, so it
 //    reaches the trailing `return originalFetch(url, options)` and connects
 //    directly.
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/models", () => ({
   getProxyPoolById: vi.fn(),
@@ -65,6 +65,25 @@ describe("strictProxy refuses a direct connection (#4333)", () => {
     await expect(
       proxyAwareFetch("https://api.example.com/v1/chat", {}, { enabled: true, url: "", strictProxy: true }),
     ).rejects.toThrow(/strictProxy/);
+  });
+
+  // The two "reaches the network" cases below assert the *no proxy* branch, so
+  // a proxy exported by the developer machine must not leak into them.
+  const ENV_PROXY_KEYS = [
+    "HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy",
+  ];
+  let savedEnvProxy;
+  beforeEach(() => {
+    savedEnvProxy = {};
+    for (const key of ENV_PROXY_KEYS) {
+      savedEnvProxy[key] = process.env[key];
+      delete process.env[key];
+    }
+  });
+  afterEach(() => {
+    for (const key of ENV_PROXY_KEYS) {
+      if (savedEnvProxy[key] !== undefined) process.env[key] = savedEnvProxy[key];
+    }
   });
 
   it("does not block a caller that sets strictProxy with no proxy configured", async () => {

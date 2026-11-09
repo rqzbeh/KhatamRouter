@@ -1,3 +1,13 @@
+# Unreleased — OpenCode Unlimited egress sidecar (Spec 018)
+
+## Features
+- **Bundled `opencode2api` egress daemon**: the GPL-3.0 `opencode2api` binary is now downloaded at build time for `amd64` and `arm64`, pinned to `v1.4.5` with per-arch SHA-256 verified by `sha256sum -c`, installed to `/usr/local/bin/opencode2api`, its `LICENSE` installed alongside, and copied into the runner stage with an executable smoke check in both `Dockerfile` and `Dockerfile.bun`. Nothing has to be downloaded or configured at runtime. `src/lib/network/opencode2api/opencode2apiRelease.json` is the single source of truth and `tests/unit/opencode2api-release-pin.test.js` fails if the Dockerfile ARGs drift from it.
+- **New `opencode2api` proxy pool type**: `opencode2api://managed` pools are supervised loopback daemons holding a Cloudflare WARP IPv6 exit pool. A quota-burned exit (429/403) is retired by the daemon and replaced from a pre-registered spare before the caller sees an error. Pool options `poolSize` (1–32), `warmStandby` (0–4) and `retryAttempts` (1–6) are validated and clamped; the pool is strict and fails closed with 503 rather than egressing direct. Readiness is gated on `/healthz` returning `ready: true`, a watchdog restarts a dead daemon with a 3-exits-in-30s crash-loop guard, and status reports active/standby/cooling exits. See `docs/OPENCODE2API.md`.
+- **Psiphon warm standby ring**: `warmStandby` (0–4, default 2) keeps pre-established tunnels verified to the same standard as the active one. `rotate()` now promotes a standby synchronously (≤250 ms target), bumps the generation, and refills the ring in the background while pruning surplus tunnels — so a burned Psiphon exit no longer stalls the request through a full re-establish. Requests get a 2→4 rotation budget with a generation guard.
+
+## Fixes
+- **Free proxy sources were unreachable**: `FreeProxySourcesCard` existed but was never rendered and was missing from `src/shared/components/index.js`, so the merged ingestion feature had no UI entry point. It is now exported and mounted on the Proxy Pools page.
+
 # Unreleased — Regionhop release pin (v1.27.0)
 
 ## Features

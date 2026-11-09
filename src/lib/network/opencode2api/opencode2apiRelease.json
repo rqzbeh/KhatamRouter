@@ -1,0 +1,17 @@
+{
+  "version": "v1.4.5",
+  "source": "https://github.com/jasonxu114514/opencode2api",
+  "license": "GPL-3.0",
+  "assets": {
+    "amd64": {
+      "url": "https://github.com/jasonxu114514/opencode2api/releases/download/v1.4.5/opencode2api_v1.4.5_linux_amd64.tar.gz",
+      "sha256": "469ea7ab6eb38d409378748721607daef55a770b92cc9e2466a5aad81639fcf2",
+      "size": 5305728
+    },
+    "arm64": {
+      "url": "https://github.com/jasonxu114514/opencode2api/releases/download/v1.4.5/opencode2api_v1.4.5_linux_arm64.tar.gz",
+      "sha256": "6a34a93026e4d91a3e55cbe04bc387a94dffaafaa606caef5ed01fa3c5248a98",
+      "size": 4882647
+    }
+  }
+}

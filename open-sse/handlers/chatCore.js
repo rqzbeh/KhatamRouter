@@ -452,6 +452,14 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     strictProxy: credentials?.providerSpecificData?.strictProxy === true,
     psiphonPoolId: credentials?.providerSpecificData?.psiphonPoolId || null,
     psiphonUnavailable: credentials?.providerSpecificData?.psiphonUnavailable === true,
+    // Managed opencode2api sidecar: loopback URL + per-spawn local key. The URL
+    // is rewritten in proxyFetch; an empty URL with a non-null pool id means the
+    // daemon was unavailable and the request must fail closed.
+    opencodeSidecarPoolId: credentials?.providerSpecificData?.opencodeSidecarPoolId || null,
+    opencodeSidecarUrl: credentials?.providerSpecificData?.opencodeSidecarUrl || "",
+    opencodeSidecarKey: credentials?.providerSpecificData?.opencodeSidecarKey || "",
+    opencodeSidecarGeneration: credentials?.providerSpecificData?.opencodeSidecarGeneration ?? null,
+    opencodeSidecarUnavailable: credentials?.providerSpecificData?.opencodeSidecarUnavailable === true,
   };
 
   if (proxyOptions.vercelRelayUrl) {

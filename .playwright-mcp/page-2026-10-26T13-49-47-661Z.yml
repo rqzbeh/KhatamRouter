@@ -1,0 +1,87 @@
+- generic [active] [ref=f3e1]:
+  - generic [ref=f3e2]:
+    - complementary [ref=f3e4]:
+      - link "hub KhatamRouter v0.5.111" [ref=f3e10] [cursor=pointer]:
+        - /url: /dashboard
+        - generic [ref=f3e11]: hub
+        - generic [ref=f3e13]:
+          - heading "KhatamRouter" [level=1] [ref=f3e14]
+          - generic [ref=f3e15]: v0.5.111
+      - navigation [ref=f3e16]:
+        - link "api Endpoint & Key" [ref=f3e17] [cursor=pointer]:
+          - /url: /dashboard/endpoint
+          - generic [ref=f3e18]: api
+          - generic [ref=f3e19]: Endpoint & Key
+        - link "dns Providers" [ref=f3e20] [cursor=pointer]:
+          - /url: /dashboard/providers
+          - generic [ref=f3e21]: dns
+          - generic [ref=f3e22]: Providers
+        - link "layers Combo & Vision Adapter" [ref=f3e23] [cursor=pointer]:
+          - /url: /dashboard/combos
+          - generic [ref=f3e24]: layers
+          - generic [ref=f3e25]: Combo & Vision Adapter
+        - link "bar_chart Usage" [ref=f3e26] [cursor=pointer]:
+          - /url: /dashboard/usage
+          - generic [ref=f3e27]: bar_chart
+          - generic [ref=f3e28]: Usage
+        - link "data_usage Quota Tracker" [ref=f3e29] [cursor=pointer]:
+          - /url: /dashboard/quota
+          - generic [ref=f3e30]: data_usage
+          - generic [ref=f3e31]: Quota Tracker
+        - link "savings Token Saver" [ref=f3e32] [cursor=pointer]:
+          - /url: /dashboard/token-saver
+          - generic [ref=f3e33]: savings
+          - generic [ref=f3e34]: Token Saver
+        - link "terminal CLI Tools" [ref=f3e35] [cursor=pointer]:
+          - /url: /dashboard/cli-tools
+          - generic [ref=f3e36]: terminal
+          - generic [ref=f3e37]: CLI Tools
+        - generic [ref=f3e38]:
+          - paragraph [ref=f3e39]: System
+          - button "perm_media Media Providers expand_more" [ref=f3e40] [cursor=pointer]:
+            - generic [ref=f3e41]: perm_media
+            - generic [ref=f3e42]: Media Providers
+            - generic [ref=f3e43]: expand_more
+          - link "lan Proxy Pools" [ref=f3e44] [cursor=pointer]:
+            - /url: /dashboard/proxy-pools
+            - generic [ref=f3e45]: lan
+            - generic [ref=f3e46]: Proxy Pools
+          - link "extension Skills" [ref=f3e47] [cursor=pointer]:
+            - /url: /dashboard/skills
+            - generic [ref=f3e48]: extension
+            - generic [ref=f3e49]: Skills
+          - link "terminal Console Log" [ref=f3e50] [cursor=pointer]:
+            - /url: /dashboard/console-log
+            - generic [ref=f3e51]: terminal
+            - generic [ref=f3e52]: Console Log
+          - link "computer 9Remote HOT" [ref=f3e53] [cursor=pointer]:
+            - /url: https://9remote.cc
+            - generic [ref=f3e54]: computer
+            - generic [ref=f3e55]: 9Remote
+            - generic [ref=f3e56]: HOT
+          - link "translate 9English" [ref=f3e57] [cursor=pointer]:
+            - /url: https://9english.net/
+            - generic [ref=f3e58]: translate
+            - generic [ref=f3e59]: 9English
+          - link "settings Settings" [ref=f3e60] [cursor=pointer]:
+            - /url: /dashboard/profile
+            - generic [ref=f3e61]: settings
+            - generic [ref=f3e62]: Settings
+    - main [ref=f3e63]:
+      - generic [ref=f3e64]:
+        - generic [ref=f3e66]:
+          - generic [ref=f3e67]:
+            - generic [ref=f3e68]: dns
+            - heading "Providers" [level=1] [ref=f3e69]
+          - paragraph [ref=f3e70]: Manage your AI provider connections
+        - generic [ref=f3e71]:
+          - generic [ref=f3e72]:
+            - generic: search
+            - textbox "Search providers..." [ref=f3e73]
+          - button "Donate" [ref=f3e74] [cursor=pointer]:
+            - generic [ref=f3e75]: volunteer_activism
+          - button "Switch to dark mode" [ref=f3e77] [cursor=pointer]:
+            - generic [ref=f3e78]: dark_mode
+          - button "🇺🇸" [ref=f3e79] [cursor=pointer]
+          - button "grid_view" [ref=f3e82] [cursor=pointer]
+  - alert [ref=f3e99]

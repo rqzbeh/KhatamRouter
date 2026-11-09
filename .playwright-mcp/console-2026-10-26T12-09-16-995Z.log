@@ -1,0 +1,5 @@
+[     440ms] [VERBOSE] [DOM] Input elements should have autocomplete attributes (suggested: "new-password"): (More info: https://goo.gl/9p2vKq) %o @ http://127.0.0.1:30128/login:0
+[     580ms] [ERROR] Failed to load resource: net::ERR_NETWORK_CHANGED @ https://www.googletagmanager.com/gtag/js?id=G-LC959F603F:0
+[     595ms] [ERROR] Failed to load resource: net::ERR_NETWORK_CHANGED @ http://127.0.0.1:30128/icons/icon-192.svg:0
+[     596ms] [WARNING] Error while trying to use the following icon from the Manifest: http://127.0.0.1:30128/icons/icon-192.svg (Download error or resource isn't a valid image) @ http://127.0.0.1:30128/login:0
+[   31039ms] [ERROR] Failed to load resource: net::ERR_NETWORK_CHANGED @ https://www.googletagmanager.com/gtag/js?id=G-LC959F603F:0

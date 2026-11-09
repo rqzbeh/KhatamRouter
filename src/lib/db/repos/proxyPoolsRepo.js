@@ -78,6 +78,10 @@ export async function createProxyPool(data) {
   if (psiphonData) {
     pool.psiphon = psiphonData;
   }
+  const opencode2apiData = data.opencode2api || data.data?.opencode2api;
+  if (opencode2apiData) {
+    pool.opencode2api = opencode2apiData;
+  }
   pool.data = { ...pool };
   upsert(db, pool);
   return pool;

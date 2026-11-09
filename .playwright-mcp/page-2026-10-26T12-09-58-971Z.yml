@@ -1,0 +1,87 @@
+- generic [active] [ref=f4e1]:
+  - generic [ref=f4e2]:
+    - complementary [ref=f4e4]:
+      - link "hub KhatamRouter v0.5.104" [ref=f4e10] [cursor=pointer]:
+        - /url: /dashboard
+        - generic [ref=f4e11]: hub
+        - generic [ref=f4e13]:
+          - heading "KhatamRouter" [level=1] [ref=f4e14]
+          - generic [ref=f4e15]: v0.5.104
+      - navigation [ref=f4e16]:
+        - link "api Endpoint & Key" [ref=f4e17] [cursor=pointer]:
+          - /url: /dashboard/endpoint
+          - generic [ref=f4e18]: api
+          - generic [ref=f4e19]: Endpoint & Key
+        - link "dns Providers" [ref=f4e20] [cursor=pointer]:
+          - /url: /dashboard/providers
+          - generic [ref=f4e21]: dns
+          - generic [ref=f4e22]: Providers
+        - link "layers Combo & Vision Adapter" [ref=f4e23] [cursor=pointer]:
+          - /url: /dashboard/combos
+          - generic [ref=f4e24]: layers
+          - generic [ref=f4e25]: Combo & Vision Adapter
+        - link "bar_chart Usage" [ref=f4e26] [cursor=pointer]:
+          - /url: /dashboard/usage
+          - generic [ref=f4e27]: bar_chart
+          - generic [ref=f4e28]: Usage
+        - link "data_usage Quota Tracker" [ref=f4e29] [cursor=pointer]:
+          - /url: /dashboard/quota
+          - generic [ref=f4e30]: data_usage
+          - generic [ref=f4e31]: Quota Tracker
+        - link "savings Token Saver" [ref=f4e32] [cursor=pointer]:
+          - /url: /dashboard/token-saver
+          - generic [ref=f4e33]: savings
+          - generic [ref=f4e34]: Token Saver
+        - link "terminal CLI Tools" [ref=f4e35] [cursor=pointer]:
+          - /url: /dashboard/cli-tools
+          - generic [ref=f4e36]: terminal
+          - generic [ref=f4e37]: CLI Tools
+        - generic [ref=f4e38]:
+          - paragraph [ref=f4e39]: System
+          - button "perm_media Media Providers expand_more" [ref=f4e40] [cursor=pointer]:
+            - generic [ref=f4e41]: perm_media
+            - generic [ref=f4e42]: Media Providers
+            - generic [ref=f4e43]: expand_more
+          - link "lan Proxy Pools" [ref=f4e44] [cursor=pointer]:
+            - /url: /dashboard/proxy-pools
+            - generic [ref=f4e45]: lan
+            - generic [ref=f4e46]: Proxy Pools
+          - link "extension Skills" [ref=f4e47] [cursor=pointer]:
+            - /url: /dashboard/skills
+            - generic [ref=f4e48]: extension
+            - generic [ref=f4e49]: Skills
+          - link "terminal Console Log" [ref=f4e50] [cursor=pointer]:
+            - /url: /dashboard/console-log
+            - generic [ref=f4e51]: terminal
+            - generic [ref=f4e52]: Console Log
+          - link "computer 9Remote HOT" [ref=f4e53] [cursor=pointer]:
+            - /url: https://9remote.cc
+            - generic [ref=f4e54]: computer
+            - generic [ref=f4e55]: 9Remote
+            - generic [ref=f4e56]: HOT
+          - link "translate 9English" [ref=f4e57] [cursor=pointer]:
+            - /url: https://9english.net/
+            - generic [ref=f4e58]: translate
+            - generic [ref=f4e59]: 9English
+          - link "settings Settings" [ref=f4e60] [cursor=pointer]:
+            - /url: /dashboard/profile
+            - generic [ref=f4e61]: settings
+            - generic [ref=f4e62]: Settings
+    - main [ref=f4e63]:
+      - generic [ref=f4e64]:
+        - generic [ref=f4e66]:
+          - generic [ref=f4e67]:
+            - generic [ref=f4e68]: data_usage
+            - heading "Quota Tracker" [level=1] [ref=f4e69]
+          - paragraph [ref=f4e70]: Track and manage your API quota limits
+        - generic [ref=f4e71]:
+          - button "Donate" [ref=f4e72] [cursor=pointer]:
+            - generic [ref=f4e73]: volunteer_activism
+          - button "Switch to dark mode" [ref=f4e75] [cursor=pointer]:
+            - generic [ref=f4e76]: dark_mode
+          - button "🇺🇸" [ref=f4e77] [cursor=pointer]
+          - button "grid_view" [ref=f4e80] [cursor=pointer]
+      - generic [ref=f4e87]:
+        - button "Provider Limits" [ref=f4e88] [cursor=pointer]
+        - button "API Key Quotas" [ref=f4e89] [cursor=pointer]
+  - alert [ref=f4e97]

@@ -71,6 +71,12 @@ export function validatePsiphonConfig(config) {
       return { valid: false, error: "probeCandidates must be an integer between 1 and 5" };
     }
   }
+  if (config.warmStandby !== undefined) {
+    const ws = config.warmStandby;
+    if (!Number.isInteger(ws) || ws < 0 || ws > 4) {
+      return { valid: false, error: "warmStandby must be an integer between 0 and 4" };
+    }
+  }
   if (config.maxRequestsPerIp !== undefined) {
     const mr = config.maxRequestsPerIp;
     if (!Number.isInteger(mr) || mr < 0) {

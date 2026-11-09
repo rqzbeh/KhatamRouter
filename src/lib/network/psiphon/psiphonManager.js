@@ -34,6 +34,10 @@ export function __getActiveChildForTests(poolId) {
   return poolsState.get(poolId)?.activeChild || null;
 }
 
+export function __getStandbyForTests(poolId) {
+  return poolsState.get(poolId)?.standby || [];
+}
+
 export async function terminateProcess(child, sigkillTimeoutMs = 1500) {
   if (!child) return;
   if (child.exitCode !== null || child.signalCode !== null) return;
@@ -76,10 +80,42 @@ export async function terminateProcess(child, sigkillTimeoutMs = 1500) {
   });
 }
 
+/**
+ * Stops all standby tunnels for a specific pool and cleans up resources.
+ * @param {string} poolId
+ */
+export async function stopStandby(poolId) {
+  const state = poolsState.get(poolId);
+  if (!state || !state.standby || state.standby.length === 0) return;
+
+  const toStop = state.standby.splice(0, state.standby.length);
+  await Promise.all(
+    toStop.map(async (entry) => {
+      if (entry.child) {
+        await terminateProcess(entry.child);
+      }
+      if (entry.tempConfigFile) {
+        cleanTempConfigFile(entry.tempConfigFile);
+      }
+      if (entry.dataDir) {
+        try {
+          fs.rmSync(entry.dataDir, { recursive: true, force: true });
+        } catch {}
+      }
+    })
+  );
+}
+
 export async function __resetForTests() {
   testSpawnFn = null;
+  for (const poolId of poolsState.keys()) {
+    await stopStandby(poolId);
+  }
   for (const state of poolsState.values()) {
     state.intentionalStop = true;
+    state.refillInFlight = false;
+    state.refillPromise = null;
+    state.standby = [];
     if (state.abortController) {
       state.abortController.abort();
       state.abortController = null;
@@ -138,6 +174,10 @@ function getOrCreatePoolState(poolId) {
       intentionalStop: false,
       processExitTimestamps: [],
       crashLoopFailed: false,
+      standby: [],
+      refillInFlight: false,
+      refillPromise: null,
+      warmStandby: 2,
     });
   }
   return poolsState.get(poolId);
@@ -190,6 +230,22 @@ function registerExitHooks() {
   const cleanup = () => {
     for (const state of poolsState.values()) {
       state.intentionalStop = true;
+      if (Array.isArray(state.standby)) {
+        for (const entry of state.standby) {
+          if (entry.child) {
+            terminateProcess(entry.child);
+          }
+          if (entry.tempConfigFile) {
+            cleanTempConfigFile(entry.tempConfigFile);
+          }
+          if (entry.dataDir) {
+            try {
+              fs.rmSync(entry.dataDir, { recursive: true, force: true });
+            } catch {}
+          }
+        }
+        state.standby = [];
+      }
       if (state.activeChild) {
         terminateProcess(state.activeChild);
         state.activeChild = null;
@@ -356,12 +412,133 @@ function pickCandidateRegions({ poolRegions, recentRegions, availableRegions, ex
   return picked;
 }
 
+function clampWarmStandby(val, fallback = 2) {
+  if (val === undefined || val === null) {
+    return Math.max(0, Math.min(4, fallback));
+  }
+  const num = Number(val);
+  if (!Number.isFinite(num)) {
+    return Math.max(0, Math.min(4, fallback));
+  }
+  return Math.max(0, Math.min(4, Math.floor(num)));
+}
+
+function pruneExpiredStandby(state, pool) {
+  const ttlMs = parseInt(process.env.PSIPHON_STANDBY_TTL_MS || "600000", 10);
+  const now = Date.now();
+  let prunedAny = false;
+  while (state.standby && state.standby.length > 0) {
+    const candidate = state.standby[0];
+    const isExpired = now - (candidate.readyAt || 0) > ttlMs;
+    const isDead = candidate.child && (candidate.child.exitCode !== null || candidate.child.signalCode !== null);
+    if (isExpired || isDead) {
+      const stale = state.standby.shift();
+      prunedAny = true;
+      if (stale.child) {
+        terminateProcess(stale.child).catch(() => {});
+      }
+      if (stale.tempConfigFile) {
+        cleanTempConfigFile(stale.tempConfigFile);
+      }
+      if (stale.dataDir) {
+        try {
+          fs.rmSync(stale.dataDir, { recursive: true, force: true });
+        } catch {}
+      }
+    } else {
+      break;
+    }
+  }
+  if (prunedAny && !state.refillInFlight && !state.intentionalStop && state.state !== "failed") {
+    refillStandby(pool || state.poolConfig || { id: state.id, type: "psiphon" }, state, state.warmStandby);
+  }
+}
+
+/**
+ * Refills the standby ring up to target capacity.
+ * Runs detached, sets refillInFlight, and re-enters once if still short.
+ * Never throws to the caller.
+ * @param {object} pool
+ * @param {object} state
+ * @param {number} target
+ * @param {boolean} [reentered]
+ */
+function refillStandby(pool, state, target, reentered = false) {
+  const targetRing = target !== undefined ? target : state.warmStandby;
+  if (targetRing <= 0) return;
+  if (state.refillInFlight || state.state === "failed" || state.intentionalStop) {
+    return;
+  }
+  if (state.standby.length >= targetRing) return;
+
+  state.refillInFlight = true;
+
+  state.refillPromise = (async () => {
+    try {
+      const liveRegions = [];
+      if (state.region) liveRegions.push(state.region);
+      for (const s of state.standby) {
+        if (s.region && !liveRegions.includes(s.region)) {
+          liveRegions.push(s.region);
+        }
+      }
+
+      const established = await establishBestTunnel({
+        pool,
+        state,
+        forStandby: true,
+        excludedRegions: liveRegions,
+      });
+
+      if (state.intentionalStop || state.state === "failed") {
+        await terminateProcess(established.child);
+        if (established.dataDir) {
+          try {
+            fs.rmSync(established.dataDir, { recursive: true, force: true });
+          } catch {}
+        }
+      } else if (state.standby.length < targetRing) {
+        state.standby.push({
+          child: established.child,
+          proxyUrl: established.proxyUrl,
+          region: established.region,
+          dataDir: established.dataDir,
+          exitIp: established.exitIp,
+          generation: established.generation,
+          readyAt: established.readyAt || Date.now(),
+        });
+      } else {
+        await terminateProcess(established.child);
+        if (established.dataDir) {
+          try {
+            fs.rmSync(established.dataDir, { recursive: true, force: true });
+          } catch {}
+        }
+      }
+    } catch (err) {
+      state.lastError = err;
+      console.warn(`[Psiphon] refillStandby failed for pool ${state.id}:`, err?.message || err);
+    } finally {
+      state.refillInFlight = false;
+      state.refillPromise = null;
+      if (
+        !reentered &&
+        !state.intentionalStop &&
+        state.state !== "failed" &&
+        state.standby.length < targetRing
+      ) {
+        refillStandby(pool, state, targetRing, true);
+      }
+    }
+  })();
+}
+
 /**
  * Establishes a tunnel by launching N candidate instances in parallel,
  * probing latency on ready candidates, keeping the lowest latency,
  * and terminating the rest.
  */
-async function establishBestTunnel({ pool, state, excludedRegions }) {
+async function establishBestTunnel({ pool, state, excludedRegions, forStandby = false }) {
   let binPath = getPsiphonBinPath();
   if (!fs.existsSync(binPath)) {
     // Attempt auto-download for Linux hosts (e.g. Docker container or native host)
@@ -369,9 +546,12 @@ async function establishBestTunnel({ pool, state, excludedRegions }) {
   }
 
   if (!fs.existsSync(binPath)) {
-    state.state = "failed";
-    state.lastError = new PsiphonUnavailableError(`Psiphon binary not found at: ${binPath}`);
-    throw state.lastError;
+    const err = new PsiphonUnavailableError(`Psiphon binary not found at: ${binPath}`);
+    if (!forStandby) {
+      state.state = "failed";
+      state.lastError = err;
+    }
+    throw err;
   }
 
   const baseConfigFile = getPsiphonConfigPath();
@@ -418,10 +598,13 @@ async function establishBestTunnel({ pool, state, excludedRegions }) {
   }
 
   if (readyCandidates.length === 0) {
-    state.state = "failed";
     const firstErr = results.find((r) => r.error)?.error;
-    state.lastError = firstErr || new PsiphonUnavailableError("No Psiphon candidates became ready");
-    throw state.lastError;
+    const err = firstErr || new PsiphonUnavailableError("No Psiphon candidates became ready");
+    if (!forStandby) {
+      state.state = "failed";
+      state.lastError = err;
+    }
+    throw err;
   }
 
   // Probe latency for all ready candidates
@@ -437,13 +620,15 @@ async function establishBestTunnel({ pool, state, excludedRegions }) {
     const winner = readyCandidates[0];
     const losers = readyCandidates.slice(1);
 
-    // Terminate losers and clean up their files
-    for (const loser of losers) {
-      await terminateProcess(loser.child);
-      cleanTempConfigFile(loser.tempConfigFile);
-      try {
-        fs.rmSync(loser.dataRootDir, { recursive: true, force: true });
-      } catch {}
+    if (!forStandby) {
+      // Terminate losers and clean up their files
+      for (const loser of losers) {
+        await terminateProcess(loser.child);
+        cleanTempConfigFile(loser.tempConfigFile);
+        try {
+          fs.rmSync(loser.dataRootDir, { recursive: true, force: true });
+        } catch {}
+      }
     }
 
     // Check if winner is reachable through proxy
@@ -453,9 +638,19 @@ async function establishBestTunnel({ pool, state, excludedRegions }) {
       try {
         fs.rmSync(winner.dataRootDir, { recursive: true, force: true });
       } catch {}
-      state.state = "failed";
-      state.lastError = new PsiphonUnavailableError("All ready Psiphon candidates failed proxy connectivity probe");
-      throw state.lastError;
+      if (forStandby) {
+        for (const loser of losers) {
+          await terminateProcess(loser.child);
+          cleanTempConfigFile(loser.tempConfigFile);
+          try {
+            fs.rmSync(loser.dataRootDir, { recursive: true, force: true });
+          } catch {}
+        }
+      } else {
+        state.state = "failed";
+        state.lastError = new PsiphonUnavailableError("All ready Psiphon candidates failed proxy connectivity probe");
+      }
+      throw new PsiphonUnavailableError("All ready Psiphon candidates failed proxy connectivity probe");
     }
 
     // Probe exit IP through winner's proxy
@@ -468,11 +663,23 @@ async function establishBestTunnel({ pool, state, excludedRegions }) {
       try {
         fs.rmSync(winner.dataRootDir, { recursive: true, force: true });
       } catch {}
-      state.state = "failed";
-      state.lastError = new PsiphonUnavailableError(
+      if (forStandby) {
+        for (const loser of losers) {
+          await terminateProcess(loser.child);
+          cleanTempConfigFile(loser.tempConfigFile);
+          try {
+            fs.rmSync(loser.dataRootDir, { recursive: true, force: true });
+          } catch {}
+        }
+      } else {
+        state.state = "failed";
+        state.lastError = new PsiphonUnavailableError(
+          "Psiphon candidate failed egress IP verification probe; missing egress evidence cannot be reported as verified readiness"
+        );
+      }
+      throw new PsiphonUnavailableError(
         "Psiphon candidate failed egress IP verification probe; missing egress evidence cannot be reported as verified readiness"
       );
-      throw state.lastError;
     }
 
     // Winner's temp config is deleted once ready
@@ -480,6 +687,43 @@ async function establishBestTunnel({ pool, state, excludedRegions }) {
 
     if (winner.availableRegions?.length > 0) {
       state.availableRegions = winner.availableRegions;
+    }
+
+    if (forStandby) {
+      for (const loser of losers) {
+        const roomForLoser =
+          !state.intentionalStop &&
+          state.state !== "failed" &&
+          state.standby.length + 1 < state.warmStandby;
+
+        if (roomForLoser) {
+          let loserExitIp = null;
+          try {
+            loserExitIp = await probeExitIp(`http://127.0.0.1:${loser.port}`);
+          } catch {}
+
+          if (loserExitIp) {
+            cleanTempConfigFile(loser.tempConfigFile);
+            state.standby.push({
+              child: loser.child,
+              proxyUrl: `http://127.0.0.1:${loser.port}`,
+              region: loser.region,
+              dataDir: loser.dataRootDir,
+              exitIp: loserExitIp,
+              generation: targetGen,
+              readyAt: Date.now(),
+            });
+            continue;
+          }
+        }
+
+        // Surplus or unverified loser: terminate and clean
+        await terminateProcess(loser.child);
+        cleanTempConfigFile(loser.tempConfigFile);
+        try {
+          fs.rmSync(loser.dataRootDir, { recursive: true, force: true });
+        } catch {}
+      }
     }
 
     return {
@@ -490,6 +734,7 @@ async function establishBestTunnel({ pool, state, excludedRegions }) {
       exitIp,
       egressVerified: true,
       generation: targetGen,
+      readyAt: Date.now(),
     };
   } catch (err) {
     // If any error occurs during probing/setup, terminate all remaining candidates
@@ -500,8 +745,10 @@ async function establishBestTunnel({ pool, state, excludedRegions }) {
         fs.rmSync(cand.dataRootDir, { recursive: true, force: true });
       } catch {}
     }
-    state.state = "failed";
-    state.lastError = err;
+    if (!forStandby) {
+      state.state = "failed";
+      state.lastError = err;
+    }
     throw err;
   }
 }
@@ -515,6 +762,7 @@ export async function ensureTunnel(pool) {
   const poolId = pool.id || pool.name || "default";
   const state = getOrCreatePoolState(poolId);
   state.poolConfig = pool;
+  state.warmStandby = clampWarmStandby(pool.data?.psiphon?.warmStandby, state.warmStandby ?? 2);
 
   if (state.crashLoopFailed) {
     const err = state.lastError instanceof PsiphonUnavailableError
@@ -525,6 +773,10 @@ export async function ensureTunnel(pool) {
 
   // Check if active tunnel exists and is healthy
   if (state.state === "ready" && state.activeChild && !state.thresholdExceeded) {
+    pruneExpiredStandby(state, pool);
+    if (state.standby.length < state.warmStandby && !state.refillInFlight && !state.intentionalStop) {
+      refillStandby(pool, state, state.warmStandby);
+    }
     return {
       proxyUrl: state.proxyUrl,
       region: state.region,
@@ -548,6 +800,10 @@ export async function ensureTunnel(pool) {
   if (state.inFlightPromise) {
     await state.inFlightPromise;
     if (state.state === "ready" && state.activeChild) {
+      pruneExpiredStandby(state, pool);
+      if (state.standby.length < state.warmStandby && !state.refillInFlight && !state.intentionalStop) {
+        refillStandby(pool, state, state.warmStandby);
+      }
       return {
         proxyUrl: state.proxyUrl,
         region: state.region,
@@ -598,6 +854,16 @@ export async function ensureTunnel(pool) {
           });
         }
       });
+
+      state.warmStandby = clampWarmStandby(pool.data?.psiphon?.warmStandby, state.warmStandby ?? 2);
+      if (
+        pool.data?.psiphon?.warmStandby !== undefined &&
+        state.warmStandby > 0 &&
+        state.standby.length < state.warmStandby &&
+        !state.refillInFlight
+      ) {
+        refillStandby(pool, state, state.warmStandby);
+      }
 
       return {
         proxyUrl: state.proxyUrl,
@@ -682,6 +948,78 @@ export async function rotate(poolId, { reason = "manual", seenGeneration } = {})
         exitIp: state.exitIp,
       };
     }
+  }
+
+  const pool = state.poolConfig || { id: poolId, type: "psiphon" };
+
+  // Prune any standby tunnels older than PSIPHON_STANDBY_TTL_MS
+  pruneExpiredStandby(state, pool);
+
+  // Promoted path: if warm standby ring has an entry ready, promote it immediately (< 250ms)
+  if (state.standby.length > 0) {
+    const promoted = state.standby.shift();
+
+    const prevChild = state.activeChild;
+    const prevTempConfigFile = state.tempConfigFile;
+    const prevDataDir = state.dataDir;
+
+    state.activeChild = promoted.child;
+    state.proxyUrl = promoted.proxyUrl;
+    state.region = promoted.region;
+    state.dataDir = promoted.dataDir;
+    state.tempConfigFile = null;
+    state.exitIp = promoted.exitIp;
+    state.egressVerified = true;
+    state.generation += 1;
+    promoted.generation = state.generation;
+    state.requests = 0;
+    state.tokens = 0;
+    state.thresholdExceeded = false;
+    state.state = "ready";
+    state.lastError = null;
+    state.lastRotateTime = Date.now();
+    state.lastRotation = { reason, at: state.lastRotateTime };
+    state.intentionalStop = false;
+
+    if (promoted.region) {
+      state.recentRegions = [...state.recentRegions.slice(-3), promoted.region];
+    }
+
+    if (prevChild) {
+      terminateProcess(prevChild).catch(() => {});
+    }
+    if (prevTempConfigFile) {
+      cleanTempConfigFile(prevTempConfigFile);
+    }
+    if (prevDataDir) {
+      try {
+        fs.rmSync(prevDataDir, { recursive: true, force: true });
+      } catch {}
+    }
+
+    promoted.child.once("exit", (code, signal) => {
+      if (state.activeChild === promoted.child && !state.intentionalStop) {
+        state.activeChild = null;
+        state.state = "idle";
+        state.lastError = new Error(`Psiphon process exited unexpectedly (code: ${code}, signal: ${signal})`);
+        rotate(state.id, { reason: "process_exit" }).catch((err) => {
+          state.lastError = err;
+          state.state = "failed";
+        });
+      }
+    });
+
+    state.warmStandby = clampWarmStandby(pool.data?.psiphon?.warmStandby, state.warmStandby ?? 2);
+    if (state.warmStandby > 0 && state.standby.length < state.warmStandby && !state.refillInFlight) {
+      refillStandby(pool, state, state.warmStandby);
+    }
+
+    return {
+      rotated: true,
+      generation: state.generation,
+      region: state.region,
+      exitIp: state.exitIp,
+    };
   }
 
   state.state = "rotating";
@@ -797,6 +1135,17 @@ export async function rotate(poolId, { reason = "manual", seenGeneration } = {})
         }
       });
 
+      state.warmStandby = clampWarmStandby(pool.data?.psiphon?.warmStandby, 2);
+      if (
+        reason !== "process_exit" &&
+        (!state.processExitTimestamps || state.processExitTimestamps.length === 0) &&
+        state.warmStandby > 0 &&
+        state.standby.length < state.warmStandby &&
+        !state.refillInFlight
+      ) {
+        refillStandby(pool, state, state.warmStandby);
+      }
+
       return {
         rotated: true,
         generation: state.generation,
@@ -855,8 +1204,18 @@ export function getStatus(poolId) {
       tokens: 0,
       lastError: null,
       lastRotation: null,
+      warmStandby: 2,
+      standbyReady: 0,
+      standbyTunnels: [],
+      refillInFlight: false,
     };
   }
+
+  const standbyTunnels = (state.standby || []).map((s) => ({
+    region: s.region,
+    exitIp: s.exitIp,
+    generation: s.generation,
+  }));
 
   return {
     state: state.state,
@@ -868,6 +1227,10 @@ export function getStatus(poolId) {
     tokens: state.tokens,
     lastError: state.lastError ? state.lastError.message || String(state.lastError) : null,
     lastRotation: state.lastRotation,
+    warmStandby: state.warmStandby ?? 2,
+    standbyReady: (state.standby || []).length,
+    standbyTunnels,
+    refillInFlight: Boolean(state.refillInFlight),
   };
 }
 
@@ -880,6 +1243,7 @@ export async function stopTunnel(poolId) {
   if (!state) return;
 
   state.intentionalStop = true;
+  await stopStandby(poolId);
 
   if (state.activeChild) {
     const child = state.activeChild;
@@ -907,6 +1271,9 @@ export async function stopTunnel(poolId) {
   state.thresholdExceeded = false;
   state.processExitTimestamps = [];
   state.crashLoopFailed = false;
+  state.standby = [];
+  state.refillInFlight = false;
+  state.refillPromise = null;
 }
 
 /**

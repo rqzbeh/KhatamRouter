@@ -139,8 +139,11 @@ async function resolveRealIP(hostname) {
   if (cached && Date.now() < cached.expiry) return cached.ip;
 
   try {
-    const dns = await import("dns");
-    const { promisify } = await import("util");
+    // `node:` specifiers, not bare ones: under a bundler/test runner the bare
+    // names can resolve to a different module instance than the `node:*` form,
+    // which breaks prototype patching (e.g. the MITM regression test).
+    const dns = await import("node:dns");
+    const { promisify } = await import("node:util");
     const resolver = new dns.Resolver();
     resolver.setServers(GOOGLE_DNS_SERVERS);
     const resolve4 = promisify(resolver.resolve4.bind(resolver));
@@ -274,15 +277,31 @@ async function fetchWithTlsFallback(url, options, proxyUrl, proxyOptions = null)
   );
 
   try {
-    // If originalFetch is an explicit test mock (e.g. vi.fn()), allow the test mock to intercept
-    if (originalFetch?._isMockFunction && !options?.forceNativeAdapter) {
-      const dispatcher = proxyUrl ? await getDispatcher(proxyUrl) : undefined;
-      return await originalFetch(url, dispatcher ? { ...options, dispatcher } : options);
-    }
-
     const adapterFetch = options?.adapterFetch
       || (typeof options?.directFetch?.adapterFetch === "function" ? options.directFetch.adapterFetch : null)
       || proxyOptions?.adapterFetch;
+
+    // Protocol adapters (e.g. OpenCode TLS impersonation) override the direct
+    // path only when no proxy is configured, and only for allowed hosts
+    // (opencode.ai and subdomains). Codex STT passes directFetch targeting
+    // chatgpt.com, which is safely excluded here.
+    //
+    // Both are resolved BEFORE the test-mock shortcut below, so a suite that
+    // replaces globalThis.fetch still exercises the same branch production
+    // takes instead of silently falling through to the stub.
+    const { directFetch, adapterFetch: _af, ...fetchOptions } = options || {};
+    const directTarget = !proxyUrl && isOpenCodeHost(url) ? (adapterFetch || directFetch) : null;
+
+    // A suite that replaces globalThis.fetch stands in for the network, so the
+    // stub always intercepts a *proxied* request (that is the path under test).
+    // A direct request must still reach its protocol adapter first, or the
+    // opener's TLS impersonation and free-tier direct replay would be skipped.
+    const isMock = originalFetch?._isMockFunction === true && !options?.forceNativeAdapter;
+
+    if (isMock && proxyUrl) {
+      const dispatcher = await getDispatcher(proxyUrl);
+      return await originalFetch(url, { ...fetchOptions, dispatcher });
+    }
 
     if (adapterFetch && isOpenCodeHost(url)) {
       // Specialized OpenCode path: routes directly to opencodeAdapterFetch
@@ -291,13 +310,14 @@ async function fetchWithTlsFallback(url, options, proxyUrl, proxyOptions = null)
       return await adapterFetch(url, options, proxyUrl);
     }
 
-    // Protocol adapters (e.g. OpenCode TLS impersonation) override the direct path
-    // only when no proxy is configured, and only for allowed hosts (opencode.ai and subdomains).
-    // Codex STT passes directFetch targeting chatgpt.com, which is safely excluded here.
-    const { directFetch, adapterFetch: _af, ...fetchOptions } = options || {};
-    if (!proxyUrl && directFetch && isOpenCodeHost(url)) {
-      return await directFetch(url, options);
+    if (directTarget) {
+      return await directTarget(url, options);
     }
+
+    if (isMock) {
+      return await originalFetch(url, { ...fetchOptions });
+    }
+
     const dispatcher = proxyUrl ? await getDispatcher(proxyUrl) : undefined;
     return await originalFetch(url, dispatcher ? { ...fetchOptions, dispatcher } : fetchOptions);
   } catch (err) {
@@ -551,8 +571,69 @@ async function replayFreeTierRejectionDirect(url, options, proxyOptions, proxied
   }
 }
 
+/**
+ * Build the loopback URL for a managed `opencode2api` sidecar.
+ *
+ * The daemon serves `/v1/*` itself and maps it onto the anonymous upstream, so
+ * the upstream `/inference` segment the executor built must be stripped or it
+ * would be doubled (`/inference/v1/...`). Nothing else about the request
+ * changes.
+ */
+function buildSidecarUrl(targetUrl, sidecarBase) {
+  const parsed = new URL(targetUrl);
+  const base = normalizeString(sidecarBase).replace(/\/+$/, "");
+  let pathname = parsed.pathname;
+  if (pathname.startsWith("/inference/")) {
+    pathname = pathname.slice("/inference".length);
+  } else if (pathname === "/inference") {
+    pathname = "/";
+  }
+  return `${base}${pathname}${parsed.search}`;
+}
+
+/**
+ * Rewrite an OpenCode request onto the local sidecar.
+ *
+ * - `Authorization` is REPLACED, not appended: the daemon authenticates callers
+ *   with its own `server_keys` and injects the public-tier auth upstream, so a
+ *   forwarded `Bearer public` would be ignored (or rejected).
+ * - The TLS-fingerprint adapter is bypassed — the daemon is itself the
+ *   impersonator. The body is resent byte-identically (never re-serialized).
+ */
+async function fetchViaOpencodeSidecar(url, options = {}, proxyOptions = {}) {
+  const sidecarBase = normalizeString(proxyOptions?.opencodeSidecarUrl);
+  if (!sidecarBase) {
+    const err = new Error("[ProxyFetch] opencode2api sidecar has no loopback URL (strictProxy=true)");
+    err.status = 503;
+    throw err;
+  }
+
+  const sidecarKey = normalizeString(proxyOptions?.opencodeSidecarKey);
+  const headers = options.headers instanceof Headers
+    ? Object.fromEntries(options.headers.entries())
+    : { ...(options.headers || {}) };
+
+  for (const name of Object.keys(headers)) {
+    const lower = name.toLowerCase();
+    if (lower === "authorization" || lower === "x-api-key") delete headers[name];
+  }
+  if (sidecarKey) {
+    headers.Authorization = `Bearer ${sidecarKey}`;
+  }
+
+  // Drop the direct/adapter fetchers so the native path is used.
+  const { directFetch: _df, adapterFetch: _af, ...rest } = options;
+  return await originalFetch(buildSidecarUrl(url, sidecarBase), { ...rest, headers });
+}
+
 export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
   const targetUrl = typeof url === "string" ? url : url.toString();
+
+  // Managed opencode2api sidecar: full URL rewrite, runs before the relay and
+  // proxy branches because the sidecar is not an HTTP proxy.
+  if (proxyOptions?.opencodeSidecarPoolId) {
+    return await fetchViaOpencodeSidecar(targetUrl, options, proxyOptions);
+  }
 
   // Vercel relay: forward request via relay headers
   const vercelRelayUrl = normalizeString(proxyOptions?.vercelRelayUrl);

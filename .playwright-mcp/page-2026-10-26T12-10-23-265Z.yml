@@ -1,0 +1,84 @@
+- generic [active] [ref=f5e1]:
+  - generic [ref=f5e2]:
+    - complementary [ref=f5e4]:
+      - link "hub KhatamRouter v0.5.104" [ref=f5e10] [cursor=pointer]:
+        - /url: /dashboard
+        - generic [ref=f5e11]: hub
+        - generic [ref=f5e13]:
+          - heading "KhatamRouter" [level=1] [ref=f5e14]
+          - generic [ref=f5e15]: v0.5.104
+      - navigation [ref=f5e16]:
+        - link "api Endpoint & Key" [ref=f5e17] [cursor=pointer]:
+          - /url: /dashboard/endpoint
+          - generic [ref=f5e18]: api
+          - generic [ref=f5e19]: Endpoint & Key
+        - link "dns Providers" [ref=f5e20] [cursor=pointer]:
+          - /url: /dashboard/providers
+          - generic [ref=f5e21]: dns
+          - generic [ref=f5e22]: Providers
+        - link "layers Combo & Vision Adapter" [ref=f5e23] [cursor=pointer]:
+          - /url: /dashboard/combos
+          - generic [ref=f5e24]: layers
+          - generic [ref=f5e25]: Combo & Vision Adapter
+        - link "bar_chart Usage" [ref=f5e26] [cursor=pointer]:
+          - /url: /dashboard/usage
+          - generic [ref=f5e27]: bar_chart
+          - generic [ref=f5e28]: Usage
+        - link "data_usage Quota Tracker" [ref=f5e29] [cursor=pointer]:
+          - /url: /dashboard/quota
+          - generic [ref=f5e30]: data_usage
+          - generic [ref=f5e31]: Quota Tracker
+        - link "savings Token Saver" [ref=f5e32] [cursor=pointer]:
+          - /url: /dashboard/token-saver
+          - generic [ref=f5e33]: savings
+          - generic [ref=f5e34]: Token Saver
+        - link "terminal CLI Tools" [ref=f5e35] [cursor=pointer]:
+          - /url: /dashboard/cli-tools
+          - generic [ref=f5e36]: terminal
+          - generic [ref=f5e37]: CLI Tools
+        - generic [ref=f5e38]:
+          - paragraph [ref=f5e39]: System
+          - button "perm_media Media Providers expand_more" [ref=f5e40] [cursor=pointer]:
+            - generic [ref=f5e41]: perm_media
+            - generic [ref=f5e42]: Media Providers
+            - generic [ref=f5e43]: expand_more
+          - link "lan Proxy Pools" [ref=f5e44] [cursor=pointer]:
+            - /url: /dashboard/proxy-pools
+            - generic [ref=f5e45]: lan
+            - generic [ref=f5e46]: Proxy Pools
+          - link "extension Skills" [ref=f5e47] [cursor=pointer]:
+            - /url: /dashboard/skills
+            - generic [ref=f5e48]: extension
+            - generic [ref=f5e49]: Skills
+          - link "terminal Console Log" [ref=f5e50] [cursor=pointer]:
+            - /url: /dashboard/console-log
+            - generic [ref=f5e51]: terminal
+            - generic [ref=f5e52]: Console Log
+          - link "computer 9Remote HOT" [ref=f5e53] [cursor=pointer]:
+            - /url: https://9remote.cc
+            - generic [ref=f5e54]: computer
+            - generic [ref=f5e55]: 9Remote
+            - generic [ref=f5e56]: HOT
+          - link "translate 9English" [ref=f5e57] [cursor=pointer]:
+            - /url: https://9english.net/
+            - generic [ref=f5e58]: translate
+            - generic [ref=f5e59]: 9English
+          - link "settings Settings" [ref=f5e60] [cursor=pointer]:
+            - /url: /dashboard/profile
+            - generic [ref=f5e61]: settings
+            - generic [ref=f5e62]: Settings
+    - main [ref=f5e63]:
+      - generic [ref=f5e64]:
+        - generic [ref=f5e66]:
+          - generic [ref=f5e67]:
+            - generic [ref=f5e68]: layers
+            - heading "Combos" [level=1] [ref=f5e69]
+          - paragraph [ref=f5e70]: Model combos with fallback
+        - generic [ref=f5e71]:
+          - button "Donate" [ref=f5e72] [cursor=pointer]:
+            - generic [ref=f5e73]: volunteer_activism
+          - button "Switch to dark mode" [ref=f5e75] [cursor=pointer]:
+            - generic [ref=f5e76]: dark_mode
+          - button "🇺🇸" [ref=f5e77] [cursor=pointer]
+          - button "grid_view" [ref=f5e80] [cursor=pointer]
+  - alert [ref=f5e97]

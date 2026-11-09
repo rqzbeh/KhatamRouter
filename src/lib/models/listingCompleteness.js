@@ -45,7 +45,7 @@ export const CLOUDFLARE_TASK_MAP = {
 /**
  * Supported proxy types in KhatamRouter.
  */
-export const VALID_PROXY_TYPES = ["http", "vercel", "cloudflare", "deno", "netlify", "psiphon"];
+export const VALID_PROXY_TYPES = ["http", "vercel", "cloudflare", "deno", "netlify", "psiphon", "opencode2api"];
 
 /**
  * Validates whether the resolved connection proxy configuration can be honored
@@ -90,13 +90,17 @@ export function validateProxySupport(proxy, providerSpecificData = {}) {
     };
   }
 
-  // Must have a usable proxy target: connectionProxyUrl, vercelRelayUrl, or psiphon
+  // Must have a usable proxy target: connectionProxyUrl, vercelRelayUrl, psiphon, or opencode2api sidecar
   const hasTarget = Boolean(
     proxy?.connectionProxyUrl ||
     proxy?.vercelRelayUrl ||
     proxy?.psiphonPoolId ||
+    proxy?.opencodeSidecarUrl ||
+    proxy?.opencodeSidecarPoolId ||
     psd?.connectionProxyUrl ||
-    psd?.vercelRelayUrl
+    psd?.vercelRelayUrl ||
+    psd?.opencodeSidecarUrl ||
+    psd?.opencodeSidecarPoolId
   );
 
   if (!hasTarget) {
@@ -116,6 +120,10 @@ export function validateProxySupport(proxy, providerSpecificData = {}) {
     proxyPoolId: proxy?.proxyPoolId || psd?.proxyPoolId || "",
     proxyPool: proxy?.proxyPool || psd?.proxyPool || null,
     psiphonPoolId: proxy?.psiphonPoolId || psd?.psiphonPoolId || "",
+    opencodeSidecarUrl: proxy?.opencodeSidecarUrl || psd?.opencodeSidecarUrl || "",
+    opencodeSidecarKey: proxy?.opencodeSidecarKey || psd?.opencodeSidecarKey || "",
+    opencodeSidecarPoolId: proxy?.opencodeSidecarPoolId || psd?.opencodeSidecarPoolId || "",
+    opencodeSidecarGeneration: proxy?.opencodeSidecarGeneration ?? psd?.opencodeSidecarGeneration ?? 0,
   };
 
   return { ok: true, proxyOptions };
@@ -132,7 +140,9 @@ export function hasConfiguredProxyEgress(proxyConfig, providerSpecificData = nul
       providerSpecificData.connectionProxyEnabled === true ||
       providerSpecificData.connectionProxyUrl ||
       providerSpecificData.proxyPoolId ||
-      providerSpecificData.psiphonPoolId
+      providerSpecificData.psiphonPoolId ||
+      providerSpecificData.opencodeSidecarPoolId ||
+      providerSpecificData.opencodeSidecarUrl
     ) {
       return true;
     }
@@ -144,7 +154,9 @@ export function hasConfiguredProxyEgress(proxyConfig, providerSpecificData = nul
     proxyConfig.vercelRelayUrl ||
     proxyConfig.connectionProxyUrl ||
     proxyConfig.proxyPoolId ||
-    proxyConfig.psiphonPoolId
+    proxyConfig.psiphonPoolId ||
+    proxyConfig.opencodeSidecarPoolId ||
+    proxyConfig.opencodeSidecarUrl
   );
 }
 

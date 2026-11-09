@@ -6,7 +6,14 @@ import {
   updateProxyPool,
 } from "@/models";
 import { stopTunnel } from "@/lib/network/psiphon/psiphonManager.js";
-import { VALID_PROXY_TYPES, MANAGED_PSIPHON_URL, normalizePsiphonOptions } from "../types.js";
+import { stopSidecar } from "@/lib/network/opencode2api/sidecarManager.js";
+import {
+  VALID_PROXY_TYPES,
+  MANAGED_PSIPHON_URL,
+  MANAGED_OPENCODE2API_URL,
+  normalizePsiphonOptions,
+  normalizeOpencode2apiOptions,
+} from "../types.js";
 
 function normalizeProxyPoolUpdate(body = {}, existing = {}) {
   const updates = {};
@@ -26,6 +33,8 @@ function normalizeProxyPoolUpdate(body = {}, existing = {}) {
     let proxyUrl = typeof body?.proxyUrl === "string" ? body.proxyUrl.trim() : "";
     if (effectiveType === "psiphon" && !proxyUrl) {
       proxyUrl = MANAGED_PSIPHON_URL;
+    } else if (effectiveType === "opencode2api" && !proxyUrl) {
+      proxyUrl = MANAGED_OPENCODE2API_URL;
     } else if (!proxyUrl) {
       return { error: "Proxy URL is required" };
     }
@@ -40,9 +49,10 @@ function normalizeProxyPoolUpdate(body = {}, existing = {}) {
     updates.isActive = body?.isActive === true;
   }
 
+  const isStrictType = effectiveType === "psiphon" || effectiveType === "opencode2api";
   if (Object.prototype.hasOwnProperty.call(body, "strictProxy")) {
-    updates.strictProxy = effectiveType === "psiphon" ? true : body?.strictProxy === true;
-  } else if (effectiveType === "psiphon") {
+    updates.strictProxy = isStrictType ? true : body?.strictProxy === true;
+  } else if (isStrictType) {
     updates.strictProxy = true;
   }
 
@@ -57,6 +67,16 @@ function normalizeProxyPoolUpdate(body = {}, existing = {}) {
         return { error: psiphonResult.error };
       }
       updates.psiphon = psiphonResult.psiphon;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, "opencode2api")) {
+    if (effectiveType === "opencode2api") {
+      const opencode2apiResult = normalizeOpencode2apiOptions(body.opencode2api);
+      if (!opencode2apiResult.valid) {
+        return { error: opencode2apiResult.error };
+      }
+      updates.opencode2api = opencode2apiResult.opencode2api;
     }
   }
 
@@ -104,10 +124,19 @@ export async function PUT(request, { params }) {
     // Stop tunnel if deactivating or switching away from psiphon
     const isPsiphon = existing.type === "psiphon";
     const willBeInactive = normalized.updates.isActive === false;
-    const willChangeType = normalized.updates.type && normalized.updates.type !== "psiphon";
+    const willChangeType = normalized.updates.type && normalized.updates.type !== existing.type;
 
-    if (isPsiphon && (willBeInactive || willChangeType)) {
+    if (isPsiphon && (willBeInactive || (willChangeType && normalized.updates.type !== "psiphon"))) {
       await stopTunnel(id);
+    }
+
+    // Stop sidecar if deactivating, switching away, or changing options for opencode2api
+    const isOpencode = existing.type === "opencode2api";
+    const opencodeOptionsChanged = isOpencode && normalized.updates.opencode2api !== undefined;
+    const willChangeAwayFromOpencode = willChangeType && normalized.updates.type !== "opencode2api";
+
+    if (isOpencode && (willBeInactive || willChangeAwayFromOpencode || opencodeOptionsChanged)) {
+      await stopSidecar(id);
     }
 
     const updated = await updateProxyPool(id, normalized.updates);
@@ -144,6 +173,11 @@ export async function DELETE(request, { params }) {
     // Stop tunnel if psiphon
     if (existing.type === "psiphon") {
       await stopTunnel(id);
+    }
+
+    // Stop sidecar if opencode2api
+    if (existing.type === "opencode2api") {
+      await stopSidecar(id);
     }
 
     await deleteProxyPool(id);

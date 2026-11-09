@@ -4,6 +4,10 @@ import {
   ensureTunnel,
   PsiphonUnavailableError,
 } from "@/lib/network/psiphon/psiphonManager.js";
+import {
+  isOpencodeSidecarPool,
+  ensureSidecar,
+} from "@/lib/network/opencode2api/sidecarManager.js";
 
 // Safely normalize any value into a trimmed string.
 function normalizeString(value) {
@@ -100,7 +104,63 @@ export async function resolveConnectionProxyConfig(
       const noProxy = normalizeString(proxyPool?.noProxy);
 
       const isPsiphon = isPsiphonPool(proxyPool);
-      poolStrictProxy = isPsiphon || proxyPool?.strictProxy === true;
+      const isSidecar = isOpencodeSidecarPool(proxyPool);
+      poolStrictProxy = isPsiphon || isSidecar || proxyPool?.strictProxy === true;
+
+      if (isSidecar) {
+        // Managed loopback daemon, strict by construction: it either serves the
+        // request or the request fails closed (never the server's own IP).
+        if (proxyPool?.isActive === true) {
+          try {
+            const sidecar = await ensureSidecar(proxyPool);
+            return {
+              source: "opencode2api",
+              proxyPoolId,
+              proxyPool,
+              connectionProxyEnabled: false,
+              connectionProxyUrl: "",
+              connectionNoProxy: noProxy,
+              strictProxy: true,
+              opencodeSidecarPoolId: proxyPoolId,
+              opencodeSidecarUrl: sidecar.proxyUrl,
+              opencodeSidecarKey: sidecar.apiKey,
+              opencodeSidecarGeneration: sidecar.generation,
+            };
+          } catch (err) {
+            return {
+              source: "opencode2api",
+              proxyPoolId,
+              proxyPool,
+              connectionProxyEnabled: false,
+              connectionProxyUrl: "",
+              connectionNoProxy: noProxy,
+              strictProxy: true,
+              opencodeSidecarPoolId: proxyPoolId,
+              opencodeSidecarUrl: "",
+              opencodeSidecarKey: "",
+              opencodeSidecarGeneration: -1,
+              opencodeSidecarUnavailable: true,
+              error: err,
+            };
+          }
+        }
+
+        // Inactive sidecar pool fails closed, exactly like psiphon.
+        return {
+          source: "opencode2api",
+          proxyPoolId,
+          proxyPool,
+          connectionProxyEnabled: false,
+          connectionProxyUrl: "",
+          connectionNoProxy: noProxy,
+          strictProxy: true,
+          opencodeSidecarPoolId: proxyPoolId,
+          opencodeSidecarUrl: "",
+          opencodeSidecarKey: "",
+          opencodeSidecarGeneration: -1,
+          opencodeSidecarUnavailable: true,
+        };
+      }
 
       if (isPsiphon) {
         if (proxyPool?.isActive === true) {

@@ -1,0 +1,596 @@
+- generic [ref=f6e1]:
+  - generic [ref=f6e2]:
+    - complementary [ref=f6e4]:
+      - link "hub KhatamRouter v0.5.104" [ref=f6e10] [cursor=pointer]:
+        - /url: /dashboard
+        - generic [ref=f6e11]: hub
+        - generic [ref=f6e13]:
+          - heading "KhatamRouter" [level=1] [ref=f6e14]
+          - generic [ref=f6e15]: v0.5.104
+      - navigation [ref=f6e16]:
+        - link "api Endpoint & Key" [ref=f6e17] [cursor=pointer]:
+          - /url: /dashboard/endpoint
+          - generic [ref=f6e18]: api
+          - generic [ref=f6e19]: Endpoint & Key
+        - link "dns Providers" [ref=f6e20] [cursor=pointer]:
+          - /url: /dashboard/providers
+          - generic [ref=f6e21]: dns
+          - generic [ref=f6e22]: Providers
+        - link "layers Combo & Vision Adapter" [ref=f6e23] [cursor=pointer]:
+          - /url: /dashboard/combos
+          - generic [ref=f6e24]: layers
+          - generic [ref=f6e25]: Combo & Vision Adapter
+        - link "bar_chart Usage" [ref=f6e26] [cursor=pointer]:
+          - /url: /dashboard/usage
+          - generic [ref=f6e27]: bar_chart
+          - generic [ref=f6e28]: Usage
+        - link "data_usage Quota Tracker" [ref=f6e29] [cursor=pointer]:
+          - /url: /dashboard/quota
+          - generic [ref=f6e30]: data_usage
+          - generic [ref=f6e31]: Quota Tracker
+        - link "savings Token Saver" [ref=f6e32] [cursor=pointer]:
+          - /url: /dashboard/token-saver
+          - generic [ref=f6e33]: savings
+          - generic [ref=f6e34]: Token Saver
+        - link "terminal CLI Tools" [ref=f6e35] [cursor=pointer]:
+          - /url: /dashboard/cli-tools
+          - generic [ref=f6e36]: terminal
+          - generic [ref=f6e37]: CLI Tools
+        - generic [ref=f6e38]:
+          - paragraph [ref=f6e39]: System
+          - button "perm_media Media Providers expand_more" [ref=f6e40] [cursor=pointer]:
+            - generic [ref=f6e41]: perm_media
+            - generic [ref=f6e42]: Media Providers
+            - generic [ref=f6e43]: expand_more
+          - link "lan Proxy Pools" [ref=f6e44] [cursor=pointer]:
+            - /url: /dashboard/proxy-pools
+            - generic [ref=f6e45]: lan
+            - generic [ref=f6e46]: Proxy Pools
+          - link "extension Skills" [ref=f6e47] [cursor=pointer]:
+            - /url: /dashboard/skills
+            - generic [ref=f6e48]: extension
+            - generic [ref=f6e49]: Skills
+          - link "terminal Console Log" [ref=f6e50] [cursor=pointer]:
+            - /url: /dashboard/console-log
+            - generic [ref=f6e51]: terminal
+            - generic [ref=f6e52]: Console Log
+          - link "computer 9Remote HOT" [ref=f6e53] [cursor=pointer]:
+            - /url: https://9remote.cc
+            - generic [ref=f6e54]: computer
+            - generic [ref=f6e55]: 9Remote
+            - generic [ref=f6e56]: HOT
+          - link "translate 9English" [ref=f6e57] [cursor=pointer]:
+            - /url: https://9english.net/
+            - generic [ref=f6e58]: translate
+            - generic [ref=f6e59]: 9English
+          - link "settings Settings" [ref=f6e60] [cursor=pointer]:
+            - /url: /dashboard/profile
+            - generic [ref=f6e61]: settings
+            - generic [ref=f6e62]: Settings
+    - main [ref=f6e63]:
+      - generic [ref=f6e64]:
+        - generic [ref=f6e66]:
+          - link "Providers" [ref=f6e68] [cursor=pointer]:
+            - /url: /dashboard/providers
+          - generic [ref=f6e69]:
+            - generic [ref=f6e70]: chevron_right
+            - generic [ref=f6e71]:
+              - img "OpenAI" [ref=f6e72]
+              - heading "OpenAI" [level=1] [ref=f6e73]
+        - generic [ref=f6e74]:
+          - button "Donate" [ref=f6e75] [cursor=pointer]:
+            - generic [ref=f6e76]: volunteer_activism
+          - button "Switch to dark mode" [ref=f6e78] [cursor=pointer]:
+            - generic [ref=f6e79]: dark_mode
+          - button "🇺🇸" [ref=f6e80] [cursor=pointer]
+          - button "grid_view" [ref=f6e83] [cursor=pointer]
+      - generic [ref=f6e87]:
+        - generic [ref=f6e101]:
+          - link "arrow_back Back to Providers" [ref=f6e102] [cursor=pointer]:
+            - /url: /dashboard/providers
+            - generic [ref=f6e103]: arrow_back
+            - text: Back to Providers
+          - generic [ref=f6e104]:
+            - img "OpenAI" [ref=f6e106]
+            - generic [ref=f6e107]:
+              - generic [ref=f6e108]:
+                - heading "OpenAI" [level=1] [ref=f6e109]
+                - link "open_in_new Get API Key" [ref=f6e110] [cursor=pointer]:
+                  - /url: https://platform.openai.com/api-keys
+                  - generic [ref=f6e111]: open_in_new
+                  - text: Get API Key
+              - paragraph [ref=f6e112]: 1 connection
+        - generic [ref=f6e113]:
+          - generic [ref=f6e114]:
+            - heading "Connections" [level=2] [ref=f6e115]
+            - generic [ref=f6e116]:
+              - button "sync Test Connection One-by-One" [ref=f6e117] [cursor=pointer]:
+                - generic [ref=f6e118]: sync
+                - text: Test Connection One-by-One
+              - generic [ref=f6e119]:
+                - generic [ref=f6e120]: Round Robin
+                - switch [ref=f6e122] [cursor=pointer]
+          - generic [ref=f6e124] [cursor=pointer]:
+            - checkbox "Select All" [ref=f6e125]
+            - text: Select All
+          - generic [ref=f6e127]:
+            - checkbox [ref=f6e129]
+            - generic [ref=f6e131]:
+              - generic [ref=f6e132]:
+                - generic [ref=f6e133]:
+                  - button "keyboard_arrow_up" [disabled] [ref=f6e134]
+                  - button "keyboard_arrow_down" [disabled] [ref=f6e136]
+                - generic [ref=f6e138]: key
+                - generic [ref=f6e139]:
+                  - paragraph [ref=f6e140]: Test OpenAI
+                  - generic [ref=f6e141]:
+                    - generic [ref=f6e142]: unknown
+                    - generic [ref=f6e144]: API Key
+                    - generic [ref=f6e145]: "#1"
+                    - generic "Connection rate limits & overrides active" [ref=f6e146]: Limits
+              - generic [ref=f6e148]:
+                - generic [ref=f6e149]:
+                  - button "Limits" [active] [ref=f6e150] [cursor=pointer]:
+                    - generic [ref=f6e151]: tune
+                  - button "edit Edit" [ref=f6e153] [cursor=pointer]:
+                    - generic [ref=f6e154]: edit
+                    - generic [ref=f6e155]: Edit
+                  - button "delete Delete" [ref=f6e156] [cursor=pointer]:
+                    - generic [ref=f6e157]: delete
+                    - generic [ref=f6e158]: Delete
+                - switch [checked] [ref=f6e160] [cursor=pointer]
+              - dialog [ref=f6e626]:
+                - generic [ref=f6e627]:
+                  - generic [ref=f6e628]:
+                    - 'heading "tune Connection Limits: Test OpenAI" [level=2] [ref=f6e629]':
+                      - generic [ref=f6e630]: tune
+                      - text: "Connection Limits: Test OpenAI"
+                    - paragraph [ref=f6e631]: Enforce per-connection dispatch rates, wait timeouts, concurrency caps, and budget ceilings.
+                  - button "Close dialog" [ref=f6e632] [cursor=pointer]:
+                    - generic [ref=f6e633]: close
+                - generic [ref=f6e634]:
+                  - generic [ref=f6e635]:
+                    - generic [ref=f6e636]:
+                      - generic [ref=f6e637]: speed
+                      - heading "Request & Token Rates" [level=3] [ref=f6e638]
+                    - generic [ref=f6e639]:
+                      - generic [ref=f6e640]:
+                        - generic [ref=f6e641]: Requests per Minute (RPM)
+                        - spinbutton "e.g. 60" [ref=f6e642]: "60"
+                        - paragraph [ref=f6e643]: Maximum requests dispatched per minute
+                      - generic [ref=f6e644]:
+                        - generic [ref=f6e645]: Requests per Day (RPD)
+                        - spinbutton "e.g. 5000" [ref=f6e646]
+                        - paragraph [ref=f6e647]: Maximum requests admitted per calendar day
+                      - generic [ref=f6e648]:
+                        - generic [ref=f6e649]: Tokens per Minute (TPM)
+                        - spinbutton "e.g. 100000" [ref=f6e650]: "100000"
+                        - paragraph [ref=f6e651]: Maximum tokens processed per minute
+                      - generic [ref=f6e652]:
+                        - generic [ref=f6e653]: Tokens per Day (TPD)
+                        - spinbutton "e.g. 2000000" [ref=f6e654]
+                        - paragraph [ref=f6e655]: Maximum tokens processed per calendar day
+                  - generic [ref=f6e656]:
+                    - generic [ref=f6e657]:
+                      - generic [ref=f6e658]: timer
+                      - heading "Pacing & Timeouts" [level=3] [ref=f6e659]
+                    - generic [ref=f6e660]:
+                      - generic [ref=f6e661]:
+                        - generic [ref=f6e662]: Min Inter-request Time (ms)
+                        - spinbutton "e.g. 250" [ref=f6e663]
+                        - paragraph [ref=f6e664]: Minimum delay between dispatches
+                      - generic [ref=f6e665]:
+                        - generic [ref=f6e666]: Max Queue Wait (ms)
+                        - spinbutton "e.g. 15000" [ref=f6e667]
+                        - paragraph [ref=f6e668]: Queue wait timeout before abort
+                      - generic [ref=f6e669]:
+                        - generic [ref=f6e670]: Execution Timeout (ms)
+                        - spinbutton "e.g. 60000" [ref=f6e671]
+                        - paragraph [ref=f6e672]: Upstream socket/response timeout
+                  - generic [ref=f6e673]:
+                    - generic [ref=f6e674]:
+                      - generic [ref=f6e675]: stacked_line_chart
+                      - heading "Concurrency & Budget" [level=3] [ref=f6e676]
+                    - generic [ref=f6e677]:
+                      - generic [ref=f6e678]:
+                        - generic [ref=f6e679]: Max In-Flight Concurrency
+                        - spinbutton "e.g. 5" [ref=f6e680]
+                        - paragraph [ref=f6e681]: Global in-flight request limit for connection
+                      - generic [ref=f6e682]:
+                        - generic [ref=f6e683]: Budget Ceiling ($ USD)
+                        - spinbutton "e.g. 50.00" [ref=f6e684]
+                        - paragraph [ref=f6e685]: Stored and displayed connection budget cap
+                  - generic [ref=f6e686]:
+                    - generic [ref=f6e687]:
+                      - generic [ref=f6e688]:
+                        - generic [ref=f6e689]: account_tree
+                        - heading "Per-Model Concurrency Overrides" [level=3] [ref=f6e690]
+                      - button "add Add Model Cap" [ref=f6e691] [cursor=pointer]:
+                        - generic [ref=f6e692]: add
+                        - text: Add Model Cap
+                    - paragraph [ref=f6e693]: No per-model concurrency caps configured. All models share the global connection limit.
+                - generic [ref=f6e694]:
+                  - button "restart_alt Reset to Defaults" [ref=f6e695] [cursor=pointer]:
+                    - generic [ref=f6e696]: restart_alt
+                    - text: Reset to Defaults
+                  - generic [ref=f6e697]:
+                    - button "Cancel" [ref=f6e698] [cursor=pointer]
+                    - button "Save Limits" [ref=f6e699] [cursor=pointer]
+          - button "add Add" [ref=f6e162] [cursor=pointer]:
+            - generic [ref=f6e163]: add
+            - text: Add
+        - generic [ref=f6e164]:
+          - generic [ref=f6e165]:
+            - generic [ref=f6e166]:
+              - heading "Available Models" [level=2] [ref=f6e167]
+              - combobox "Appends (level) suffix to copied model names" [ref=f6e168] [cursor=pointer]:
+                - 'option "Thinking: Auto" [selected]'
+                - 'option "Thinking: Minimal"'
+                - 'option "Thinking: Low"'
+                - 'option "Thinking: Medium"'
+                - 'option "Thinking: High"'
+                - 'option "Thinking: Xhigh"'
+            - button "block Disable All" [ref=f6e170] [cursor=pointer]:
+              - generic [ref=f6e171]: block
+              - text: Disable All
+          - generic [ref=f6e172]:
+            - generic [ref=f6e174]:
+              - generic [ref=f6e175]: smart_toy
+              - generic [ref=f6e176]:
+                - code [ref=f6e177]: openai/gpt-5.5
+                - generic [ref=f6e178]:
+                  - generic [ref=f6e179]: GPT-5.5
+                  - generic [ref=f6e180]:
+                    - img "Vision — Supports image input" [ref=f6e182]: visibility
+                    - img "Search — Supports web search grounding" [ref=f6e184]: travel_explore
+                    - img "Reasoning — Supports reasoning / thinking" [ref=f6e186]: neurology
+              - generic [ref=f6e187]:
+                - generic [ref=f6e188]:
+                  - button "science" [ref=f6e189] [cursor=pointer]
+                  - generic: Test
+                - generic [ref=f6e191]:
+                  - button "content_copy" [ref=f6e192] [cursor=pointer]
+                  - generic: Copy
+                - button "close" [ref=f6e194] [cursor=pointer]
+            - generic [ref=f6e197]:
+              - generic [ref=f6e198]: smart_toy
+              - generic [ref=f6e199]:
+                - code [ref=f6e200]: openai/gpt-5.4
+                - generic [ref=f6e201]:
+                  - generic [ref=f6e202]: GPT-5.4
+                  - generic [ref=f6e203]:
+                    - img "Vision — Supports image input" [ref=f6e205]: visibility
+                    - img "Search — Supports web search grounding" [ref=f6e207]: travel_explore
+                    - img "Reasoning — Supports reasoning / thinking" [ref=f6e209]: neurology
+              - generic [ref=f6e210]:
+                - generic [ref=f6e211]:
+                  - button "science" [ref=f6e212] [cursor=pointer]
+                  - generic: Test
+                - generic [ref=f6e214]:
+                  - button "content_copy" [ref=f6e215] [cursor=pointer]
+                  - generic: Copy
+                - button "close" [ref=f6e217] [cursor=pointer]
+            - generic [ref=f6e220]:
+              - generic [ref=f6e221]: smart_toy
+              - generic [ref=f6e222]:
+                - code [ref=f6e223]: openai/gpt-5.4-mini
+                - generic [ref=f6e224]:
+                  - generic [ref=f6e225]: GPT-5.4 Mini
+                  - generic [ref=f6e226]:
+                    - img "Vision — Supports image input" [ref=f6e228]: visibility
+                    - img "Search — Supports web search grounding" [ref=f6e230]: travel_explore
+                    - img "Reasoning — Supports reasoning / thinking" [ref=f6e232]: neurology
+              - generic [ref=f6e233]:
+                - generic [ref=f6e234]:
+                  - button "science" [ref=f6e235] [cursor=pointer]
+                  - generic: Test
+                - generic [ref=f6e237]:
+                  - button "content_copy" [ref=f6e238] [cursor=pointer]
+                  - generic: Copy
+                - button "close" [ref=f6e240] [cursor=pointer]
+            - generic [ref=f6e243]:
+              - generic [ref=f6e244]: smart_toy
+              - generic [ref=f6e245]:
+                - code [ref=f6e246]: openai/gpt-5.4-nano
+                - generic [ref=f6e247]:
+                  - generic [ref=f6e248]: GPT-5.4 Nano
+                  - generic [ref=f6e249]:
+                    - img "Vision — Supports image input" [ref=f6e251]: visibility
+                    - img "Search — Supports web search grounding" [ref=f6e253]: travel_explore
+                    - img "Reasoning — Supports reasoning / thinking" [ref=f6e255]: neurology
+              - generic [ref=f6e256]:
+                - generic [ref=f6e257]:
+                  - button "science" [ref=f6e258] [cursor=pointer]
+                  - generic: Test
+                - generic [ref=f6e260]:
+                  - button "content_copy" [ref=f6e261] [cursor=pointer]
+                  - generic: Copy
+                - button "close" [ref=f6e263] [cursor=pointer]
+            - generic [ref=f6e266]:
+              - generic [ref=f6e267]: smart_toy
+              - generic [ref=f6e268]:
+                - code [ref=f6e269]: openai/gpt-5.2
+                - generic [ref=f6e270]:
+                  - generic [ref=f6e271]: GPT-5.2
+                  - generic [ref=f6e272]:
+                    - img "Vision — Supports image input" [ref=f6e274]: visibility
+                    - img "Search — Supports web search grounding" [ref=f6e276]: travel_explore
+                    - img "Reasoning — Supports reasoning / thinking" [ref=f6e278]: neurology
+              - generic [ref=f6e279]:
+                - generic [ref=f6e280]:
+                  - button "science" [ref=f6e281] [cursor=pointer]
+                  - generic: Test
+                - generic [ref=f6e283]:
+                  - button "content_copy" [ref=f6e284] [cursor=pointer]
+                  - generic: Copy
+                - button "close" [ref=f6e286] [cursor=pointer]
+            - generic [ref=f6e289]:
+              - generic [ref=f6e290]: smart_toy
+              - generic [ref=f6e291]:
+                - code [ref=f6e292]: openai/gpt-5.1
+                - generic [ref=f6e293]:
+                  - generic [ref=f6e294]: GPT-5.1
+                  - generic [ref=f6e295]:
+                    - img "Vision — Supports image input" [ref=f6e297]: visibility
+                    - img "Search — Supports web search grounding" [ref=f6e299]: travel_explore
+                    - img "Reasoning — Supports reasoning / thinking" [ref=f6e301]: neurology
+              - generic [ref=f6e302]:
+                - generic [ref=f6e303]:
+                  - button "science" [ref=f6e304] [cursor=pointer]
+                  - generic: Test
+                - generic [ref=f6e306]:
+                  - button "content_copy" [ref=f6e307] [cursor=pointer]
+                  - generic: Copy
+                - button "close" [ref=f6e309] [cursor=pointer]
+            - generic [ref=f6e312]:
+              - generic [ref=f6e313]: smart_toy
+              - generic [ref=f6e314]:
+                - code [ref=f6e315]: openai/gpt-5
+                - generic [ref=f6e316]:
+                  - generic [ref=f6e317]: GPT-5
+                  - generic [ref=f6e318]:
+                    - img "Vision — Supports image input" [ref=f6e320]: visibility
+                    - img "Search — Supports web search grounding" [ref=f6e322]: travel_explore
+                    - img "Reasoning — Supports reasoning / thinking" [ref=f6e324]: neurology
+              - generic [ref=f6e325]:
+                - generic [ref=f6e326]:
+                  - button "science" [ref=f6e327] [cursor=pointer]
+                  - generic: Test
+                - generic [ref=f6e329]:
+                  - button "content_copy" [ref=f6e330] [cursor=pointer]
+                  - generic: Copy
+                - button "close" [ref=f6e332] [cursor=pointer]
+            - generic [ref=f6e335]:
+              - generic [ref=f6e336]: smart_toy
+              - generic [ref=f6e337]:
+                - code [ref=f6e338]: openai/gpt-5-mini
+                - generic [ref=f6e339]:
+                  - generic [ref=f6e340]: GPT-5 Mini
+                  - generic [ref=f6e341]:
+                    - img "Vision — Supports image input" [ref=f6e343]: visibility
+                    - img "Search — Supports web search grounding" [ref=f6e345]: travel_explore
+                    - img "Reasoning — Supports reasoning / thinking" [ref=f6e347]: neurology
+              - generic [ref=f6e348]:
+                - generic [ref=f6e349]:
+                  - button "science" [ref=f6e350] [cursor=pointer]
+                  - generic: Test
+                - generic [ref=f6e352]:
+                  - button "content_copy" [ref=f6e353] [cursor=pointer]
+                  - generic: Copy
+                - button "close" [ref=f6e355] [cursor=pointer]
+            - generic [ref=f6e358]:
+              - generic [ref=f6e359]: smart_toy
+              - generic [ref=f6e360]:
+                - code [ref=f6e361]: openai/gpt-5-nano
+                - generic [ref=f6e362]:
+                  - generic [ref=f6e363]: GPT-5 Nano
+                  - generic [ref=f6e364]:
+                    - img "Vision — Supports image input" [ref=f6e366]: visibility
+                    - img "Search — Supports web search grounding" [ref=f6e368]: travel_explore
+                    - img "Reasoning — Supports reasoning / thinking" [ref=f6e370]: neurology
+              - generic [ref=f6e371]:
+                - generic [ref=f6e372]:
+                  - button "science" [ref=f6e373] [cursor=pointer]
+                  - generic: Test
+                - generic [ref=f6e375]:
+                  - button "content_copy" [ref=f6e376] [cursor=pointer]
+                  - generic: Copy
+                - button "close" [ref=f6e378] [cursor=pointer]
+            - generic [ref=f6e381]:
+              - generic [ref=f6e382]: smart_toy
+              - generic [ref=f6e383]:
+                - code [ref=f6e384]: openai/gpt-4o
+                - generic [ref=f6e385]:
+                  - generic [ref=f6e386]: GPT-4o
+                  - generic [ref=f6e387]:
+                    - img "Vision — Supports image input" [ref=f6e389]: visibility
+                    - img "Search — Supports web search grounding" [ref=f6e391]: travel_explore
+              - generic [ref=f6e392]:
+                - generic [ref=f6e393]:
+                  - button "science" [ref=f6e394] [cursor=pointer]
+                  - generic: Test
+                - generic [ref=f6e396]:
+                  - button "content_copy" [ref=f6e397] [cursor=pointer]
+                  - generic: Copy
+                - button "close" [ref=f6e399] [cursor=pointer]
+            - generic [ref=f6e402]:
+              - generic [ref=f6e403]: smart_toy
+              - generic [ref=f6e404]:
+                - code [ref=f6e405]: openai/gpt-4o-mini
+                - generic [ref=f6e406]:
+                  - generic [ref=f6e407]: GPT-4o Mini
+                  - generic [ref=f6e408]:
+                    - img "Vision — Supports image input" [ref=f6e410]: visibility
+                    - img "Search — Supports web search grounding" [ref=f6e412]: travel_explore
+              - generic [ref=f6e413]:
+                - generic [ref=f6e414]:
+                  - button "science" [ref=f6e415] [cursor=pointer]
+                  - generic: Test
+                - generic [ref=f6e417]:
+                  - button "content_copy" [ref=f6e418] [cursor=pointer]
+                  - generic: Copy
+                - button "close" [ref=f6e420] [cursor=pointer]
+            - generic [ref=f6e423]:
+              - generic [ref=f6e424]: smart_toy
+              - generic [ref=f6e425]:
+                - code [ref=f6e426]: openai/gpt-4-turbo
+                - generic [ref=f6e427]:
+                  - generic [ref=f6e428]: GPT-4 Turbo
+                  - img "Vision — Supports image input" [ref=f6e431]: visibility
+              - generic [ref=f6e432]:
+                - generic [ref=f6e433]:
+                  - button "science" [ref=f6e434] [cursor=pointer]
+                  - generic: Test
+                - generic [ref=f6e436]:
+                  - button "content_copy" [ref=f6e437] [cursor=pointer]
+                  - generic: Copy
+                - button "close" [ref=f6e439] [cursor=pointer]
+            - generic [ref=f6e442]:
+              - generic [ref=f6e443]: smart_toy
+              - generic [ref=f6e444]:
+                - code [ref=f6e445]: openai/gpt-4.1
+                - generic [ref=f6e446]:
+                  - generic [ref=f6e447]: GPT-4.1
+                  - img "Vision — Supports image input" [ref=f6e450]: visibility
+              - generic [ref=f6e451]:
+                - generic [ref=f6e452]:
+                  - button "science" [ref=f6e453] [cursor=pointer]
+                  - generic: Test
+                - generic [ref=f6e455]:
+                  - button "content_copy" [ref=f6e456] [cursor=pointer]
+                  - generic: Copy
+                - button "close" [ref=f6e458] [cursor=pointer]
+            - generic [ref=f6e461]:
+              - generic [ref=f6e462]: smart_toy
+              - generic [ref=f6e463]:
+                - code [ref=f6e464]: openai/gpt-4.1-mini
+                - generic [ref=f6e465]:
+                  - generic [ref=f6e466]: GPT-4.1 Mini
+                  - img "Vision — Supports image input" [ref=f6e469]: visibility
+              - generic [ref=f6e470]:
+                - generic [ref=f6e471]:
+                  - button "science" [ref=f6e472] [cursor=pointer]
+                  - generic: Test
+                - generic [ref=f6e474]:
+                  - button "content_copy" [ref=f6e475] [cursor=pointer]
+                  - generic: Copy
+                - button "close" [ref=f6e477] [cursor=pointer]
+            - generic [ref=f6e480]:
+              - generic [ref=f6e481]: smart_toy
+              - generic [ref=f6e482]:
+                - code [ref=f6e483]: openai/gpt-4.1-nano
+                - generic [ref=f6e484]:
+                  - generic [ref=f6e485]: GPT-4.1 Nano
+                  - img "Vision — Supports image input" [ref=f6e488]: visibility
+              - generic [ref=f6e489]:
+                - generic [ref=f6e490]:
+                  - button "science" [ref=f6e491] [cursor=pointer]
+                  - generic: Test
+                - generic [ref=f6e493]:
+                  - button "content_copy" [ref=f6e494] [cursor=pointer]
+                  - generic: Copy
+                - button "close" [ref=f6e496] [cursor=pointer]
+            - generic [ref=f6e499]:
+              - generic [ref=f6e500]: smart_toy
+              - generic [ref=f6e501]:
+                - code [ref=f6e502]: openai/o3
+                - generic [ref=f6e503]:
+                  - generic [ref=f6e504]: O3
+                  - generic [ref=f6e505]:
+                    - img "Vision — Supports image input" [ref=f6e507]: visibility
+                    - img "Reasoning — Supports reasoning / thinking" [ref=f6e509]: neurology
+              - generic [ref=f6e510]:
+                - generic [ref=f6e511]:
+                  - button "science" [ref=f6e512] [cursor=pointer]
+                  - generic: Test
+                - generic [ref=f6e514]:
+                  - button "content_copy" [ref=f6e515] [cursor=pointer]
+                  - generic: Copy
+                - button "close" [ref=f6e517] [cursor=pointer]
+            - generic [ref=f6e520]:
+              - generic [ref=f6e521]: smart_toy
+              - generic [ref=f6e522]:
+                - code [ref=f6e523]: openai/o3-mini
+                - generic [ref=f6e524]:
+                  - generic [ref=f6e525]: O3 Mini
+                  - generic [ref=f6e526]:
+                    - img "Vision — Supports image input" [ref=f6e528]: visibility
+                    - img "Reasoning — Supports reasoning / thinking" [ref=f6e530]: neurology
+              - generic [ref=f6e531]:
+                - generic [ref=f6e532]:
+                  - button "science" [ref=f6e533] [cursor=pointer]
+                  - generic: Test
+                - generic [ref=f6e535]:
+                  - button "content_copy" [ref=f6e536] [cursor=pointer]
+                  - generic: Copy
+                - button "close" [ref=f6e538] [cursor=pointer]
+            - generic [ref=f6e541]:
+              - generic [ref=f6e542]: smart_toy
+              - generic [ref=f6e543]:
+                - code [ref=f6e544]: openai/o3-pro
+                - generic [ref=f6e545]:
+                  - generic [ref=f6e546]: O3 Pro
+                  - generic [ref=f6e547]:
+                    - img "Vision — Supports image input" [ref=f6e549]: visibility
+                    - img "Reasoning — Supports reasoning / thinking" [ref=f6e551]: neurology
+              - generic [ref=f6e552]:
+                - generic [ref=f6e553]:
+                  - button "science" [ref=f6e554] [cursor=pointer]
+                  - generic: Test
+                - generic [ref=f6e556]:
+                  - button "content_copy" [ref=f6e557] [cursor=pointer]
+                  - generic: Copy
+                - button "close" [ref=f6e559] [cursor=pointer]
+            - generic [ref=f6e562]:
+              - generic [ref=f6e563]: smart_toy
+              - generic [ref=f6e564]:
+                - code [ref=f6e565]: openai/o4-mini
+                - generic [ref=f6e566]:
+                  - generic [ref=f6e567]: O4 Mini
+                  - generic [ref=f6e568]:
+                    - img "Vision — Supports image input" [ref=f6e570]: visibility
+                    - img "Reasoning — Supports reasoning / thinking" [ref=f6e572]: neurology
+              - generic [ref=f6e573]:
+                - generic [ref=f6e574]:
+                  - button "science" [ref=f6e575] [cursor=pointer]
+                  - generic: Test
+                - generic [ref=f6e577]:
+                  - button "content_copy" [ref=f6e578] [cursor=pointer]
+                  - generic: Copy
+                - button "close" [ref=f6e580] [cursor=pointer]
+            - generic [ref=f6e583]:
+              - generic [ref=f6e584]: smart_toy
+              - generic [ref=f6e585]:
+                - code [ref=f6e586]: openai/o1
+                - generic [ref=f6e587]:
+                  - generic [ref=f6e588]: O1
+                  - generic [ref=f6e589]:
+                    - img "Vision — Supports image input" [ref=f6e591]: visibility
+                    - img "Reasoning — Supports reasoning / thinking" [ref=f6e593]: neurology
+              - generic [ref=f6e594]:
+                - generic [ref=f6e595]:
+                  - button "science" [ref=f6e596] [cursor=pointer]
+                  - generic: Test
+                - generic [ref=f6e598]:
+                  - button "content_copy" [ref=f6e599] [cursor=pointer]
+                  - generic: Copy
+                - button "close" [ref=f6e601] [cursor=pointer]
+            - generic [ref=f6e604]:
+              - generic [ref=f6e605]: smart_toy
+              - generic [ref=f6e606]:
+                - code [ref=f6e607]: openai/o1-mini
+                - generic [ref=f6e608]:
+                  - generic [ref=f6e609]: O1 Mini
+                  - img "Reasoning — Supports reasoning / thinking" [ref=f6e612]: neurology
+              - generic [ref=f6e613]:
+                - generic [ref=f6e614]:
+                  - button "science" [ref=f6e615] [cursor=pointer]
+                  - generic: Test
+                - generic [ref=f6e617]:
+                  - button "content_copy" [ref=f6e618] [cursor=pointer]
+                  - generic: Copy
+                - button "close" [ref=f6e620] [cursor=pointer]
+            - button "add Add Model" [ref=f6e622] [cursor=pointer]:
+              - generic [ref=f6e623]: add
+              - text: Add Model
+  - alert [ref=f6e100]

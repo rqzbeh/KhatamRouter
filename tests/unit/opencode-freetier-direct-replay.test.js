@@ -14,7 +14,7 @@
 // (c) Body read is bounded to 64 KiB to prevent DoS via unbounded buffering.
 // (d) Replays at most once without credential leaks or query logging.
 // (e) Handled streamed/one-shot consumed request bodies (no replay).
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const FREE_TIER_403 = JSON.stringify({
   type: "error",
@@ -41,6 +41,12 @@ function proxiedThenDirect({ proxiedResponse, directResponse }) {
 }
 
 const PROXY = { enabled: true, url: "http://127.0.0.1:9999" };
+
+// Cases that assert the *direct* branch must not inherit an env proxy from the
+// developer machine, or "no proxy configured" is silently untrue.
+const ENV_PROXY_KEYS = [
+  "HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy",
+];
 
 beforeEach(() => {
   fetchMock.mockReset();
@@ -357,6 +363,22 @@ describe("proxied 403 FreeTierError replays direct (#4983)", () => {
 });
 
 describe("directFetch semantics in proxyAwareFetch (FR-02, FR-03)", () => {
+  // These cases assert the no-proxy branch, so the machine's env proxy must be
+  // out of the picture for the duration.
+  let savedEnvProxy;
+  beforeEach(() => {
+    savedEnvProxy = {};
+    for (const key of ENV_PROXY_KEYS) {
+      savedEnvProxy[key] = process.env[key];
+      delete process.env[key];
+    }
+  });
+  afterEach(() => {
+    for (const key of ENV_PROXY_KEYS) {
+      if (savedEnvProxy[key] !== undefined) process.env[key] = savedEnvProxy[key];
+    }
+  });
+
   it("invokes directFetch when called without proxy for opencode.ai", async () => {
     const directFetchMock = vi.fn().mockResolvedValue(new Response("from-direct-fetch", { status: 200 }));
     const res = await proxyAwareFetch("https://opencode.ai/inference/v1/chat/completions", {
