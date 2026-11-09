@@ -51,7 +51,9 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       const settings = await getSettings();
       const override = (settings.providerStrategies || {})[providerId] || {};
       const strategy = override.rotateStrategy || "none";
-      let pickedId = override.proxyPoolId || null;
+      // The WARP lane defaults to its managed sidecar instead of "direct": it
+      // exists precisely to avoid sending the shared server IP at the free tier.
+      let pickedId = override.proxyPoolId || FREE_PROVIDERS[providerId]?.managedSidecarPoolId || null;
       if (strategy !== "none") {
         const allPools = await getProxyPools({ isActive: true });
         const poolIds = allPools.filter(p => p.proxyUrl || p.type === "psiphon" || p.data?.type === "psiphon").map(p => p.id);

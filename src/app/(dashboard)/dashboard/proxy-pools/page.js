@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { Badge, Button, Card, CardSkeleton, Input, Modal, Toggle, ConfirmModal, Select } from "@/shared/components";
 import { PSIPHON_SELECTABLE_REGIONS } from "@/lib/network/psiphon/regions.js";
+import { groupPools } from "@/lib/network/proxyPoolGroups.js";
 import { useNotificationStore } from "@/store/notificationStore";
 import FreeProxySourcesCard from "@/shared/components/FreeProxySourcesCard";
 
@@ -71,6 +72,8 @@ export default function ProxyPoolsPage() {
   const [healthProgress, setHealthProgress] = useState({ current: 0, total: 0 });
   const [bulkBusy, setBulkBusy] = useState(false);
   const [confirmState, setConfirmState] = useState(null);
+  const [collapseState, setCollapseState] = useState({});
+  const [searchQuery, setSearchQuery] = useState("");
   const relayMenuRef = useRef(null);
   const notify = useNotificationStore();
 
@@ -787,6 +790,197 @@ export default function ProxyPoolsPage() {
     [proxyPools]
   );
 
+  const isSearchActive = searchQuery.trim().length > 0;
+
+  const filteredPools = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return proxyPools;
+    return proxyPools.filter((pool) => {
+      const name = (pool.name || "").toLowerCase();
+      const proxyUrl = (pool.proxyUrl || "").toLowerCase();
+      return name.includes(q) || proxyUrl.includes(q);
+    });
+  }, [proxyPools, searchQuery]);
+
+  const poolGroups = useMemo(() => groupPools(filteredPools), [filteredPools]);
+
+  const isGroupCollapsed = useCallback((groupKey) => {
+    if (isSearchActive) return false;
+    if (typeof collapseState[groupKey] === "boolean") {
+      return collapseState[groupKey];
+    }
+    return groupKey !== "psiphon" && groupKey !== "opencode2api";
+  }, [isSearchActive, collapseState]);
+
+  const toggleGroupCollapse = (groupKey) => {
+    setCollapseState((prev) => {
+      const current = typeof prev[groupKey] === "boolean"
+        ? prev[groupKey]
+        : (groupKey !== "psiphon" && groupKey !== "opencode2api");
+      return {
+        ...prev,
+        [groupKey]: !current,
+      };
+    });
+  };
+
+  const renderPoolCard = (pool) => (
+    <div key={pool.id} className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex items-start gap-3 min-w-0 flex-1">
+        <input
+          type="checkbox"
+          checked={selectedIds.includes(pool.id)}
+          onChange={() => toggleSelect(pool.id)}
+          className="mt-1 size-4 shrink-0 rounded border-black/20 dark:border-white/20"
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="min-w-0 max-w-full truncate text-sm font-medium sm:max-w-[18rem]">{pool.name}</p>
+            <Badge variant={getStatusVariant(pool.testStatus)} size="sm" dot>
+              {pool.testStatus || "unknown"}
+            </Badge>
+            <Badge variant={pool.isActive ? "success" : "default"} size="sm">
+              {pool.isActive ? "active" : "inactive"}
+            </Badge>
+            {pool.type === "vercel" && (
+              <Badge variant="default" size="sm">vercel relay</Badge>
+            )}
+            {pool.type === "cloudflare" && (
+              <Badge variant="default" size="sm">cloudflare relay</Badge>
+            )}
+            {pool.type === "deno" && (
+              <Badge variant="default" size="sm">deno relay</Badge>
+            )}
+            {pool.type === "netlify" && (
+              <Badge variant="default" size="sm">netlify relay</Badge>
+            )}
+            {pool.type === "psiphon" && (
+              <Badge variant="default" size="sm">psiphon</Badge>
+            )}
+            {pool.type === "psiphon" && psiphonStatuses[pool.id] && (
+              <>
+                <Badge
+                  variant={psiphonStatuses[pool.id].state === "ready" ? "success" : psiphonStatuses[pool.id].state === "failed" ? "error" : "default"}
+                  size="sm"
+                  dot
+                >
+                  {psiphonStatuses[pool.id].state || "idle"}
+                </Badge>
+                {psiphonStatuses[pool.id].region && (
+                  <Badge variant="default" size="sm">
+                    {psiphonStatuses[pool.id].region}
+                  </Badge>
+                )}
+                {psiphonStatuses[pool.id].exitIp && (
+                  <Badge variant="default" size="sm">
+                    IP: {psiphonStatuses[pool.id].exitIp}
+                  </Badge>
+                )}
+                <Badge variant="default" size="sm">
+                  Gen #{psiphonStatuses[pool.id].generation || 0}
+                </Badge>
+                {(psiphonStatuses[pool.id].requests > 0 || psiphonStatuses[pool.id].tokens > 0) && (
+                  <Badge variant="default" size="sm">
+                    {psiphonStatuses[pool.id].requests || 0} reqs · {psiphonStatuses[pool.id].tokens || 0} tokens
+                  </Badge>
+                )}
+              </>
+            )}
+            {pool.type === "opencode2api" && (
+              <Badge variant="default" size="sm">opencode2api</Badge>
+            )}
+            {pool.type === "opencode2api" && psiphonStatuses[pool.id] && (
+              <>
+                <Badge
+                  variant={psiphonStatuses[pool.id].state === "ready" ? "success" : psiphonStatuses[pool.id].state === "failed" ? "error" : "default"}
+                  size="sm"
+                  dot
+                >
+                  {psiphonStatuses[pool.id].state || "idle"}
+                </Badge>
+                {typeof psiphonStatuses[pool.id].activeExits === "number" && (
+                  <Badge variant="default" size="sm">
+                    active {psiphonStatuses[pool.id].activeExits}
+                  </Badge>
+                )}
+                {typeof psiphonStatuses[pool.id].standbyExits === "number" && (
+                  <Badge variant="default" size="sm">
+                    standby {psiphonStatuses[pool.id].standbyExits}
+                  </Badge>
+                )}
+                <Badge variant="default" size="sm">
+                  Gen #{psiphonStatuses[pool.id].generation || 0}
+                </Badge>
+              </>
+            )}
+            <Badge variant="default" size="sm">
+              {pool.boundConnectionCount || 0} bound
+            </Badge>
+          </div>
+          <p className="text-xs text-text-muted truncate mt-1">{pool.proxyUrl}</p>
+          {pool.noProxy ? (
+            <p className="text-xs text-text-muted truncate">No proxy: {pool.noProxy}</p>
+          ) : null}
+          <p className="text-[11px] text-text-muted mt-1">
+            Last tested: {formatDateTime(pool.lastTestedAt)}
+            {pool.lastError ? ` · ${pool.lastError}` : ""}
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-end gap-1">
+        <Toggle
+          size="sm"
+          checked={pool.isActive === true}
+          onChange={() => handleToggleActive(pool)}
+          title={pool.isActive ? "Disable" : "Enable"}
+        />
+        {(pool.type === "psiphon" || pool.type === "opencode2api") && (
+          <button
+            onClick={() => handleRotate(pool.id)}
+            className="p-2 rounded hover:bg-black/5 dark:hover:bg-white/5 text-text-muted hover:text-primary"
+            title="Rotate now"
+            disabled={rotatingId === pool.id}
+          >
+            <span
+              className="material-symbols-outlined text-[18px]"
+              style={rotatingId === pool.id ? { animation: "spin 1s linear infinite" } : undefined}
+            >
+              {rotatingId === pool.id ? "sync" : "refresh"}
+            </span>
+          </button>
+        )}
+        <button
+          onClick={() => handleTest(pool.id)}
+          className="p-2 rounded hover:bg-black/5 dark:hover:bg-white/5 text-text-muted hover:text-primary"
+          title="Test proxy"
+          disabled={testingId === pool.id}
+        >
+          <span
+            className="material-symbols-outlined text-[18px]"
+            style={testingId === pool.id ? { animation: "spin 1s linear infinite" } : undefined}
+          >
+            {testingId === pool.id ? "progress_activity" : "science"}
+          </span>
+        </button>
+        <button
+          onClick={() => openEditModal(pool)}
+          className="p-2 rounded hover:bg-black/5 dark:hover:bg-white/5 text-text-muted hover:text-primary"
+          title="Edit"
+        >
+          <span className="material-symbols-outlined text-[18px]">edit</span>
+        </button>
+        <button
+          onClick={() => handleDelete(pool)}
+          className="p-2 rounded hover:bg-red-500/10 text-red-500"
+          title="Delete"
+        >
+          <span className="material-symbols-outlined text-[18px]">delete</span>
+        </button>
+      </div>
+    </div>
+  );
+
   if (loading) {
     return (
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-1 sm:gap-6 sm:px-0">
@@ -871,7 +1065,7 @@ export default function ProxyPoolsPage() {
       </div>
 
       {/* freeProxy sources configuration */}
-      <FreeProxySourcesCard />
+      <FreeProxySourcesCard onSynced={fetchProxyPools} />
 
       <Card>
         <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -925,6 +1119,17 @@ export default function ProxyPoolsPage() {
           </div>
         )}
 
+        {proxyPools.length > 0 && (
+          <div className="mb-4">
+            <Input
+              placeholder="Search pools by name or proxy URL..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              icon="search"
+            />
+          </div>
+        )}
+
         {proxyPools.length === 0 ? (
           <div className="text-center py-10">
             <p className="text-text-main font-medium mb-1">No proxy pool entries yet</p>
@@ -933,164 +1138,49 @@ export default function ProxyPoolsPage() {
             </p>
             <Button icon="add" onClick={openCreateModal}>Add Proxy Pool</Button>
           </div>
+        ) : poolGroups.length === 0 ? (
+          <div className="text-center py-10 text-sm text-text-muted">
+            No proxy pools match &ldquo;{searchQuery}&rdquo;
+          </div>
         ) : (
-          <div className="flex flex-col divide-y divide-black/[0.04] dark:divide-white/[0.05]">
-            {proxyPools.map((pool) => (
-              <div key={pool.id} className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-start gap-3 min-w-0 flex-1">
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.includes(pool.id)}
-                    onChange={() => toggleSelect(pool.id)}
-                    className="mt-1 size-4 shrink-0 rounded border-black/20 dark:border-white/20"
-                  />
-                  <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="min-w-0 max-w-full truncate text-sm font-medium sm:max-w-[18rem]">{pool.name}</p>
-                    <Badge variant={getStatusVariant(pool.testStatus)} size="sm" dot>
-                      {pool.testStatus || "unknown"}
-                    </Badge>
-                    <Badge variant={pool.isActive ? "success" : "default"} size="sm">
-                      {pool.isActive ? "active" : "inactive"}
-                    </Badge>
-                    {pool.type === "vercel" && (
-                      <Badge variant="default" size="sm">vercel relay</Badge>
-                    )}
-                    {pool.type === "cloudflare" && (
-                      <Badge variant="default" size="sm">cloudflare relay</Badge>
-                    )}
-                    {pool.type === "deno" && (
-                      <Badge variant="default" size="sm">deno relay</Badge>
-                    )}
-                    {pool.type === "netlify" && (
-                      <Badge variant="default" size="sm">netlify relay</Badge>
-                    )}
-                    {pool.type === "psiphon" && (
-                      <Badge variant="default" size="sm">psiphon</Badge>
-                    )}
-                    {pool.type === "psiphon" && psiphonStatuses[pool.id] && (
-                      <>
-                        <Badge
-                          variant={psiphonStatuses[pool.id].state === "ready" ? "success" : psiphonStatuses[pool.id].state === "failed" ? "error" : "default"}
-                          size="sm"
-                          dot
-                        >
-                          {psiphonStatuses[pool.id].state || "idle"}
-                        </Badge>
-                        {psiphonStatuses[pool.id].region && (
-                          <Badge variant="default" size="sm">
-                            {psiphonStatuses[pool.id].region}
-                          </Badge>
-                        )}
-                        {psiphonStatuses[pool.id].exitIp && (
-                          <Badge variant="default" size="sm">
-                            IP: {psiphonStatuses[pool.id].exitIp}
-                          </Badge>
-                        )}
-                        <Badge variant="default" size="sm">
-                          Gen #{psiphonStatuses[pool.id].generation || 0}
-                        </Badge>
-                        {(psiphonStatuses[pool.id].requests > 0 || psiphonStatuses[pool.id].tokens > 0) && (
-                          <Badge variant="default" size="sm">
-                            {psiphonStatuses[pool.id].requests || 0} reqs · {psiphonStatuses[pool.id].tokens || 0} tokens
-                          </Badge>
-                        )}
-                      </>
-                    )}
-                    {pool.type === "opencode2api" && (
-                      <Badge variant="default" size="sm">opencode2api</Badge>
-                    )}
-                    {pool.type === "opencode2api" && psiphonStatuses[pool.id] && (
-                      <>
-                        <Badge
-                          variant={psiphonStatuses[pool.id].state === "ready" ? "success" : psiphonStatuses[pool.id].state === "failed" ? "error" : "default"}
-                          size="sm"
-                          dot
-                        >
-                          {psiphonStatuses[pool.id].state || "idle"}
-                        </Badge>
-                        {typeof psiphonStatuses[pool.id].activeExits === "number" && (
-                          <Badge variant="default" size="sm">
-                            active {psiphonStatuses[pool.id].activeExits}
-                          </Badge>
-                        )}
-                        {typeof psiphonStatuses[pool.id].standbyExits === "number" && (
-                          <Badge variant="default" size="sm">
-                            standby {psiphonStatuses[pool.id].standbyExits}
-                          </Badge>
-                        )}
-                        <Badge variant="default" size="sm">
-                          Gen #{psiphonStatuses[pool.id].generation || 0}
-                        </Badge>
-                      </>
-                    )}
-                    <Badge variant="default" size="sm">
-                      {pool.boundConnectionCount || 0} bound
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-text-muted truncate mt-1">{pool.proxyUrl}</p>
-                  {pool.noProxy ? (
-                    <p className="text-xs text-text-muted truncate">No proxy: {pool.noProxy}</p>
-                  ) : null}
-                  <p className="text-[11px] text-text-muted mt-1">
-                    Last tested: {formatDateTime(pool.lastTestedAt)}
-                    {pool.lastError ? ` · ${pool.lastError}` : ""}
-                  </p>
-                  </div>
-                </div>
+          <div className="flex flex-col gap-4">
+            {poolGroups.map((group) => {
+              const isCollapsed = isGroupCollapsed(group.key);
+              const activeInGroup = group.pools.filter((p) => p.isActive === true).length;
 
-                <div className="flex items-center justify-end gap-1">
-                  <Toggle
-                    size="sm"
-                    checked={pool.isActive === true}
-                    onChange={() => handleToggleActive(pool)}
-                    title={pool.isActive ? "Disable" : "Enable"}
-                  />
-                  {(pool.type === "psiphon" || pool.type === "opencode2api") && (
-                    <button
-                      onClick={() => handleRotate(pool.id)}
-                      className="p-2 rounded hover:bg-black/5 dark:hover:bg-white/5 text-text-muted hover:text-primary"
-                      title="Rotate now"
-                      disabled={rotatingId === pool.id}
-                    >
-                      <span
-                        className="material-symbols-outlined text-[18px]"
-                        style={rotatingId === pool.id ? { animation: "spin 1s linear infinite" } : undefined}
-                      >
-                        {rotatingId === pool.id ? "sync" : "refresh"}
+              return (
+                <div
+                  key={group.key}
+                  className="flex flex-col rounded-lg border border-black/[0.06] dark:border-white/[0.06]"
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggleGroupCollapse(group.key)}
+                    className="sticky top-0 z-10 flex w-full items-center justify-between py-2 px-3 bg-surface/95 backdrop-blur-sm border-b border-black/[0.06] dark:border-white/[0.06] text-left hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors rounded-t-lg"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="material-symbols-outlined text-[18px] text-text-muted">
+                        {isCollapsed ? "expand_more" : "expand_less"}
                       </span>
-                    </button>
+                      <span className="text-sm font-semibold text-text-main">{group.label}</span>
+                      <Badge variant="default" size="sm">
+                        {group.pools.length}
+                      </Badge>
+                    </div>
+                  </button>
+
+                  {isCollapsed ? (
+                    <div className="py-2.5 px-3 text-xs text-text-muted">
+                      {group.pools.length} pools — {activeInGroup} active
+                    </div>
+                  ) : (
+                    <div className="flex flex-col divide-y divide-black/[0.04] dark:divide-white/[0.05] px-3">
+                      {group.pools.map((pool) => renderPoolCard(pool))}
+                    </div>
                   )}
-                  <button
-                    onClick={() => handleTest(pool.id)}
-                    className="p-2 rounded hover:bg-black/5 dark:hover:bg-white/5 text-text-muted hover:text-primary"
-                    title="Test proxy"
-                    disabled={testingId === pool.id}
-                  >
-                    <span
-                      className="material-symbols-outlined text-[18px]"
-                      style={testingId === pool.id ? { animation: "spin 1s linear infinite" } : undefined}
-                    >
-                      {testingId === pool.id ? "progress_activity" : "science"}
-                    </span>
-                  </button>
-                  <button
-                    onClick={() => openEditModal(pool)}
-                    className="p-2 rounded hover:bg-black/5 dark:hover:bg-white/5 text-text-muted hover:text-primary"
-                    title="Edit"
-                  >
-                    <span className="material-symbols-outlined text-[18px]">edit</span>
-                  </button>
-                  <button
-                    onClick={() => handleDelete(pool)}
-                    className="p-2 rounded hover:bg-red-500/10 text-red-500"
-                    title="Delete"
-                  >
-                    <span className="material-symbols-outlined text-[18px]">delete</span>
-                  </button>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </Card>

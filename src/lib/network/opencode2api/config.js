@@ -6,6 +6,10 @@ import { getDataDir } from "@/lib/dataDir.js";
 
 export const MANAGED_SIDECAR_URL = "opencode2api://managed";
 
+// Virtual pool id for the always-on managed sidecar lane (provider opencode-warp).
+// No pool row exists for it; the resolver synthesizes one (see connectionProxy.js).
+export const MANAGED_SIDECAR_POOL_ID = "opencode-warp-managed";
+
 export class OpencodeSidecarUnavailableError extends Error {
   constructor(message, options) {
     super(message, options);

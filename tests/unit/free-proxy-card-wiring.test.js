@@ -60,8 +60,8 @@ describe("FreeProxySourcesCard Integration & Wiring (Spec 017 / master e1fb2594)
       // Verify compiled JSX contains FreeProxySourcesCard identifier
       expect(transformed).toContain("FreeProxySourcesCard");
 
-      // Verify page source contains exact single invocation
-      const matches = source.match(/<FreeProxySourcesCard\s*\/>/g);
+      // Verify page source contains exactly one invocation (it takes onSynced now)
+      const matches = source.match(/<FreeProxySourcesCard\b/g);
       expect(matches).not.toBeNull();
       expect(matches.length).toBe(1);
 

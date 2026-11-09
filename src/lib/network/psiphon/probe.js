@@ -1,9 +1,9 @@
-import * as undiciPkg from "undici";
+import { loadRealUndici } from "@/lib/network/undiciRuntime.js";
 
-// ponytail: under Bun, undici export can be a C++ stub where ProxyAgent lacks dispatch; fallback to npm undici
-const realUndici = undiciPkg.fetch?.toString?.().includes("[native code]")
-  ? (await import("undici/index.js").catch(() => undiciPkg))
-  : undiciPkg;
+// Under Bun, `import ... from "undici"` can hand back a native stub whose
+// fetch ignores `dispatcher`, so every proxy probe would measure the host
+// socket instead of the tunnel. Always go through the real package.
+const realUndici = await loadRealUndici();
 
 export const ProxyAgent = realUndici.ProxyAgent;
 export const undiciFetch = realUndici.fetch;

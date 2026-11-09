@@ -22,7 +22,7 @@ const SOURCE_METADATA = {
   },
 };
 
-export default function FreeProxySourcesCard() {
+export default function FreeProxySourcesCard({ onSynced }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -146,10 +146,14 @@ export default function FreeProxySourcesCard() {
         added: data.added || 0,
         updated: data.updated || 0,
         skipped: data.skipped || 0,
+        pruned: data.pruned || 0,
         total: data.total || 0,
         message: data.message,
         timestamp: new Date().toISOString(),
       });
+      // A sync creates and prunes pools behind the page's back; without this the
+      // list on screen is stale until a manual reload.
+      onSynced?.();
     } catch (err) {
       setError(err?.message || "Sync encountered an error");
     } finally {
@@ -184,9 +188,9 @@ export default function FreeProxySourcesCard() {
           timing, and target domains. Feeds may be unstable or short-lived.
         </p>
         <p className="text-xs text-amber-800 dark:text-amber-300">
-          Newly imported proxies are added to Proxy Pools with <strong>Active = OFF</strong> by
-          default. You must inspect and explicitly activate individual proxies in the Proxy Pools
-          view before traffic can route through them.
+          A sync only imports candidates that already answered the upstream through the proxy,
+          and adds them to Proxy Pools as <strong>Active</strong> straight away. Each pool can
+          still be switched off in the Proxy Pools view.
         </p>
       </div>
 
@@ -246,6 +250,7 @@ export default function FreeProxySourcesCard() {
             <span>
               Last sync: {new Date(syncResult.timestamp).toLocaleTimeString()} &mdash;{" "}
               {syncResult.added} added, {syncResult.updated} updated, {syncResult.skipped} skipped
+              {syncResult.pruned > 0 ? `, ${syncResult.pruned} pruned` : ""}
             </span>
           )}
         </div>

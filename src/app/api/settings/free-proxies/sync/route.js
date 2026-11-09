@@ -5,6 +5,7 @@
  * POST: Triggers a bounded feed ingestion cycle for enabled free proxy sources.
  *       Enforces explicit policy risk acknowledgment, streaming limits, DNS guards,
  *       and acquires an immediate SQLite lease to reject concurrent syncs (409 Conflict).
+ *       Prunes dead free-owned pools unless `{ "prune": false }` is passed.
  */
 
 import { NextResponse } from "next/server";
@@ -62,6 +63,9 @@ export async function POST(request) {
 
     const result = await runFreeProxySync({
       sources: body.sources || null,
+      // Prune is on unless explicitly disabled: an un-gated sync leaves dead
+      // rows behind, and they are what floods the pool pickers.
+      prune: body.prune !== false,
     });
 
     if (!result.success) {
@@ -71,6 +75,7 @@ export async function POST(request) {
           added: result.added || 0,
           updated: result.updated || 0,
           skipped: result.skipped || 0,
+          pruned: result.pruned || 0,
           failures: result.failures || 0,
           total: result.total || 0,
         },
@@ -83,6 +88,7 @@ export async function POST(request) {
       added: result.added,
       updated: result.updated,
       skipped: result.skipped,
+      pruned: result.pruned || 0,
       failures: result.failures,
       total: result.total,
       message: result.message || undefined,
