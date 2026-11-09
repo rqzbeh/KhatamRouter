@@ -6,6 +6,8 @@ import {
   DEFAULT_FREE_PROXY_POLICY,
   KNOWN_SOURCES,
   MAX_FEED_BYTES,
+  FREE_PROXY_FEED_URLS,
+  ALLOWED_FEED_HOSTS,
   validatePolicyUpdate,
   validateCandidateProxy,
   computeFreePoolId,
@@ -14,6 +16,7 @@ import {
   parseOneproxyFeed,
   parseProxiflyFeed,
   parseIplocateFeed,
+  isPoolPrunable,
 } from "../../src/lib/freeProxyProviders/index.js";
 
 describe("Free Proxy Sources Core & Security Guards", () => {
@@ -106,7 +109,7 @@ describe("Free Proxy Sources Core & Security Guards", () => {
 
   it("fetchFeedBounded rejects unallowed hostnames and non-https schemes", async () => {
     await expect(
-      fetchFeedBounded("http://1proxy-api.aitradepulse.com/test")
+      fetchFeedBounded("http://api.proxyscrape.com/test")
     ).rejects.toThrow(/must use HTTPS protocol/i);
 
     await expect(
@@ -128,14 +131,14 @@ describe("Free Proxy Sources Core & Security Guards", () => {
     const mockFetch = vi.fn().mockResolvedValue({
       status: 302,
       headers: new Headers({
-        Location: "https://1proxy-api.aitradepulse.com/redirect",
+        Location: "https://api.proxyscrape.com/redirect",
       }),
       ok: false,
     });
 
     await expect(
       fetchFeedBounded(
-        "https://1proxy-api.aitradepulse.com/api/v1/proxies/advanced",
+        "https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&protocol=http&proxy_format=protocolipport&format=json",
         {
           customFetch: mockFetch,
           maxRedirects: 2,
@@ -240,6 +243,66 @@ describe("Free Proxy Sources Core & Security Guards", () => {
     expect(id3).not.toBe(id1);
   });
 
+  it("configures expected canonical feed URLs and allowed hosts", () => {
+    expect(FREE_PROXY_FEED_URLS.oneproxy).toContain("api.proxyscrape.com");
+    expect(FREE_PROXY_FEED_URLS.proxifly).toContain("cdn.jsdelivr.net");
+    expect(FREE_PROXY_FEED_URLS.iplocate).toContain("raw.githubusercontent.com");
+
+    expect(ALLOWED_FEED_HOSTS.has("api.proxyscrape.com")).toBe(true);
+    expect(ALLOWED_FEED_HOSTS.has("cdn.jsdelivr.net")).toBe(true);
+    expect(ALLOWED_FEED_HOSTS.has("raw.githubusercontent.com")).toBe(true);
+
+    expect(ALLOWED_FEED_HOSTS.has("1proxy-api.aitradepulse.com")).toBe(false);
+    expect(ALLOWED_FEED_HOSTS.has("api.proxifly.dev")).toBe(false);
+  });
+
+  it("parses oneproxy (ProxyScrape v4) feed correctly and skips alive:false entries", () => {
+    const payload = JSON.stringify({
+      proxies: [
+        {
+          alive: true,
+          ip: "103.152.112.162",
+          port: 80,
+          protocol: "http",
+          ip_data: { countryCode: "VN", city: "Hanoi" },
+          timeout: 450,
+          uptime: 85,
+        },
+        {
+          alive: false,
+          ip: "200.200.200.200",
+          port: 8080,
+          protocol: "http",
+          ip_data: { countryCode: "BR" },
+        },
+        {
+          alive: true,
+          ip: "104.28.1.1",
+          port: 3128,
+          protocol: "http",
+          country_code: "US", // fallback when ip_data is absent
+          latency_ms: 60,
+          quality_score: 92,
+        },
+      ],
+    });
+
+    const candidates = parseOneproxyFeed(payload);
+    expect(candidates.length).toBe(2);
+
+    expect(candidates[0].host).toBe("103.152.112.162");
+    expect(candidates[0].port).toBe(80);
+    expect(candidates[0].countryCode).toBe("VN");
+    expect(candidates[0].latencyMs).toBe(450);
+    expect(candidates[0].qualityScore).toBe(85);
+
+    expect(candidates[1].host).toBe("104.28.1.1");
+    expect(candidates[1].port).toBe(3128);
+    expect(candidates[1].countryCode).toBe("US");
+    expect(candidates[1].latencyMs).toBe(60);
+    expect(candidates[1].qualityScore).toBe(92);
+  });
+
   it("parses oneproxy, proxifly, and iplocate feeds correctly", () => {
     const oneproxyPayload = JSON.stringify({
       proxies: [
@@ -257,6 +320,7 @@ describe("Free Proxy Sources Core & Security Guards", () => {
     expect(opCandidates.length).toBe(1);
     expect(opCandidates[0].host).toBe("1.2.3.4");
     expect(opCandidates[0].port).toBe(8080);
+    expect(opCandidates[0].countryCode).toBe("DE");
 
     const proxiflyPayload = JSON.stringify([
       {
@@ -272,6 +336,7 @@ describe("Free Proxy Sources Core & Security Guards", () => {
     expect(pfCandidates.length).toBe(1);
     expect(pfCandidates[0].host).toBe("5.6.7.8");
     expect(pfCandidates[0].port).toBe(3128);
+    expect(pfCandidates[0].countryCode).toBe("FR");
 
     const iplocatePayload = `# Comment line\n9.10.11.12:8888\n\n13.14.15.16:9999\n`;
     const ipCandidates = parseIplocateFeed(iplocatePayload, "http");
@@ -280,5 +345,50 @@ describe("Free Proxy Sources Core & Security Guards", () => {
     expect(ipCandidates[0].port).toBe(8888);
     expect(ipCandidates[1].host).toBe("13.14.15.16");
     expect(ipCandidates[1].port).toBe(9999);
+  });
+
+  it("isPoolPrunable accurately classifies dead free-owned pools", () => {
+    const now = Date.now();
+    const twoHoursAgo = new Date(now - 2 * 3600 * 1000).toISOString();
+    const tenMinutesAgo = new Date(now - 10 * 60 * 1000).toISOString();
+    const freeUrl = "http://8.8.8.8:8080";
+    const freeId = computeFreePoolId(freeUrl);
+
+    // Eligible: inactive, error, older than 1h, free-owned with matching id
+    const prunablePool = {
+      id: freeId,
+      proxyUrl: freeUrl,
+      isActive: false,
+      testStatus: "error",
+      createdAt: twoHoursAgo,
+      provenance: { source: "free:oneproxy" },
+    };
+    expect(isPoolPrunable(prunablePool, now)).toBe(true);
+
+    // Ineligible: isActive is true
+    expect(isPoolPrunable({ ...prunablePool, isActive: true }, now)).toBe(false);
+
+    // Ineligible: testStatus is "ok" or not "error"
+    expect(isPoolPrunable({ ...prunablePool, testStatus: "ok" }, now)).toBe(false);
+    expect(isPoolPrunable({ ...prunablePool, testStatus: null }, now)).toBe(false);
+
+    // Ineligible: newer than 1 hour
+    expect(isPoolPrunable({ ...prunablePool, createdAt: tenMinutesAgo }, now)).toBe(false);
+
+    // Ineligible: not free-owned provenance
+    expect(
+      isPoolPrunable(
+        { ...prunablePool, provenance: { source: "manual" } },
+        now
+      )
+    ).toBe(false);
+
+    // Ineligible: id mismatch (custom id or manual override)
+    expect(
+      isPoolPrunable(
+        { ...prunablePool, id: "custom_pool_id" },
+        now
+      )
+    ).toBe(false);
   });
 });

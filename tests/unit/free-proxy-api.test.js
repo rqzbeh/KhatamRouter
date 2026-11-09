@@ -4,6 +4,17 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
+// The import gate probes every new candidate through a real ProxyAgent, so the
+// suite would otherwise depend on the network. Default: everything connects;
+// the rejection test below only exercises candidate validation, not the probe.
+const probeMock = vi.hoisted(() => ({
+  probeLatency: vi.fn(),
+}));
+
+vi.mock("@/lib/network/psiphon/probe.js", () => ({
+  probeLatency: probeMock.probeLatency,
+}));
+
 let tempDir;
 const originalDataDir = process.env.DATA_DIR;
 
@@ -30,6 +41,8 @@ describe("Free Proxy API Routes & SQLite Persistence", () => {
     process.env.DATA_DIR = tempDir;
     delete global._dbAdapter;
     vi.resetModules();
+    probeMock.probeLatency.mockReset();
+    probeMock.probeLatency.mockResolvedValue({ ok: true, latency: 120 });
 
     settingsRoute = await import("../../src/app/api/settings/free-proxies/route.js");
     syncRoute = await import("../../src/app/api/settings/free-proxies/sync/route.js");
@@ -122,7 +135,7 @@ describe("Free Proxy API Routes & SQLite Persistence", () => {
     expect(data.error).toContain("Unknown source 'webshare'");
   });
 
-  it("POST sync ingests public IPs as inactive, rejecting private/SOCKS candidates", async () => {
+  it("POST sync ingests public IPs as active, rejecting private/SOCKS candidates", async () => {
     // 1. Enable oneproxy with risk acknowledgment
     await settingsRepo.updateSettings({
       freeProxySources: {
@@ -156,17 +169,18 @@ describe("Free Proxy API Routes & SQLite Persistence", () => {
     expect(result.added).toBe(2); // Only 8.8.8.8 and 1.1.1.1
     expect(result.skipped).toBe(4); // 4 rejected (127.0.0.1, 192.168.1.1, 169.254.169.254, socks5)
 
-    // Verify newly imported pools have isActive = false
+    // A pool is only created after the candidate passed a live probe, so
+    // imports arrive active.
     const pools = await proxyPoolsRepo.getProxyPools();
     expect(pools.length).toBe(2);
     for (const pool of pools) {
-      expect(pool.isActive).toBe(false);
+      expect(pool.isActive).toBe(true);
       expect(pool.data?.provenance?.source).toBe("free:oneproxy");
       expect(pool.data?.provenance?.untrusted).toBe(true);
     }
   });
 
-  it("POST sync preserves user-configured isActive = true on refresh", async () => {
+  it("POST sync preserves user-configured isActive on refresh", async () => {
     await settingsRepo.updateSettings({
       freeProxySources: {
         acknowledgedRisk: true,
@@ -183,7 +197,7 @@ describe("Free Proxy API Routes & SQLite Persistence", () => {
     await freeProxyCore.runFreeProxySync({ customFetch: mockFetch });
     let pools = await proxyPoolsRepo.getProxyPools();
     expect(pools.length).toBe(1);
-    expect(pools[0].isActive).toBe(false);
+    expect(pools[0].isActive).toBe(true);
 
     // User explicitly activates this pool
     await proxyPoolsRepo.updateProxyPool(pools[0].id, { isActive: true });
@@ -280,7 +294,7 @@ describe("Free Proxy API Routes & SQLite Persistence", () => {
 
     // Subsequent sync where oneproxy fails (500) and proxifly succeeds (has another pool)
     const mockFetch2 = vi.fn().mockImplementation((url) => {
-      if (url.includes("1proxy")) {
+      if (url.includes("proxyscrape")) {
         return Promise.reject(new Error("Upstream timeout"));
       }
       return Promise.resolve(
