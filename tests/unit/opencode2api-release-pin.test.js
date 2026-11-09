@@ -171,10 +171,11 @@ describe("opencode2api downloader", async () => {
     ).rejects.toThrow(/HTTP 404/);
   });
 
-  it("never replaces an already-installed binary", async (t) => {
+  it("never replaces an already-installed executable binary", async (t) => {
     const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), "o2a-install-"));
     const existing = path.join(targetDir, "opencode2api");
     fs.writeFileSync(existing, "operator-managed");
+    fs.chmodSync(existing, 0o755);
     let fetched = 0;
 
     const installed = await installSidecarBinary({
@@ -187,6 +188,27 @@ describe("opencode2api downloader", async () => {
 
     expect(fetched).toBe(0);
     expect(fs.readFileSync(installed, "utf8")).toBe("operator-managed");
+  });
+
+  it("replaces a present but non-executable binary", async (t) => {
+    const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), "o2a-install-"));
+    const existing = path.join(targetDir, "opencode2api");
+    fs.writeFileSync(existing, "not-executable");
+    fs.chmodSync(existing, 0o644);
+    const tarball = makeTarball("new");
+    stubManifest(t, __sha256Hex(tarball), tarball.length);
+    let fetched = 0;
+
+    const installed = await installSidecarBinary({
+      fetchImpl: async () => {
+        fetched++;
+        return fakeResponse(tarball);
+      },
+      targetDir,
+    });
+
+    expect(fetched).toBe(1);
+    expect(fs.readFileSync(installed, "utf8")).toBe("new");
   });
 
   it("ensureSidecarBinary prefers an existing OPENCODE2API_BIN and falls back on failure", async (t) => {

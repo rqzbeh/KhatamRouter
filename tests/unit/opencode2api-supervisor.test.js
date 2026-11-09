@@ -184,7 +184,7 @@ describe("opencode2api sidecar supervisor", () => {
 
     // The relaunched config really carries warp.enabled=false.
     const runDir = path.join(tmpDataDir, "opencode2api", "run");
-    const configFile = fs.readdirSync(runDir).find((f) => f.startsWith(`${pool.id}-pid-`));
+    const configFile = fs.readdirSync(runDir).find((f) => f.startsWith(`${pool.id}-pid-`) && f.endsWith(".json"));
     expect(configFile).toBeTruthy();
     const written = JSON.parse(fs.readFileSync(path.join(runDir, configFile), "utf8"));
     expect(written.warp.enabled).toBe(false);
@@ -331,7 +331,7 @@ describe("opencode2api sidecar supervisor", () => {
     await ensureSidecar(pool);
 
     const runDir = path.join(tmpDataDir, "opencode2api", "run");
-    const configFile = fs.readdirSync(runDir).find((f) => f.startsWith("pool-persisted-options"));
+    const configFile = fs.readdirSync(runDir).find((f) => f.startsWith("pool-persisted-options") && f.endsWith(".json"));
     expect(configFile).toBeTruthy();
     const written = JSON.parse(fs.readFileSync(path.join(runDir, configFile), "utf8"));
 

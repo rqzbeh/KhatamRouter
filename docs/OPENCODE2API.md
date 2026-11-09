@@ -18,7 +18,7 @@ Version pinning, per-arch checksums and the license copy live in `Dockerfile` / 
 
 OpenCode's free tier counts quota per egress IPv6 `/64` block. A static proxy is burned once it is flagged; the exit has to change per request, not per pool. The daemon owns that rotation, so the gateway does **not** restart or rotate it on a 429 — it only retries the same daemon up to the pool's `retryAttempts` while the daemon swaps exits internally.
 
-- **Strict by construction.** An `opencode2api` pool never falls back to the server IP. If the daemon cannot be started or is not ready, the request fails closed with 503.
+- **Strict by construction.** An `opencode2api` pool never falls back to some *other* proxy: if the daemon cannot be started or is not ready, the request fails closed with 503. The one exception is deliberate — if WARP itself cannot initialize the daemon is relaunched over the host IP (see below), and `status` then reports `warpEnabled: false`.
 - **Nothing to install.** The binary is in the image for both `amd64` and `arm64`, already covered by the release-pin test.
 - **Loopback only.** The daemon listens on `127.0.0.1:<port>`; the gateway talks to it over loopback. `/healthz` requires no authentication.
 
@@ -76,7 +76,7 @@ The OpenCode TLS-fingerprint adapter is bypassed for sidecar URLs because the da
 
 ## Observability
 
-- Pool `status` route → `ready`, active/standby/cooling exits, last error.
+- Pool `status` route → `ready`, `warpEnabled`, active/standby/cooling exits, last error. The route also returns the current local `apiKey`; that key is only valid against the loopback daemon, so it is not a remote credential.
 - Pool `test` route → performs a real readiness probe and will not mark the pool active if it fails.
 - Container logs: the supervisor tags its own lines `[opencode2api] Pool <id> ...`; the daemon's JSON logs pass through on the child's stdio.
 

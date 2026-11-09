@@ -90,7 +90,16 @@ export async function installSidecarBinary({ log, fetchImpl = fetch, targetDir }
 
   const dir = targetDir || path.join(getDataDir(), "bin");
   const targetBin = path.join(dir, "opencode2api");
-  if (fs.existsSync(targetBin)) return targetBin;
+  // An existing binary wins, but it must actually be executable — `existsSync`
+  // alone passes for a truncated/pointed-at-text file and surfaces as EACCES.
+  if (fs.existsSync(targetBin)) {
+    try {
+      fs.accessSync(targetBin, fs.constants.X_OK);
+      return targetBin;
+    } catch {
+      fs.rmSync(targetBin, { force: true });
+    }
+  }
 
   fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
   // Unique per invocation so concurrent installs never share a temp path.
@@ -126,7 +135,9 @@ export async function installSidecarBinary({ log, fetchImpl = fetch, targetDir }
 
     // The upstream tarball nests everything under `opencode2api_<version>_linux_<arch>/`.
     const inner = `opencode2api_${release.version}_linux_${arch}/opencode2api`;
-    const extract = spawnSync("tar", ["-C", workDir, "-xzf", tempTar, inner]);
+    const extract = spawnSync("tar", ["-C", workDir, "-xzf", tempTar, inner], {
+        timeout: 60_000,
+      });
     if (extract.status !== 0) {
       throw new Error(`tar extraction failed (code ${extract.status}): ${extract.stderr?.toString() || "unknown"}`);
     }

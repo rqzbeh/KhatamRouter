@@ -764,8 +764,11 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
   const targetUrl = typeof url === "string" ? url : url.toString();
 
   // Managed opencode2api sidecar: full URL rewrite, runs before the relay and
-  // proxy branches because the sidecar is not an HTTP proxy.
-  if (proxyOptions?.opencodeSidecarPoolId) {
+  // proxy branches because the sidecar is not an HTTP proxy. A connection can be
+  // bound to a sidecar pool while pointing at another vendor, and the daemon's
+  // anonymous upstream would answer it wrongly, so only OpenCode origins are
+  // rewritten.
+  if (proxyOptions?.opencodeSidecarPoolId && isOpenCodeHost(targetUrl)) {
     return await fetchViaOpencodeSidecar(targetUrl, options, proxyOptions);
   }
 

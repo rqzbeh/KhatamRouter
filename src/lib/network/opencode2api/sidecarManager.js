@@ -8,6 +8,7 @@ import {
   allocatePort,
   createSidecarConfigFile,
   cleanSidecarConfigFile,
+  writeSidecarChildPid,
   sweepStaleSidecarDirs,
 } from "./config.js";
 import { ensureSidecarBinary } from "./downloader.js";
@@ -162,8 +163,15 @@ function registerExitHooks() {
   };
 
   process.once("exit", cleanup);
-  process.once("SIGTERM", cleanup);
-  process.once("SIGINT", cleanup);
+  // Registering a signal listener suppresses the default terminate, so re-raise
+  // it when this module was the only listener (bare `next dev`, no custom-server).
+  // `once` removes the listener before it runs, so a zero count means we were it.
+  const onSignal = (name, code) => () => {
+    cleanup();
+    if (process.listenerCount(name) === 0) process.exit(code);
+  };
+  process.once("SIGTERM", onSignal("SIGTERM", 143));
+  process.once("SIGINT", onSignal("SIGINT", 130));
 }
 
 registerExitHooks();
@@ -418,6 +426,9 @@ async function launchAndAwaitReady(state, { warpEnabled = state.warpEnabled !== 
   }
 
   state.child = child;
+  // Lets a later startup reap this daemon if the gateway dies without running
+  // its exit hooks (SIGKILL, OOM). Best-effort.
+  if (child.pid) writeSidecarChildPid(configFile, child.pid);
   attachOutputPumping(state, child);
 
   // A binary that cannot be launched (ENOENT, EACCES, ENOMEM) emits `error`
@@ -612,6 +623,9 @@ export async function stopSidecar(poolId) {
   state.port = null;
   state.apiKey = null;
   state.health = null;
+  // A stop is also how `rotate` and deletes begin, so retry WARP next time
+  // instead of staying pinned to host-IP egress for the process lifetime.
+  state.warpEnabled = true;
 }
 
 /**
@@ -627,6 +641,7 @@ export function getStatus(poolId) {
       generation: 0,
       proxyUrl: null,
       apiKey: null,
+      warpEnabled: true,
       activeExits: 0,
       standbyExits: 0,
       coolingExits: 0,
@@ -645,6 +660,9 @@ export function getStatus(poolId) {
     standbyExits: typeof warp?.standby === "number" ? warp.standby : 0,
     coolingExits: typeof warp?.cooling === "number" ? warp.cooling : 0,
     exitedAt: state.exitedAt || null,
+    // false means the daemon is serving over the host IP (WARP blocked); the
+    // pool is still strict, but the quota no longer spreads across exits.
+    warpEnabled: state.warpEnabled !== false,
     lastError: state.lastError ? (state.lastError.message || String(state.lastError)) : null,
   };
 }

@@ -281,6 +281,31 @@ export function cleanSidecarConfigFile(file) {
   try {
     fs.unlinkSync(file);
   } catch {}
+  try {
+    fs.unlinkSync(`${file}.child`);
+  } catch {}
+}
+
+/**
+ * Records the daemon pid next to its config file, so a later startup can reap a
+ * daemon whose gateway was SIGKILLed (the filename only encodes the gateway).
+ * @param {string} file
+ * @param {number} pid
+ */
+export function writeSidecarChildPid(file, pid) {
+  if (!file || !pid) return;
+  try {
+    fs.writeFileSync(`${file}.child`, String(pid), { mode: 0o600 });
+  } catch {}
+}
+
+function readSidecarChildPid(file) {
+  try {
+    const pid = parseInt(fs.readFileSync(`${file}.child`, "utf8").trim(), 10);
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -301,14 +326,24 @@ export function sweepStaleSidecarDirs() {
         const pid = parseInt(pidMatch[1], 10);
         try {
           process.kill(pid, 0);
-          // Process is alive, do not touch
+          // Owning gateway is alive, do not touch.
           continue;
         } catch {
-          // Process is dead
+          // Owning gateway is dead: its daemon is an orphan and still holds a
+          // loopback port and WARP exits. Reap it before dropping the file.
+          const daemonPid = readSidecarChildPid(fullPath);
+          if (daemonPid) {
+            try {
+              process.kill(daemonPid, "SIGKILL");
+            } catch {}
+          }
         }
       }
       try {
         fs.rmSync(fullPath, { recursive: true, force: true });
+      } catch {}
+      try {
+        fs.rmSync(`${fullPath}.child`, { force: true });
       } catch {}
     }
   } catch {}
