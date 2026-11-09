@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getProxyPoolById, updateProxyPool } from "@/models";
 import { testProxyUrl } from "@/lib/network/proxyTest";
-import { fetch as undiciFetch } from "undici";
+import { loadRealUndici } from "@/lib/network/undiciRuntime.js";
 import { ensureTunnel } from "@/lib/network/psiphon/psiphonManager.js";
 import { probeLatency } from "@/lib/network/psiphon/probe.js";
 import { ensureSidecar, checkHealth } from "@/lib/network/opencode2api/sidecarManager.js";
@@ -11,6 +11,7 @@ async function testVercelRelay(relayUrl, timeoutMs = 10000) {
   const startedAt = Date.now();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    const { fetch: undiciFetch } = await loadRealUndici();
     const res = await undiciFetch(relayUrl, {
       method: "GET",
       headers: {

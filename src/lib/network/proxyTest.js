@@ -1,4 +1,4 @@
-import { ProxyAgent, fetch as undiciFetch } from "undici";
+import { loadRealUndici } from "@/lib/network/undiciRuntime.js";
 
 const DEFAULT_TEST_URL = "https://google.com/";
 const DEFAULT_TIMEOUT_MS = 8000;
@@ -41,6 +41,10 @@ export async function testProxyUrl({ proxyUrl, testUrl, timeoutMs } = {}) {
   let dispatcher;
 
   try {
+    // Must be the real npm undici: Bun's native fetch export accepts but
+    // ignores `dispatcher`, which made every test pass on a dead proxy.
+    const { ProxyAgent, fetch: undiciFetch } = await loadRealUndici();
+
     try {
       dispatcher = new ProxyAgent({ uri: normalizedProxyUrl });
     } catch (err) {
