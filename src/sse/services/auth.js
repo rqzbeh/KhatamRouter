@@ -76,6 +76,11 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
           psiphonPoolId: resolvedProxy.psiphonPoolId || null,
           psiphonGeneration: resolvedProxy.psiphonGeneration ?? null,
           psiphonUnavailable: resolvedProxy.psiphonUnavailable === true,
+          opencodeSidecarPoolId: resolvedProxy.opencodeSidecarPoolId || null,
+          opencodeSidecarUrl: resolvedProxy.opencodeSidecarUrl || "",
+          opencodeSidecarKey: resolvedProxy.opencodeSidecarKey || "",
+          opencodeSidecarGeneration: resolvedProxy.opencodeSidecarGeneration ?? null,
+          opencodeSidecarUnavailable: resolvedProxy.opencodeSidecarUnavailable === true,
         },
       };
     }
@@ -233,6 +238,11 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
         psiphonPoolId: resolvedProxy.psiphonPoolId || null,
         psiphonGeneration: resolvedProxy.psiphonGeneration ?? null,
         psiphonUnavailable: resolvedProxy.psiphonUnavailable === true,
+        opencodeSidecarPoolId: resolvedProxy.opencodeSidecarPoolId || null,
+        opencodeSidecarUrl: resolvedProxy.opencodeSidecarUrl || "",
+        opencodeSidecarKey: resolvedProxy.opencodeSidecarKey || "",
+        opencodeSidecarGeneration: resolvedProxy.opencodeSidecarGeneration ?? null,
+        opencodeSidecarUnavailable: resolvedProxy.opencodeSidecarUnavailable === true,
       },
       connectionId: connection.id,
       // Include current status for optimization check

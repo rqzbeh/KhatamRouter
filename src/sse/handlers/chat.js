@@ -42,6 +42,7 @@ import { isStickinessEnabled, computeSessionKey, getStickyConnection, setStickyC
 import { handleIdempotencyPreRequest, handleIdempotencyPostRequest } from "@/lib/idempotency/index.js";
 import { resolveSmartChoice } from "../services/systemoneRouter.js";
 import { rotate, recordUsage, shouldRotateOn } from "@/lib/network/psiphon/psiphonManager.js";
+import { stopSidecar } from "@/lib/network/opencode2api/sidecarManager.js";
 import { classifyProxyFailure } from "@/lib/network/proxyHealthPolicy.js";
 import { markPoolUnfit } from "open-sse/services/proxyPoolFitness.js";
 import { isLocalRequest } from "@/dashboardGuard.js";
@@ -464,6 +465,8 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   let lastStatus = null;
   let lastHeaders = null;
   let psiphonRotations = 0;
+  let sidecarQuotaRetries = 0;
+  let sidecarRestarts = 0;
 
   while (true) {
     const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, {
@@ -625,14 +628,15 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
 
     // Psiphon transport failure rotation:
     // If request used a Psiphon pool and upstream emitted a transport/proxy failure (502/503 connect timeout/reset),
-    // rotate the tunnel (up to 2 times per request) and retry. Does NOT rotate on quota (429/403) or client abort.
+    // rotate the tunnel (up to 4 times per request; promotion from the warm ring is
+    // served synchronously) and retry. Does NOT rotate on quota (429/403) or client abort.
     const psiphonPoolId = credentials?.providerSpecificData?.psiphonPoolId;
     const isPsiphonUnavailable = credentials?.providerSpecificData?.psiphonUnavailable === true;
     const isClientAborted = Boolean(request?.signal?.aborted);
-    if (psiphonPoolId && !isPsiphonUnavailable && !isClientAborted && shouldRotateOn(result) && psiphonRotations < 2) {
+    if (psiphonPoolId && !isPsiphonUnavailable && !isClientAborted && shouldRotateOn(result) && psiphonRotations < 4) {
       psiphonRotations++;
       const seenGeneration = credentials?.providerSpecificData?.psiphonGeneration;
-      log.warn("PSIPHON", `Transport failure detected (${result.status}) on pool ${psiphonPoolId} (rotation ${psiphonRotations}/2) → rotating tunnel`);
+      log.warn("PSIPHON", `Transport failure detected (${result.status}) on pool ${psiphonPoolId} (rotation ${psiphonRotations}/4) → rotating tunnel`);
       try {
         await rotate(psiphonPoolId, { reason: `transport_${result.status}`, seenGeneration });
       } catch (rotateErr) {
@@ -642,6 +646,48 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       lastStatus = result.status;
       lastHeaders = upstreamResponseHeaders(result.response?.headers);
       continue;
+    }
+
+    // opencode2api sidecar: the daemon rotates its own WARP exits and enforces
+    // the pool's retryAttempts budget, so a quota signal never needs a restart —
+    // it only needs another pass through the daemon, which by then holds fresh
+    // exits. A restart costs a full WARP rebuild (~tens of seconds), so it is
+    // reserved for a daemon that is actually gone or degraded.
+    const sidecarPoolId = credentials?.providerSpecificData?.opencodeSidecarPoolId;
+    const isSidecarUnavailable = credentials?.providerSpecificData?.opencodeSidecarUnavailable === true;
+    const isSidecarUrlMissing = !credentials?.providerSpecificData?.opencodeSidecarUrl;
+    if (sidecarPoolId && !isClientAborted) {
+      const isQuotaSignal = result.status === 429 || result.status === 403;
+      const needsRestart =
+        isSidecarUnavailable ||
+        isSidecarUrlMissing ||
+        (result.status !== 429 && result.status !== 403 && shouldRotateOn(result));
+
+      if (isQuotaSignal && !needsRestart && sidecarQuotaRetries < 2) {
+        sidecarQuotaRetries++;
+        log.warn("OPENCODE2API", `Quota signal (${result.status}) on pool ${sidecarPoolId} (retry ${sidecarQuotaRetries}/2) → retrying daemon`);
+        lastError = result.error;
+        lastStatus = result.status;
+        lastHeaders = upstreamResponseHeaders(result.response?.headers);
+        // The daemon evicts the blocked exit before answering, so a short pause
+        // is enough for the promoted exit to be in place.
+        await new Promise((resolve) => setTimeout(resolve, 750));
+        continue;
+      }
+
+      if (needsRestart && sidecarRestarts < 2) {
+        sidecarRestarts++;
+        log.warn("OPENCODE2API", `Sidecar unavailable/degraded on pool ${sidecarPoolId} (restart ${sidecarRestarts}/2) → restarting daemon`);
+        lastError = result.error;
+        lastStatus = result.status;
+        lastHeaders = upstreamResponseHeaders(result.response?.headers);
+        try {
+          await stopSidecar(sidecarPoolId);
+        } catch (stopErr) {
+          log.warn("OPENCODE2API", `Sidecar stop failed: ${stopErr.message}`);
+        }
+        continue;
+      }
     }
 
     // Antigravity 409/429: refresh live quota to get exact resetAt before locking

@@ -87,6 +87,8 @@ let dashboardGuard;
       expect(data.proxyPool.psiphon).toEqual({
         regions: ["US", "DE"],
         probeCandidates: 3,
+        // warmStandby (standby tunnel ring) defaults to 2 when omitted.
+        warmStandby: 2,
         maxRequestsPerIp: 100,
         maxTokensPerIp: 50000,
       });
@@ -97,6 +99,8 @@ let dashboardGuard;
       expect(fetched.psiphon).toEqual({
         regions: ["US", "DE"],
         probeCandidates: 3,
+        // warmStandby (standby tunnel ring) defaults to 2 when omitted.
+        warmStandby: 2,
         maxRequestsPerIp: 100,
         maxTokensPerIp: 50000,
       });
@@ -116,6 +120,7 @@ let dashboardGuard;
       expect(data.proxyPool.psiphon).toEqual({
         regions: [],
         probeCandidates: 3,
+        warmStandby: 2,
         maxRequestsPerIp: 0,
         maxTokensPerIp: 0,
       });

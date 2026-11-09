@@ -374,7 +374,7 @@ describe("Psiphon Integration & Rotation (T3)", () => {
       expect(status.generation).toBe(initialGen);
     });
 
-    it("stops after at most 2 rotations and returns last failure", async () => {
+    it("stops after at most 4 rotations and returns last failure", async () => {
       let upstreamChatCalls = 0;
       const initialTunnel = await ensureTunnel(mockPools.get("pool-psiphon-1"));
       const initialGen = initialTunnel.generation;
@@ -395,10 +395,12 @@ describe("Psiphon Integration & Rotation (T3)", () => {
       });
       const res = await handleChat(req);
       expect(res.status).toBe(429);
-      // Initial attempt (1) + 2 retries = 3 total attempts
-      expect(upstreamChatCalls).toBe(3);
+      // Initial attempt (1) + 4 rotations = 5 total attempts. The budget was
+      // raised from 2 to 4 in Spec 018 because a promoted warm-ring standby is
+      // served synchronously, so a retry no longer pays a full re-establish.
+      expect(upstreamChatCalls).toBe(5);
       const status = getStatus("pool-psiphon-1");
-      expect(status.generation).toBe(initialGen + 2);
+      expect(status.generation).toBe(initialGen + 4);
     });
 
     it("non-psiphon pool is untouched on 429 (no rotation)", async () => {
@@ -490,15 +492,32 @@ describe("Psiphon Integration & Rotation (T3)", () => {
         expect(caughtErr.message).toContain("[ProxyFetch] Proxy required but none resolved (strictProxy=true)");
         expect(resolve4Called).toBe(false);
 
-        // Non-strict MITM request still takes the bypass path (calls resolveRealIP / resolve4)
+        // Non-strict MITM request still takes the bypass path (calls resolveRealIP / resolve4).
+        // Env proxies (HTTP(S)_PROXY, ALL_PROXY) would route the request through a
+        // proxy instead of the bypass, so they are cleared for this case; the
+        // gate is about the code path, not about the developer machine.
         resolve4Called = false;
+        const envProxyKeys = [
+          "HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy",
+        ];
+        const savedEnvProxy = {};
+        for (const key of envProxyKeys) {
+          savedEnvProxy[key] = process.env[key];
+          delete process.env[key];
+        }
         try {
-          await proxyAwareFetch(
-            "https://test-mitm-nonstrict.api2.cursor.sh/test",
-            { method: "POST", body: "{}", signal: AbortSignal.timeout(50) },
-            { strictProxy: false }
-          );
-        } catch {}
+          try {
+            await proxyAwareFetch(
+              "https://test-mitm-nonstrict.api2.cursor.sh/test",
+              { method: "POST", body: "{}", signal: AbortSignal.timeout(50) },
+              { strictProxy: false }
+            );
+          } catch {}
+        } finally {
+          for (const key of envProxyKeys) {
+            if (savedEnvProxy[key] !== undefined) process.env[key] = savedEnvProxy[key];
+          }
+        }
         expect(resolve4Called).toBe(true);
       } finally {
         dns.Resolver.prototype.resolve4 = originalResolve4;

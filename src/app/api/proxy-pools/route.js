@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { createProxyPool, getProviderConnections, getProxyPools } from "@/models";
-import { VALID_PROXY_TYPES, MANAGED_PSIPHON_URL, normalizePsiphonOptions } from "./types.js";
+import {
+  VALID_PROXY_TYPES,
+  MANAGED_PSIPHON_URL,
+  MANAGED_OPENCODE2API_URL,
+  normalizePsiphonOptions,
+  normalizeOpencode2apiOptions,
+} from "./types.js";
 
 function toBoolean(value) {
   if (value === "true") return true;
@@ -36,6 +42,25 @@ function normalizeProxyPoolInput(body = {}) {
       strictProxy: true,
       type,
       psiphon: psiphonResult.psiphon,
+    };
+  }
+
+  if (type === "opencode2api") {
+    if (!proxyUrl) {
+      proxyUrl = MANAGED_OPENCODE2API_URL;
+    }
+    const opencode2apiResult = normalizeOpencode2apiOptions(body?.opencode2api);
+    if (!opencode2apiResult.valid) {
+      return { error: opencode2apiResult.error };
+    }
+    return {
+      name,
+      proxyUrl,
+      noProxy,
+      isActive,
+      strictProxy: true,
+      type,
+      opencode2api: opencode2apiResult.opencode2api,
     };
   }
 

@@ -4,6 +4,7 @@ import { testProxyUrl } from "@/lib/network/proxyTest";
 import { fetch as undiciFetch } from "undici";
 import { ensureTunnel } from "@/lib/network/psiphon/psiphonManager.js";
 import { probeLatency } from "@/lib/network/psiphon/probe.js";
+import { ensureSidecar, checkHealth } from "@/lib/network/opencode2api/sidecarManager.js";
 
 async function testVercelRelay(relayUrl, timeoutMs = 10000) {
   const controller = new AbortController();
@@ -43,6 +44,65 @@ export async function POST(request, { params }) {
 
     if (!proxyPool) {
       return NextResponse.json({ error: "Proxy pool not found" }, { status: 404 });
+    }
+
+    if (proxyPool.type === "opencode2api") {
+      const startedAt = Date.now();
+      try {
+        await ensureSidecar(proxyPool);
+        const health = await checkHealth(id);
+        const ready = Boolean(health?.ready);
+        const ok = ready === true;
+        const now = new Date().toISOString();
+        const elapsedMs = Math.max(1, Date.now() - startedAt);
+        const warp = health?.warp;
+        const activeExits = typeof warp?.active === "number" ? warp.active : 0;
+        const standbyExits = typeof warp?.standby === "number" ? warp.standby : 0;
+        const coolingExits = typeof warp?.cooling === "number" ? warp.cooling : 0;
+        const lastError = ok ? null : (health?.error || "Sidecar health check failed (not ready)");
+
+        await updateProxyPool(id, {
+          testStatus: ok ? "active" : "error",
+          lastTestedAt: now,
+          lastError,
+          isActive: ok,
+        });
+
+        return NextResponse.json({
+          ok,
+          ready,
+          activeExits,
+          standbyExits,
+          coolingExits,
+          elapsedMs,
+          status: ok ? 200 : 503,
+          error: lastError,
+          testedAt: now,
+        });
+      } catch (err) {
+        const now = new Date().toISOString();
+        const errorMessage = err?.message || String(err);
+        const elapsedMs = Math.max(1, Date.now() - startedAt);
+
+        await updateProxyPool(id, {
+          testStatus: "error",
+          lastTestedAt: now,
+          lastError: errorMessage,
+          isActive: false,
+        });
+
+        return NextResponse.json({
+          ok: false,
+          ready: false,
+          activeExits: 0,
+          standbyExits: 0,
+          coolingExits: 0,
+          elapsedMs,
+          status: err?.status || 503,
+          error: errorMessage,
+          testedAt: now,
+        });
+      }
     }
 
     if (proxyPool.type === "psiphon") {

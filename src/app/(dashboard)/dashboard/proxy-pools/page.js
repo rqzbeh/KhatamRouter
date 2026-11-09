@@ -21,18 +21,25 @@ function formatDateTime(value) {
 
 function normalizeFormData(data = {}) {
   const isPsiphon = data.type === "psiphon";
+  const isOpencode2api = data.type === "opencode2api";
   const psiphon = data.psiphon || data.data?.psiphon || {};
+  const opencode2api = data.opencode2api || data.data?.opencode2api || data.options || {};
+  // Shared by psiphon (standby tunnel ring) and opencode2api (daemon warm exits).
+  const warmStandby = isPsiphon ? psiphon.warmStandby : opencode2api.warmStandby;
   return {
     name: data.name || "",
     type: data.type || "http",
-    proxyUrl: data.proxyUrl || (isPsiphon ? "psiphon://managed" : ""),
+    proxyUrl: data.proxyUrl || (isPsiphon ? "psiphon://managed" : isOpencode2api ? "opencode2api://managed" : ""),
     noProxy: data.noProxy || "",
     isActive: data.isActive !== false,
-    strictProxy: isPsiphon ? true : data.strictProxy === true,
+    strictProxy: (isPsiphon || isOpencode2api) ? true : data.strictProxy === true,
     regions: Array.isArray(psiphon.regions) ? psiphon.regions.join(", ") : "",
     probeCandidates: psiphon.probeCandidates !== undefined ? psiphon.probeCandidates : 3,
     maxRequestsPerIp: psiphon.maxRequestsPerIp !== undefined ? psiphon.maxRequestsPerIp : 0,
     maxTokensPerIp: psiphon.maxTokensPerIp !== undefined ? psiphon.maxTokensPerIp : 0,
+    warmStandby: warmStandby !== undefined ? String(warmStandby) : "2",
+    poolSize: opencode2api.poolSize !== undefined ? String(opencode2api.poolSize) : "3",
+    retryAttempts: opencode2api.retryAttempts !== undefined ? String(opencode2api.retryAttempts) : "4",
   };
 }
 
@@ -86,8 +93,8 @@ export default function ProxyPoolsPage() {
       if (res.ok) {
         const pools = data.proxyPools || [];
         setProxyPools(pools);
-        const psiphonPools = pools.filter((p) => p.type === "psiphon");
-        for (const p of psiphonPools) {
+        const managedPools = pools.filter((p) => p.type === "psiphon" || p.type === "opencode2api");
+        for (const p of managedPools) {
           try {
             const stRes = await fetch(`/api/proxy-pools/${p.id}/status`, { cache: "no-store" });
             if (stRes.ok) {
@@ -115,8 +122,8 @@ export default function ProxyPoolsPage() {
           const pools = data.proxyPools || [];
           setProxyPools(pools);
           setLoading(false);
-          const psiphonPools = pools.filter((p) => p.type === "psiphon");
-          for (const p of psiphonPools) {
+          const managedPools = pools.filter((p) => p.type === "psiphon" || p.type === "opencode2api");
+          for (const p of managedPools) {
             fetch(`/api/proxy-pools/${p.id}/status`, { cache: "no-store" })
               .then((r) => (r.ok ? r.json() : null))
               .then((st) => {
@@ -164,7 +171,11 @@ export default function ProxyPoolsPage() {
       const res = await fetch(`/api/proxy-pools/${poolId}/rotate`, { method: "POST" });
       const data = await res.json();
       if (res.ok) {
-        notify.success(`Rotated to ${data.region || "new region"} (gen #${data.generation})`);
+        notify.success(
+          data.region
+            ? `Rotated to ${data.region} (gen #${data.generation})`
+            : `Rotated (gen #${data.generation})`
+        );
         try {
           const stRes = await fetch(`/api/proxy-pools/${poolId}/status`, { cache: "no-store" });
           if (stRes.ok) {
@@ -187,6 +198,7 @@ export default function ProxyPoolsPage() {
 
   const handleSave = async () => {
     const isPsiphon = formData.type === "psiphon";
+    const isOpencode2api = formData.type === "opencode2api";
     const name = formData.name.trim();
     if (!name) {
       notify.error("Name is required");
@@ -197,7 +209,10 @@ export default function ProxyPoolsPage() {
     if (isPsiphon && !proxyUrl) {
       proxyUrl = "psiphon://managed";
     }
-    if (!isPsiphon && !proxyUrl) {
+    if (isOpencode2api && !proxyUrl) {
+      proxyUrl = "opencode2api://managed";
+    }
+    if (!isPsiphon && !isOpencode2api && !proxyUrl) {
       notify.error("Proxy URL is required");
       return;
     }
@@ -208,7 +223,7 @@ export default function ProxyPoolsPage() {
       proxyUrl,
       noProxy: formData.noProxy.trim(),
       isActive: formData.isActive === true,
-      strictProxy: isPsiphon ? true : formData.strictProxy === true,
+      strictProxy: (isPsiphon || isOpencode2api) ? true : formData.strictProxy === true,
     };
 
     if (isPsiphon) {
@@ -236,6 +251,12 @@ export default function ProxyPoolsPage() {
         return;
       }
 
+      const warmStandby = parseInt(formData.warmStandby, 10);
+      if (Number.isNaN(warmStandby) || warmStandby < 0 || warmStandby > 4) {
+        notify.error("Warm standby must be an integer between 0 and 4");
+        return;
+      }
+
       const maxRequestsPerIp = parseInt(formData.maxRequestsPerIp, 10);
       if (Number.isNaN(maxRequestsPerIp) || maxRequestsPerIp < 0) {
         notify.error("Max requests per IP must be an integer >= 0");
@@ -251,8 +272,35 @@ export default function ProxyPoolsPage() {
       payload.psiphon = {
         regions,
         probeCandidates,
+        warmStandby,
         maxRequestsPerIp,
         maxTokensPerIp,
+      };
+    }
+
+    if (isOpencode2api) {
+      const poolSize = parseInt(formData.poolSize, 10);
+      if (Number.isNaN(poolSize) || poolSize < 1 || poolSize > 32) {
+        notify.error("Pool size must be an integer between 1 and 32");
+        return;
+      }
+
+      const warmStandby = parseInt(formData.warmStandby, 10);
+      if (Number.isNaN(warmStandby) || warmStandby < 0 || warmStandby > 4) {
+        notify.error("Warm standby must be an integer between 0 and 4");
+        return;
+      }
+
+      const retryAttempts = parseInt(formData.retryAttempts, 10);
+      if (Number.isNaN(retryAttempts) || retryAttempts < 1 || retryAttempts > 6) {
+        notify.error("Retry attempts must be an integer between 1 and 6");
+        return;
+      }
+
+      payload.opencode2api = {
+        poolSize,
+        warmStandby,
+        retryAttempts,
       };
     }
 
@@ -822,6 +870,7 @@ export default function ProxyPoolsPage() {
         </div>
       </div>
 
+      {/* freeProxy sources configuration */}
       <FreeProxySourcesCard />
 
       <Card>
@@ -948,6 +997,33 @@ export default function ProxyPoolsPage() {
                         )}
                       </>
                     )}
+                    {pool.type === "opencode2api" && (
+                      <Badge variant="default" size="sm">opencode2api</Badge>
+                    )}
+                    {pool.type === "opencode2api" && psiphonStatuses[pool.id] && (
+                      <>
+                        <Badge
+                          variant={psiphonStatuses[pool.id].state === "ready" ? "success" : psiphonStatuses[pool.id].state === "failed" ? "error" : "default"}
+                          size="sm"
+                          dot
+                        >
+                          {psiphonStatuses[pool.id].state || "idle"}
+                        </Badge>
+                        {typeof psiphonStatuses[pool.id].activeExits === "number" && (
+                          <Badge variant="default" size="sm">
+                            active {psiphonStatuses[pool.id].activeExits}
+                          </Badge>
+                        )}
+                        {typeof psiphonStatuses[pool.id].standbyExits === "number" && (
+                          <Badge variant="default" size="sm">
+                            standby {psiphonStatuses[pool.id].standbyExits}
+                          </Badge>
+                        )}
+                        <Badge variant="default" size="sm">
+                          Gen #{psiphonStatuses[pool.id].generation || 0}
+                        </Badge>
+                      </>
+                    )}
                     <Badge variant="default" size="sm">
                       {pool.boundConnectionCount || 0} bound
                     </Badge>
@@ -970,7 +1046,7 @@ export default function ProxyPoolsPage() {
                     onChange={() => handleToggleActive(pool)}
                     title={pool.isActive ? "Disable" : "Enable"}
                   />
-                  {pool.type === "psiphon" && (
+                  {(pool.type === "psiphon" || pool.type === "opencode2api") && (
                     <button
                       onClick={() => handleRotate(pool.id)}
                       className="p-2 rounded hover:bg-black/5 dark:hover:bg-white/5 text-text-muted hover:text-primary"
@@ -1299,16 +1375,28 @@ export default function ProxyPoolsPage() {
             value={formData.type}
             onChange={(e) => {
               const newType = e.target.value;
-              setFormData((prev) => ({
-                ...prev,
-                type: newType,
-                proxyUrl: newType === "psiphon" ? (prev.proxyUrl || "psiphon://managed") : (prev.proxyUrl === "psiphon://managed" ? "" : prev.proxyUrl),
-                strictProxy: newType === "psiphon" ? true : prev.strictProxy,
-              }));
+              const isManaged = (url) => url === "psiphon://managed" || url === "opencode2api://managed";
+              setFormData((prev) => {
+                let nextProxyUrl = prev.proxyUrl;
+                if (newType === "psiphon") {
+                  nextProxyUrl = (!prev.proxyUrl || isManaged(prev.proxyUrl)) ? "psiphon://managed" : prev.proxyUrl;
+                } else if (newType === "opencode2api") {
+                  nextProxyUrl = (!prev.proxyUrl || isManaged(prev.proxyUrl)) ? "opencode2api://managed" : prev.proxyUrl;
+                } else {
+                  nextProxyUrl = isManaged(prev.proxyUrl) ? "" : prev.proxyUrl;
+                }
+                return {
+                  ...prev,
+                  type: newType,
+                  proxyUrl: nextProxyUrl,
+                  strictProxy: (newType === "psiphon" || newType === "opencode2api") ? true : prev.strictProxy,
+                };
+              });
             }}
             options={[
               { value: "http", label: "Standard HTTP(S)" },
               { value: "psiphon", label: "Psiphon Rotating Tunnel" },
+              { value: "opencode2api", label: "opencode2api (Bundled WARP Egress)" },
               { value: "vercel", label: "Vercel Relay" },
               { value: "cloudflare", label: "Cloudflare Relay" },
               { value: "deno", label: "Deno Relay" },
@@ -1357,6 +1445,45 @@ export default function ProxyPoolsPage() {
                 />
               </div>
             </div>
+          ) : formData.type === "opencode2api" ? (
+            <div className="rounded-lg bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 p-3 flex flex-col gap-3">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary text-[20px]">shield</span>
+                <p className="text-sm text-text-main font-medium">opencode2api Configuration</p>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <Input
+                  label="Pool Size"
+                  type="number"
+                  min="1"
+                  max="32"
+                  value={formData.poolSize}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, poolSize: e.target.value }))}
+                  hint="WARP exits kept registered (1–32)"
+                />
+                <Input
+                  label="Warm Standby"
+                  type="number"
+                  min="0"
+                  max="4"
+                  value={formData.warmStandby}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, warmStandby: e.target.value }))}
+                  hint="Extra pre-registered exits so a burned one is replaced instantly (0–4)"
+                />
+                <Input
+                  label="Retry Attempts"
+                  type="number"
+                  min="1"
+                  max="6"
+                  value={formData.retryAttempts}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, retryAttempts: e.target.value }))}
+                  hint="Exits one request may burn before the last 429 is returned (1–6)"
+                />
+              </div>
+              <p className="text-xs text-text-muted">
+                Binary is bundled in the image. Requires outbound UDP/2408 for Cloudflare WARP egress.
+              </p>
+            </div>
           ) : (
             <>
               <Input
@@ -1393,9 +1520,9 @@ export default function ProxyPoolsPage() {
               <p className="text-xs text-text-muted">Fail request if proxy is unreachable instead of falling back to direct.</p>
             </div>
             <Toggle
-              checked={formData.type === "psiphon" ? true : formData.strictProxy === true}
+              checked={(formData.type === "psiphon" || formData.type === "opencode2api") ? true : formData.strictProxy === true}
               onChange={() => setFormData((prev) => ({ ...prev, strictProxy: !prev.strictProxy }))}
-              disabled={formData.type === "psiphon" || saving}
+              disabled={formData.type === "psiphon" || formData.type === "opencode2api" || saving}
             />
           </div>
 
@@ -1403,7 +1530,11 @@ export default function ProxyPoolsPage() {
             <Button
               fullWidth
               onClick={handleSave}
-              disabled={!formData.name.trim() || (formData.type !== "psiphon" && !formData.proxyUrl.trim()) || saving}
+              disabled={
+                !formData.name.trim() ||
+                (formData.type !== "psiphon" && formData.type !== "opencode2api" && !formData.proxyUrl.trim()) ||
+                saving
+              }
             >
               {saving ? "Saving..." : "Save"}
             </Button>

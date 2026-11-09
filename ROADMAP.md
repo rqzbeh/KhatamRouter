@@ -236,6 +236,17 @@ Wave 7.5 establishes an uncompromised native Bun architecture and default Redis 
 
 ---
 
+## Wave 18 — OpenCode Unlimited Egress & Real Proxy Rotation
+
+**Status**: 🟡 In progress (branch `018-opencode-unlimited-sidecar`). Spec at [`specs/018-opencode-unlimited-sidecar`](./specs/018-opencode-unlimited-sidecar).
+
+OpenCode's free tier counts quota per egress IPv6 `/64`, so a static proxy is burned once flagged and a Psiphon tunnel that only rotates *after* a full re-establish makes the caller wait. This wave adds a first-class bounded egress mechanism and makes the existing one swap instantly.
+
+- **Bundled `opencode2api` daemon (US1, US2)**: the GPL-3.0 WARP egress daemon ships inside the image for `amd64` and `arm64`, pinned to an exact release with per-arch SHA-256 verified at build time, license installed beside it, copied into the runner stage with an executable smoke check. No runtime download or setup on either architecture.
+- **`opencode2api` pool type (US1, US5)**: strict, fail-closed loopback pool that retires a 429/403-burned WARP exit and substitutes a pre-registered spare before the caller sees an error. `poolSize` 1–32, `warmStandby` 0–4, `retryAttempts` 1–6; readiness gated on `/healthz` `ready: true`; watchdog with a 3-exits-in-30s crash-loop guard; status/rotate/test endpoints and a dashboard option.
+- **Psiphon warm ring (US3)**: pre-established verified standby tunnels, synchronous promotion on rotation (≤250 ms target) with a generation guard, background refill and pruning, and a 2→4 per-request rotation budget — no more gateway-side teardown stall on the request path.
+- **Free proxy source card (US4)**: `FreeProxySourcesCard` was dead code, never rendered and never exported. It is mounted on the Proxy Pools page (landed in parallel as PR #151, so this wave only had to keep it wired and gated rather than re-add it).
+
 ## Wave 9 — Upstream Parity & Security Hardening
 
 **Status**: 🟢 Shipped (Branch `spec/009-upstream-port`, 44 candidates landed across 19 commits)

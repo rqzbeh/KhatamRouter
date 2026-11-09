@@ -21,4 +21,5 @@ This directory contains Spec-Kit specifications, implementation plans, and tasks
 | [014-psiphon-proxy-pool](014-psiphon-proxy-pool/) | Wave 14 — Psiphon rotating proxy pool for OpenCode Free (best-ping country, rotate on 429/FreeTierError) | Merged (PR #117) | `spec/014-psiphon-proxy-pool` |
 | [016-opencode-interoperability](016-opencode-interoperability/) | Wave 16 — OpenCode Interoperability & Transport Polish (terminal tool aliasing, combo storm cooldowns, keep-alive tuning) | In progress | `feat/opencode-interoperability-ports` |
 | [017-model-import-testing](017-model-import-testing/) | Spec 017 — Model Import, Batch Testing, Sync Policies & Runtime Overrides | Merged (PR #151/#152) | `master` |
+| [018-opencode-unlimited-sidecar](018-opencode-unlimited-sidecar/) | Spec 018 — Bundled OpenCode Unlimited Egress Sidecar, Psiphon Warm Ring, Free-Proxy Source Card | In progress | `018-opencode-unlimited-sidecar` |
 | [019-upstream-05116](019-upstream-05116/) | Spec 019 — 9router Release Parity (0.5.112..0.5.116, 29 new + 14 prior commits, security hardening, Bun adaptations) | Pending CI / PR | `019-upstream-05116` |
