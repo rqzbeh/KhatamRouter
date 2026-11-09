@@ -25,8 +25,15 @@ OpenCode's free tier counts quota per egress IPv6 `/64` block. A static proxy is
 ## Requirements
 
 - Outbound **UDP 2408** (Cloudflare WARP endpoint). No root, no TUN device, no `NET_ADMIN`.
-- If the host or container network blocks UDP/2408, WARP cannot initialize and the daemon fails startup — which surfaces as a fail-closed pool rather than a silent direct egress.
 - IPv6 egress is derived from the WireGuard source, so the quota is per exit. An `ipv4` stack egresses from a shared NAT address and burns much faster.
+
+### When WARP cannot initialize
+
+The daemon aborts startup when WARP registration fails (`initialize WARP egress` / `create WARP device`), naming the failing network step. That is the one startup failure caused by the environment rather than by config or the binary, so the supervisor relaunches the daemon **once** with `warp.enabled: false` instead of reporting the whole pool unusable.
+
+In that degraded mode the daemon still serves, but every exit is the host's own address, so the per-`/64` quota spread is gone until the process restarts. A log line says so (`WARP init failed; relaunching without WARP`), the pool stays `ready`, and the choice is remembered for that pool so background restarts do not keep retrying a blocked endpoint.
+
+Any other startup failure (bad config, missing/again non-executable binary, exit codes outside the two WARP messages) is rethrown as `OpencodeSidecarUnavailableError` and fails closed with 503. For a strict pool that means no direct egress.
 
 ## Creating a pool
 
@@ -71,7 +78,7 @@ The OpenCode TLS-fingerprint adapter is bypassed for sidecar URLs because the da
 
 - Pool `status` route → `ready`, active/standby/cooling exits, last error.
 - Pool `test` route → performs a real readiness probe and will not mark the pool active if it fails.
-- Container logs: the daemon's own JSON logs go to the child's stdio, tagged `[opencode2api:<poolId>]`.
+- Container logs: the supervisor tags its own lines `[opencode2api] Pool <id> ...`; the daemon's JSON logs pass through on the child's stdio.
 
 ## Failure modes
 
