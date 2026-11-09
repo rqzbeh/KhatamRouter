@@ -7,7 +7,7 @@ import { FORMATS } from "../translator/formats.js";
 export { PROVIDER_MODELS };
 
 // OpenCode providers sharing the endpoint-family fallback for unknown model ids
-const isOpenCodeAlias = (aliasOrId) => !aliasOrId || ["oc", "ocw", "opencode", "opencode-go", "ocz", "opencode-zen", "opencode-warp"].includes(aliasOrId);
+const isOpenCodeAlias = (aliasOrId) => !aliasOrId || ["oc", "ocg", "ocw", "opencode", "opencode-go", "ocz", "opencode-zen", "opencode-warp"].includes(aliasOrId);
 
 // OAuth short aliases — derived from registry `alias` (single source). everything else: alias = id.
 // vertex/vertex-partner keep alias=id (kept via the `|| id` fallback in consumers).
