@@ -36,14 +36,24 @@ describe("opencode2api sidecar supervisor", () => {
   let tmpDataDir;
   const origDataDir = process.env.DATA_DIR;
   const origDataDirAllowTemp = process.env.DATA_DIR_ALLOW_TEMP;
+  const origBin = process.env.OPENCODE2API_BIN;
 
   beforeAll(() => {
     tmpDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "o2a-sup-test-"));
     process.env.DATA_DIR = tmpDataDir;
     process.env.DATA_DIR_ALLOW_TEMP = "1";
+    // Point the resolver at the fixture: otherwise every run whose data dir is
+    // fresh pays the real pinned-tarball download before the first spawn, which
+    // pushed the first case past the 5 s default timeout on slow uplinks.
+    process.env.OPENCODE2API_BIN = FAKE_BIN;
   });
 
   afterAll(() => {
+    if (origBin !== undefined) {
+      process.env.OPENCODE2API_BIN = origBin;
+    } else {
+      delete process.env.OPENCODE2API_BIN;
+    }
     if (origDataDir !== undefined) {
       process.env.DATA_DIR = origDataDir;
     } else {

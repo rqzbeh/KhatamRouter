@@ -337,11 +337,61 @@ jobs:
             unit/psiphon-pool-api.test.js \
             unit/psiphon-downloader.test.js
 
+  unit-sidecar:
+    name: Verify / Unit (sidecar + proxy rotation)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install dependencies (root)
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+
+      - name: Install dependencies (tests)
+        working-directory: tests
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+
+      # The runner exports no HTTP(S)_PROXY; unset them so the strict-proxy
+      # "no proxy configured" branches behave exactly as on a clean machine.
+      - name: "Unit tests (Spec 018: opencode2api sidecar & psiphon warm ring)"
+        working-directory: tests
+        run: |
+          set -euo pipefail
+          env -u HTTPS_PROXY -u https_proxy -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy \
+            bun x --bun vitest run --reporter=verbose \
+            unit/opencode2api-release-pin.test.js \
+            unit/opencode2api-config.test.js \
+            unit/opencode2api-supervisor.test.js \
+            unit/opencode2api-egress.test.js \
+            unit/opencode2api-pool-api.test.js \
+            unit/opencode2api-chat-retry.test.js \
+            unit/psiphon-warm-ring.test.js \
+            unit/psiphon-regions.test.js \
+            unit/strict-proxy-enforcement.test.js \
+            unit/opencode-freetier-direct-replay.test.js \
+            unit/opencode-tls-client.test.js \
+            unit/proxy-health-cooldown.test.js \
+            unit/proxy-health-policy.test.js \
+            unit/free-proxy-card-wiring.test.js
+
   verify:
     name: Verify (tests + baselines)
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [typecheck, baselines, unit-core, unit-wave]
+    needs: [typecheck, baselines, unit-core, unit-wave, unit-sidecar]
     if: always()
     defaults:
       run:
@@ -354,6 +404,7 @@ jobs:
           echo "baselines=${{ needs.baselines.result }}"
           echo "unit-core=${{ needs.unit-core.result }}"
           echo "unit-wave=${{ needs.unit-wave.result }}"
+          echo "unit-sidecar=${{ needs.unit-sidecar.result }}"
 
           {
             echo "## Verify gate coverage"
@@ -405,6 +456,11 @@ jobs:
             echo "   - \`unit/wave75-redis-accelerators.test.js\`"
             echo "   - \`unit/wave75-redis-shared-state.test.js\`"
             echo "   - \`unit/wave75-twins-alignment.test.js\`"
+            echo "5. **Unit (sidecar + proxy rotation)** (\`unit-sidecar\`):"
+            echo "   - \`unit/opencode2api-*.test.js\` (release pin, config, supervisor, egress, pool API, chat retry)"
+            echo "   - \`unit/psiphon-warm-ring.test.js\`, \`unit/psiphon-regions.test.js\`"
+            echo "   - \`unit/strict-proxy-enforcement.test.js\`, \`unit/opencode-freetier-direct-replay.test.js\`, \`unit/opencode-tls-client.test.js\`"
+            echo "   - \`unit/proxy-health-cooldown.test.js\`, \`unit/proxy-health-policy.test.js\`, \`unit/free-proxy-card-wiring.test.js\`"
             echo ""
             echo "### Checks deliberately excluded (this gate does NOT run them)"
             echo ""
@@ -416,10 +472,10 @@ jobs:
             echo "- **Lint (\`bun x eslint .\`)**, **build (\`bun run build\`)**, **e2e / live-provider tests**: not calibrated as exit 0 for this gate; out of scope for the initial PR verification gate."
             echo "- **\`tests/__baseline__/verify-no-regression.mjs\`**: not part of the calibrated set for this gate."
             echo ""
-            echo "A green check here means all four parallel verify jobs succeeded."
+            echo "A green check here means all five parallel verify jobs succeeded."
           } >> "$GITHUB_STEP_SUMMARY"
 
-          for r in "${{ needs.typecheck.result }}" "${{ needs.baselines.result }}" "${{ needs.unit-core.result }}" "${{ needs.unit-wave.result }}"; do
+          for r in "${{ needs.typecheck.result }}" "${{ needs.baselines.result }}" "${{ needs.unit-core.result }}" "${{ needs.unit-wave.result }}" "${{ needs.unit-sidecar.result }}"; do
             if [ "$r" != "success" ]; then
               echo "::error::a parallel verify job did not succeed ($r)"
               exit 1
@@ -501,6 +557,20 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm --entrypoint sh khatamrouter:smoke-${{ matrix.arch }} -c "test -z \"\$(find / -name '*.sqlite*' -not -path '/proc/*' -not -path '/sys/*' 2>/dev/null | head -1)\""
+
+      # Spec 018 FR-018-25: the image must carry the bundled egress daemon for
+      # this architecture, executable, with its licence alongside. Nothing is
+      # downloaded at runtime.
+      - name: Assert bundled opencode2api binary (${{ matrix.arch }})
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint sh khatamrouter:smoke-${{ matrix.arch }} -c "
+            set -e
+            test -x /usr/local/bin/opencode2api
+            test -s /usr/local/share/doc/opencode2api/LICENSE
+            opencode2api -h 2>&1 | grep -q -- '-config'
+          "
+          echo "opencode2api is present, executable and self-documents -config on ${{ matrix.platform }}"
 
       - name: "Boot container (Leg 1: SQLite standalone)"
         run: |

@@ -14,6 +14,12 @@ export {
 } from "./config.js";
 
 export {
+  ensureSidecarBinary,
+  installSidecarBinary,
+  __sha256Hex,
+} from "./downloader.js";
+
+export {
   isOpencodeSidecarPool,
   ensureSidecar,
   stopSidecar,

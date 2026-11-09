@@ -22,6 +22,8 @@ function sha256Hex(buf) {
   return hasher.digest("hex");
 }
 
+export { sha256Hex as __sha256Hex };
+
 async function readBodyBounded(res, expectedSize) {
   const cap = Math.min(expectedSize, MAX_TARBALL_BYTES);
   if (!res.body || typeof res.body.getReader !== "function") {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
-import { Badge, Button, Card, CardSkeleton, Input, Modal, Toggle, ConfirmModal, Select, FreeProxySourcesCard } from "@/shared/components";
+import { Badge, Button, Card, CardSkeleton, Input, Modal, Toggle, ConfirmModal, Select } from "@/shared/components";
 import { PSIPHON_SELECTABLE_REGIONS } from "@/lib/network/psiphon/regions.js";
 import { useNotificationStore } from "@/store/notificationStore";
 import FreeProxySourcesCard from "@/shared/components/FreeProxySourcesCard";
@@ -870,6 +870,7 @@ export default function ProxyPoolsPage() {
         </div>
       </div>
 
+      {/* freeProxy sources configuration */}
       <FreeProxySourcesCard />
 
       <Card>
@@ -1093,9 +1094,6 @@ export default function ProxyPoolsPage() {
           </div>
         )}
       </Card>
-
-      {/* freeProxy sources configuration */}
-      <FreeProxySourcesCard />
 
       <Modal
         isOpen={showBatchImportModal}

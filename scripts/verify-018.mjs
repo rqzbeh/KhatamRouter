@@ -141,6 +141,66 @@ if (sub === "spec") {
     if (/(^|[\s&|;])node\s/.test(cmd)) fail(`package.json script "${name}" invokes node`);
   }
   done("BUNONLY_OK");
+} else if (sub === "suite") {
+  // Full unit suite, then compare its failure set against the file of failures
+  // measured on the integration base commit. Any failure not in that file is a
+  // regression introduced here, whatever the absolute pass count is.
+  const run = spawnSync(
+    "bun",
+    ["x", "--bun", "vitest", "run", "--reporter=dot"],
+    {
+      cwd: path.join(ROOT, "tests"),
+      encoding: "utf8",
+      timeout: 30 * 60 * 1000,
+      env: (() => {
+        const env = { ...process.env };
+        for (const k of ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy", "HTTP_PROXY", "http_proxy"]) {
+          delete env[k];
+        }
+        return env;
+      })(),
+      maxBuffer: 128 * 1024 * 1024,
+    }
+  );
+  const out = `${run.stdout || ""}\n${run.stderr || ""}`;
+
+  const norm = (line) => {
+    let l = line.replace(/^\s*FAIL\s+/, "").trim();
+    if (!l) return null;
+    const sep = l.indexOf(" > ");
+    if (sep === -1) return { file: `tests/${l.replace(/\s*\[.*$/, "").trim()}`, title: "" };
+    const file = l.slice(0, sep).trim();
+    const title = l.slice(sep + 3).replace(/\s+/g, " ").trim();
+    return { file: file.startsWith("tests/") ? file : `tests/${file}`, title };
+  };
+  const key = (e) => `${e.file} :: ${e.title}`;
+
+  const baseline = new Set(
+    fs
+      .readFileSync(path.join(ROOT, "tests/__baseline__/known-fails.txt"), "utf8")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l && l.includes(" :: "))
+  );
+
+  const failuresNow = new Set();
+  for (const line of out.split("\n")) {
+    if (!/^\s*FAIL\s+\S/.test(line)) continue;
+    const entry = norm(line);
+    // Collection-level lines carry the "[ file ]" suffix and have no title.
+    if (entry) failuresNow.add(key(entry));
+  }
+
+  if (failuresNow.size === 0 && run.status === 0) fail("suite reported no failures at all; expected the known set");
+  // A suite that fails to collect has no title, so it matches any baseline
+  // entry recorded for that file.
+  const isKnown = (k) => baseline.has(k) || [...baseline].some((b) => b.startsWith(`${k.split(" :: ")[0]} ::`) && !k.split(" :: ")[1]);
+  const regressions = [...failuresNow].filter((k) => !isKnown(k)).sort();
+  for (const r of regressions) fail(`new failure: ${r}`);
+
+  const summary = out.split("\n").filter((l) => /^\s*(Test Files|Tests)\s/.test(l)).join(" | ");
+  console.log(`suite failures=${failuresNow.size} baseline=${baseline.size} regressions=${regressions.length} :: ${summary}`);
+  done("SUITE_OK");
 } else if (sub === "vps") {
   const key = process.env.VPS_SSH_KEY || "/home/redsnow/ssh-key/ssh-key-2026-08-30.key";
   const host = process.env.VPS_HOST || "root@nl-main.z3df1lter.tr";
@@ -169,6 +229,6 @@ if (sub === "spec") {
   if (/FreeTierError|"status":"degraded"/.test(chat.stdout)) fail("chat surfaced a free-tier error");
   done("VPS_OK");
 } else {
-  console.error("usage: bun scripts/verify-018.mjs <spec|registry|docker|card|docs|bunonly|vps>");
+  console.error("usage: bun scripts/verify-018.mjs <spec|registry|docker|card|docs|bunonly|suite|vps>");
   process.exit(2);
 }
