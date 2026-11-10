@@ -15,6 +15,7 @@ export const MAX_MEMBER_COOLDOWN_MS = 24 * 3_600_000; // 86_400_000 (24h)
 
 export const COOLDOWN_PRESET_OPTIONS = Object.freeze([
   { value: "default", label: "Default (429: 90s, 5xx: 45s)" },
+  { value: "disabled", label: "Disabled (no cooldown)" },
   { value: "1m", label: "1 minute (1m)" },
   { value: "5m", label: "5 minutes (5m)" },
   { value: "1h", label: "1 hour (1h)" },
@@ -46,10 +47,34 @@ export function normalizeMemberCooldownMs(value) {
   return value;
 }
 
+function isDisabledPresetString(value) {
+  return typeof value === "string" && value.trim() === "disabled";
+}
+
 /**
- * Check if a candidate value is a valid member cooldown (either null/empty or valid duration).
+ * Check if a candidate value is a valid member cooldown (either null/empty, "disabled", or valid duration).
  */
 export function isValidMemberCooldown(value) {
   if (value === null || value === undefined || value === "") return true;
+  if (isDisabledPresetString(value)) return true;
   return normalizeMemberCooldownMs(value) !== null;
+}
+
+/**
+ * Determine whether combo-member cooldown is disabled for a combo strategy configuration.
+ * Default is false (cooldown enabled).
+ * Accepts strictly:
+ * - disableCooldown: true (boolean)
+ * - memberCooldownMs: "disabled" (string preset)
+ */
+export function isComboCooldownDisabled(comboConfigOrDisable, maybeMemberCooldownMs) {
+  if (typeof comboConfigOrDisable === "boolean") {
+    if (comboConfigOrDisable) return true;
+    return isDisabledPresetString(maybeMemberCooldownMs);
+  }
+  if (comboConfigOrDisable && typeof comboConfigOrDisable === "object" && !Array.isArray(comboConfigOrDisable)) {
+    if (comboConfigOrDisable.disableCooldown === true) return true;
+    return isDisabledPresetString(comboConfigOrDisable.memberCooldownMs);
+  }
+  return isDisabledPresetString(comboConfigOrDisable) || isDisabledPresetString(maybeMemberCooldownMs);
 }

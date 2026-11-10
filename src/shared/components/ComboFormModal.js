@@ -7,7 +7,7 @@ import Button from "./Button";
 import Select from "./Select";
 import ModelSelectModal from "./ModelSelectModal";
 import CapacityBadges from "./CapacityBadges";
-import { COOLDOWN_PRESET_OPTIONS } from "open-sse/config/comboCooldown.js";
+import { COOLDOWN_PRESET_OPTIONS, isComboCooldownDisabled } from "open-sse/config/comboCooldown.js";
 
 const VALID_NAME_REGEX = /^[a-zA-Z0-9_.\-]+$/;
 
@@ -69,15 +69,18 @@ export default function ComboFormModal({ isOpen, combo, onClose, onSave, activeP
   const [modelAliases, setModelAliases] = useState({});
 
   const initialCooldown = memberCooldownMs ?? strategy?.memberCooldownMs ?? null;
-  const initialMode = initialCooldown === 60_000 || initialCooldown === "1m"
-    ? "1m"
-    : initialCooldown === 300_000 || initialCooldown === "5m"
-      ? "5m"
-      : initialCooldown === 3_600_000 || initialCooldown === "1h"
-        ? "1h"
-        : (typeof initialCooldown === "number" || (typeof initialCooldown === "string" && /^\d+$/.test(initialCooldown)))
-          ? "custom"
-          : "default";
+  const isInitiallyDisabled = isComboCooldownDisabled(strategy, initialCooldown);
+  const initialMode = isInitiallyDisabled
+    ? "disabled"
+    : initialCooldown === 60_000 || initialCooldown === "1m"
+      ? "1m"
+      : initialCooldown === 300_000 || initialCooldown === "5m"
+        ? "5m"
+        : initialCooldown === 3_600_000 || initialCooldown === "1h"
+          ? "1h"
+          : (typeof initialCooldown === "number" || (typeof initialCooldown === "string" && /^\d+$/.test(initialCooldown)))
+            ? "custom"
+            : "default";
 
   const [cooldownMode, setCooldownMode] = useState(initialMode);
   const [customCooldownSec, setCustomCooldownSec] = useState(
@@ -181,7 +184,11 @@ export default function ComboFormModal({ isOpen, combo, onClose, onSave, activeP
   const handleSave = async () => {
     if (!validateName(name) || !validateCooldown(cooldownMode, customCooldownSec)) return;
     let savedCooldown = null;
-    if (cooldownMode === "1m" || cooldownMode === "5m" || cooldownMode === "1h") {
+    let isCooldownDisabled = false;
+    if (cooldownMode === "disabled") {
+      isCooldownDisabled = true;
+      savedCooldown = null;
+    } else if (cooldownMode === "1m" || cooldownMode === "5m" || cooldownMode === "1h") {
       savedCooldown = cooldownMode;
     } else if (cooldownMode === "custom") {
       const sec = parseInt(customCooldownSec.trim(), 10);
@@ -190,7 +197,7 @@ export default function ComboFormModal({ isOpen, combo, onClose, onSave, activeP
       }
     }
     setSaving(true);
-    await onSave({ name: forcePrefix + name.trim(), models, memberCooldownMs: savedCooldown });
+    await onSave({ name: forcePrefix + name.trim(), models, memberCooldownMs: savedCooldown, disableCooldown: isCooldownDisabled });
     setSaving(false);
   };
 

@@ -282,4 +282,106 @@ describe("Free Proxy Quality Gate & Concurrency Control", () => {
     const pools = await proxyPoolsRepo.getProxyPools();
     expect(pools.find((p) => p.id === deadId)).toBeUndefined();
   });
+
+  it("preserves an operator-disabled free pool with testStatus 'unknown' after sync", async () => {
+    const poolUrl = "http://185.220.106.10:8080";
+    const poolId = freeProxyCore.computeFreePoolId(poolUrl);
+
+    // Seed existing inactive pool with testStatus 'unknown' (e.g. from old build default)
+    await freeProxyCore.createFreeProxyPool({
+      id: poolId,
+      name: "[oneproxy] 185.220.106.10:8080",
+      proxyUrl: poolUrl,
+      type: "http",
+      isActive: false,
+      provenance: {
+        source: "free:oneproxy",
+        lastSeenAt: new Date().toISOString(),
+        untrusted: true,
+      },
+    });
+
+    const db = await (await import("../../src/lib/db/driver.js")).getAdapter();
+    db.run("UPDATE proxyPools SET isActive = 0, testStatus = 'unknown' WHERE id = ?", [poolId]);
+
+    const before = await proxyPoolsRepo.getProxyPoolById(poolId);
+    expect(before.isActive).toBe(false);
+    expect(before.testStatus).toBe("unknown");
+
+    const feedPayload = JSON.stringify({
+      proxies: [
+        {
+          alive: true,
+          ip: "185.220.106.10",
+          port: 8080,
+          protocol: "http",
+        },
+      ],
+    });
+    const mockFetch = vi.fn().mockResolvedValue(new Response(feedPayload, { status: 200 }));
+
+    const result = await freeProxyCore.runFreeProxySync({
+      customFetch: mockFetch,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.updated).toBe(1);
+
+    const after = await proxyPoolsRepo.getProxyPoolById(poolId);
+    expect(after.isActive).toBe(false);
+  });
+
+  it("keeps an inactive free pool with testStatus 'error' inactive after sync", async () => {
+    const poolUrl = "http://185.220.106.20:8080";
+    const poolId = freeProxyCore.computeFreePoolId(poolUrl);
+    const recent = new Date().toISOString();
+
+    // Seed existing inactive pool with testStatus 'error' created recently (so prune doesn't delete it)
+    await freeProxyCore.createFreeProxyPool({
+      id: poolId,
+      name: "[oneproxy] 185.220.106.20:8080",
+      proxyUrl: poolUrl,
+      type: "http",
+      isActive: false,
+      provenance: {
+        source: "free:oneproxy",
+        lastSeenAt: recent,
+        untrusted: true,
+      },
+    });
+
+    const db = await (await import("../../src/lib/db/driver.js")).getAdapter();
+    db.run(
+      "UPDATE proxyPools SET isActive = 0, testStatus = 'error', createdAt = ?, updatedAt = ? WHERE id = ?",
+      [recent, recent, poolId]
+    );
+
+    const before = await proxyPoolsRepo.getProxyPoolById(poolId);
+    expect(before.isActive).toBe(false);
+    expect(before.testStatus).toBe("error");
+
+    const feedPayload = JSON.stringify({
+      proxies: [
+        {
+          alive: true,
+          ip: "185.220.106.20",
+          port: 8080,
+          protocol: "http",
+        },
+      ],
+    });
+    const mockFetch = vi.fn().mockResolvedValue(new Response(feedPayload, { status: 200 }));
+
+    const result = await freeProxyCore.runFreeProxySync({
+      customFetch: mockFetch,
+      prune: false,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.updated).toBe(1);
+
+    const after = await proxyPoolsRepo.getProxyPoolById(poolId);
+    expect(after.isActive).toBe(false);
+    expect(after.testStatus).toBe("error");
+  });
 });

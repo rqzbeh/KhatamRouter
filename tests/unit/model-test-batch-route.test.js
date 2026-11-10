@@ -323,4 +323,312 @@ describe("POST & GET /api/models/test-batch (Spec 017)", () => {
     expect(unknownRes.status).toBe(400);
     expect((await unknownRes.json()).error).toMatch(/Unknown provider/);
   });
+
+  it("streams live NDJSON progress for 42 models, yields terminal done payload, and cleanly releases concurrency lease", async () => {
+    const pingMod = await import("@/app/api/models/test/ping.js");
+    const { POST } = await import("@/app/api/models/test-batch/route.js");
+    const connId = await seedTestConnection({ provider: "openai", isActive: true });
+
+    const modelIds = Array.from({ length: 42 }, (_, i) => `m-${i + 1}`);
+    vi.spyOn(pingMod, "pingModelByKind").mockImplementation(async () => {
+      return { ok: true, status: 200, latencyMs: 2 };
+    });
+
+    const res = await POST(
+      new Request("http://localhost/api/models/test-batch", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/x-ndjson",
+        },
+        body: JSON.stringify({
+          providerId: "openai",
+          connectionId: connId,
+          modelIds,
+          respectRateLimit: false,
+        }),
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("application/x-ndjson");
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    const events = [];
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        events.push(JSON.parse(line.trim()));
+      }
+    }
+    if (buffer.trim()) events.push(JSON.parse(buffer.trim()));
+
+    const progressEvents = events.filter((e) => e.type === "progress");
+    const doneEvents = events.filter((e) => e.type === "done");
+
+    expect(progressEvents.length).toBe(42);
+    expect(doneEvents.length).toBe(1);
+    expect(doneEvents[0].summary.tested).toBe(42);
+    expect(doneEvents[0].summary.total).toBe(42);
+    expect(doneEvents[0].summary.skipped).toBe(0);
+    expect(doneEvents[0].stoppedEarly).toBe(false);
+
+    // Verify lease was released: a subsequent batch test acquires lease immediately without 409
+    const nextRes = await POST(
+      new Request("http://localhost/api/models/test-batch", {
+        method: "POST",
+        body: JSON.stringify({
+          providerId: "openai",
+          connectionId: connId,
+          modelIds: ["next-model"],
+          respectRateLimit: false,
+        }),
+      })
+    );
+    expect(nextRes.status).toBe(200);
+  });
+
+  it("handles client abort during NDJSON streaming: halts probe execution and immediately releases concurrency lease", async () => {
+    const pingMod = await import("@/app/api/models/test/ping.js");
+    const { POST } = await import("@/app/api/models/test-batch/route.js");
+    const connId = await seedTestConnection({ provider: "openai", isActive: true });
+
+    const controller = new AbortController();
+    const modelIds = Array.from({ length: 42 }, (_, i) => `abort-m-${i + 1}`);
+
+    let probeCount = 0;
+    vi.spyOn(pingMod, "pingModelByKind").mockImplementation(async () => {
+      probeCount++;
+      if (probeCount === 2) {
+        controller.abort();
+      }
+      return { ok: true, status: 200, latencyMs: 2 };
+    });
+
+    const res = await POST(
+      new Request("http://localhost/api/models/test-batch", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/x-ndjson",
+        },
+        body: JSON.stringify({
+          providerId: "openai",
+          connectionId: connId,
+          modelIds,
+          respectRateLimit: false,
+        }),
+        signal: controller.signal,
+      })
+    );
+
+    expect(res.status).toBe(200);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    const events = [];
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          events.push(JSON.parse(line.trim()));
+        }
+      }
+    } catch {}
+
+    // Verify execution halted early (did NOT continue running all 42 probes)
+    expect(probeCount).toBeLessThan(42);
+
+    // Verify lease was cleanly released: subsequent request succeeds without 409
+    const afterAbortRes = await POST(
+      new Request("http://localhost/api/models/test-batch", {
+        method: "POST",
+        body: JSON.stringify({
+          providerId: "openai",
+          connectionId: connId,
+          modelIds: ["after-abort-model"],
+          respectRateLimit: false,
+        }),
+      })
+    );
+    expect(afterAbortRes.status).toBe(200);
+  });
+
+  it("handles reader.cancel() directly: halts probe execution and cleanly releases concurrency lease", async () => {
+    const pingMod = await import("@/app/api/models/test/ping.js");
+    const { POST } = await import("@/app/api/models/test-batch/route.js");
+    const connId = await seedTestConnection({ provider: "openai", isActive: true });
+
+    const modelIds = Array.from({ length: 42 }, (_, i) => `reader-cancel-m-${i + 1}`);
+
+    let probeCount = 0;
+    vi.spyOn(pingMod, "pingModelByKind").mockImplementation(async () => {
+      probeCount++;
+      return { ok: true, status: 200, latencyMs: 2 };
+    });
+
+    const res = await POST(
+      new Request("http://localhost/api/models/test-batch", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/x-ndjson",
+        },
+        body: JSON.stringify({
+          providerId: "openai",
+          connectionId: connId,
+          modelIds,
+          respectRateLimit: false,
+        }),
+      })
+    );
+
+    expect(res.status).toBe(200);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+
+    // Read the first chunk
+    const { value } = await reader.read();
+    const line = decoder.decode(value);
+    expect(line).toContain("progress");
+
+    // Client explicitly cancels the reader stream
+    await reader.cancel();
+
+    // Verify lease was cleanly released: subsequent request acquires lease immediately without 409
+    const nextRes = await POST(
+      new Request("http://localhost/api/models/test-batch", {
+        method: "POST",
+        body: JSON.stringify({
+          providerId: "openai",
+          connectionId: connId,
+          modelIds: ["next-after-reader-cancel"],
+          respectRateLimit: false,
+        }),
+      })
+    );
+    expect(nextRes.status).toBe(200);
+  });
+
+  it("sanitizes error payload on streaming failure without leaking internal error messages or secrets", async () => {
+    const batchMod = await import("@/lib/models/modelTestBatch.js");
+    const { POST } = await import("@/app/api/models/test-batch/route.js");
+    const connId = await seedTestConnection({ provider: "openai", isActive: true });
+
+    vi.spyOn(batchMod, "runModelTestBatch").mockImplementation(async () => {
+      throw new Error("SECRET_INTERNAL_DB_PASSWORD_LEAK: failure");
+    });
+
+    const res = await POST(
+      new Request("http://localhost/api/models/test-batch", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/x-ndjson",
+        },
+        body: JSON.stringify({
+          providerId: "openai",
+          connectionId: connId,
+          modelIds: ["err-model"],
+          respectRateLimit: false,
+        }),
+      })
+    );
+
+    expect(res.status).toBe(200);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value);
+    }
+
+    // Must NOT contain internal error message or secret
+    expect(text).not.toContain("SECRET_INTERNAL_DB_PASSWORD_LEAK");
+    // Must contain safe sanitized message
+    expect(text).toContain("Batch test execution failed");
+  });
+
+  it("handles thrown DB/setup error before lease without ReferenceError on releaseLease", async () => {
+    const dbRepo = await import("@/lib/localDb");
+    const { POST } = await import("@/app/api/models/test-batch/route.js");
+
+    vi.spyOn(dbRepo, "getProviderConnectionById").mockImplementation(async () => {
+      throw new Error("DB_CRASH_BEFORE_LEASE");
+    });
+
+    const res = await POST(
+      new Request("http://localhost/api/models/test-batch", {
+        method: "POST",
+        body: JSON.stringify({
+          providerId: "openai",
+          connectionId: "c1",
+          modelIds: ["m1"],
+        }),
+      })
+    );
+
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toBe("Batch test execution failed");
+  });
+
+  it("handles thrown error after lease acquisition in non-streaming mode and cleanly releases lease", async () => {
+    const batchMod = await import("@/lib/models/modelTestBatch.js");
+    const pingMod = await import("@/app/api/models/test/ping.js");
+    const { POST } = await import("@/app/api/models/test-batch/route.js");
+    const connId = await seedTestConnection({ provider: "openai", isActive: true });
+
+    const spy = vi.spyOn(batchMod, "runModelTestBatch").mockImplementation(async () => {
+      throw new Error("UNEXPECTED_CRASH_AFTER_LEASE");
+    });
+
+    const res = await POST(
+      new Request("http://localhost/api/models/test-batch", {
+        method: "POST",
+        body: JSON.stringify({
+          providerId: "openai",
+          connectionId: connId,
+          modelIds: ["m1"],
+        }),
+      })
+    );
+
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toBe("Batch test execution failed");
+
+    // Restore runModelTestBatch and verify lease was freed
+    spy.mockRestore();
+    vi.spyOn(pingMod, "pingModelByKind").mockResolvedValue({ ok: true, status: 200, latencyMs: 2 });
+
+    const followUpRes = await POST(
+      new Request("http://localhost/api/models/test-batch", {
+        method: "POST",
+        body: JSON.stringify({
+          providerId: "openai",
+          connectionId: connId,
+          modelIds: ["m2"],
+          respectRateLimit: false,
+        }),
+      })
+    );
+    expect(followUpRes.status).toBe(200);
+  });
 });

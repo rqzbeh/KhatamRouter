@@ -745,7 +745,7 @@ export async function runFreeProxySync({
           const prevProvenance = existing.provenance || existing.data?.provenance || {};
           await updateProxyPool(existing.id, {
             updatedAt: now,
-            // Preserve user-configured isActive state
+            // A feed cannot distinguish legacy defaults from an operator's explicit disable.
             isActive: existing.isActive,
             provenance: {
               ...prevProvenance,

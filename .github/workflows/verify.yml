@@ -227,6 +227,16 @@ jobs:
             unit/free-proxy-api.test.js \
             unit/free-proxy-sources.test.js \
             unit/free-proxy-card-wiring.test.js \
+            unit/free-proxy-scheduler.test.js \
+            unit/free-proxy-quality-gate.test.js \
+            unit/combo-disable-cooldown.test.js \
+            unit/combo-configurable-cooldown.test.js \
+            unit/combo-cooldown-correctness.test.js \
+            unit/proxy-failover-policy.test.js \
+            unit/proxy-failover-runtime.test.js \
+            unit/proxy-failover-settings-api.test.js \
+            unit/proxy-failover-source-groups-and-timeouts.test.js \
+            unit/model-test-batch-hang.test.js \
             unit/model-management-classification.test.js \
             unit/model-advanced-capabilities.test.js \
             unit/catalog-reconcile.test.js \

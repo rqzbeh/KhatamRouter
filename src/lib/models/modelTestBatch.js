@@ -43,6 +43,9 @@ export const MODEL_TEST_REASON = Object.freeze({
   BATCH_TIMEOUT: "batch_timeout",
 });
 
+export const DEFAULT_PROBE_TIMEOUT_MS = 15000;
+export const DEFAULT_PROBE_CLEANUP_MS = 50;
+
 const MAX_SCAN_CHARS = 2048;
 const MAX_MODEL_ID_LENGTH = 256;
 const HARD_MAX_MODELS = 100;
@@ -398,6 +401,9 @@ export async function runModelTestBatch({
   rateLimitThreshold = DEFAULT_RATE_LIMIT_THRESHOLD,
   botBlockThreshold = DEFAULT_BOT_BLOCK_THRESHOLD,
   maxBatchDurationMs = DEFAULT_MAX_BATCH_DURATION_MS,
+  probeTimeoutMs = DEFAULT_PROBE_TIMEOUT_MS,
+  probeCleanupMs = DEFAULT_PROBE_CLEANUP_MS,
+  onProgress,
   sleep = defaultSleep,
 } = {}) {
   if (maxModels !== undefined) {
@@ -418,6 +424,16 @@ export async function runModelTestBatch({
   if (typeof maxBatchDurationMs !== "number" || !Number.isFinite(maxBatchDurationMs) || maxBatchDurationMs <= 0) {
     throw new RangeError("runModelTestBatch: maxBatchDurationMs must be a finite positive number");
   }
+  if (probeTimeoutMs !== undefined) {
+    if (typeof probeTimeoutMs !== "number" || !Number.isFinite(probeTimeoutMs) || probeTimeoutMs <= 0) {
+      throw new RangeError("runModelTestBatch: probeTimeoutMs must be a finite positive number");
+    }
+  }
+  if (probeCleanupMs !== undefined) {
+    if (typeof probeCleanupMs !== "number" || !Number.isFinite(probeCleanupMs) || probeCleanupMs < 0) {
+      throw new RangeError("runModelTestBatch: probeCleanupMs must be a finite non-negative number");
+    }
+  }
   if (!Number.isInteger(rateLimitThreshold) || rateLimitThreshold < 1) {
     throw new RangeError("runModelTestBatch: rateLimitThreshold must be a positive integer");
   }
@@ -425,6 +441,8 @@ export async function runModelTestBatch({
     throw new RangeError("runModelTestBatch: botBlockThreshold must be a positive integer");
   }
 
+  const effectiveProbeTimeoutMs = probeTimeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
+  const effectiveProbeCleanupMs = probeCleanupMs ?? DEFAULT_PROBE_CLEANUP_MS;
   const sleepFn = typeof sleep === "function" ? sleep : defaultSleep;
   const batchId = crypto.randomUUID();
   const startTime = Date.now();
@@ -475,58 +493,117 @@ export async function runModelTestBatch({
       break;
     }
 
+    const currentProbeBudgetMs = Math.min(effectiveProbeTimeoutMs, remainingBudgetMs);
     const probeController = new AbortController();
-    let timeoutTimer = null;
-    let callerAbortHandler = null;
+    let probeTimeoutTimer = null;
+    let abortListener = null;
 
-    if (signal) {
-      if (signal.aborted) {
+    const abortPromise = new Promise((resolve) => {
+      if (signal?.aborted) {
         probeController.abort();
-      } else {
-        callerAbortHandler = () => probeController.abort();
-        signal.addEventListener("abort", callerAbortHandler, { once: true });
+        resolve({ aborted: true });
+        return;
       }
-    }
+      if (signal) {
+        abortListener = () => {
+          probeController.abort();
+          resolve({ aborted: true });
+        };
+        signal.addEventListener("abort", abortListener, { once: true });
+      }
+    });
 
-    const timeoutPromise = new Promise((resolve) => {
-      timeoutTimer = setTimeout(() => {
+    const probeTimeoutPromise = new Promise((resolve) => {
+      probeTimeoutTimer = setTimeout(() => {
         probeController.abort();
-        resolve({ timedOut: true });
-      }, remainingBudgetMs);
+        resolve({ probeTimedOut: true });
+      }, currentProbeBudgetMs);
     });
 
     const probeStart = Date.now();
     let probePromise;
+    let probeSettled = false;
+    let probeSettledResult = null;
     try {
       probePromise = Promise.resolve(probe(modelId, { signal: probeController.signal }))
-        .then((res) => ({ timedOut: false, result: res }))
-        .catch((err) => ({ timedOut: false, result: err }));
+        .then((res) => {
+          probeSettled = true;
+          probeSettledResult = res;
+          return { settled: true, result: res };
+        })
+        .catch((err) => {
+          probeSettled = true;
+          probeSettledResult = err;
+          return { settled: true, result: err };
+        });
     } catch (syncErr) {
-      probePromise = Promise.resolve({ timedOut: false, result: syncErr });
+      probeSettled = true;
+      probeSettledResult = syncErr;
+      probePromise = Promise.resolve({ settled: true, result: syncErr });
     }
 
     probePromise.catch(() => {});
 
-    const outcome = await Promise.race([probePromise, timeoutPromise]);
+    let outcome = await Promise.race([probePromise, probeTimeoutPromise, abortPromise]);
 
-    if (timeoutTimer !== null) {
-      clearTimeout(timeoutTimer);
-      timeoutTimer = null;
+    if (probeTimeoutTimer !== null) {
+      clearTimeout(probeTimeoutTimer);
+      probeTimeoutTimer = null;
     }
-    if (signal && callerAbortHandler) {
-      signal.removeEventListener("abort", callerAbortHandler);
-      callerAbortHandler = null;
+    if (signal && abortListener) {
+      signal.removeEventListener("abort", abortListener);
+      abortListener = null;
     }
 
-    if (outcome.timedOut) {
+    // If probe completed concurrently with abort, treat as settled
+    if (outcome.aborted && probeSettled) {
+      outcome = { settled: true, result: probeSettledResult };
+    }
+
+    // On abort or timeout, guarantee probe abort signal is fired and allow bounded drain
+    // so no unmonitored background probe continues indefinitely or overlaps next probe
+    if (outcome.aborted || outcome.probeTimedOut) {
+      probeController.abort();
+      if (effectiveProbeCleanupMs > 0) {
+        let cleanupTimer = null;
+        const cleanupPromise = new Promise((resolve) => {
+          cleanupTimer = setTimeout(resolve, effectiveProbeCleanupMs);
+        });
+        await Promise.race([probePromise, cleanupPromise]).catch(() => {});
+        if (cleanupTimer !== null) clearTimeout(cleanupTimer);
+      }
+    }
+
+    if (outcome.aborted) {
       stoppedEarly = true;
-      stopReason = MODEL_TEST_REASON.BATCH_TIMEOUT;
+      stopReason = MODEL_TEST_REASON.ABORTED;
       skipRemaining(i, stopReason);
       break;
     }
 
-    const elapsedProbeMs = Math.max(0, Date.now() - probeStart);
-    const probeResult = outcome.result;
+    let probeResult;
+    let elapsedProbeMs;
+
+    if (outcome.probeTimedOut) {
+      elapsedProbeMs = Math.max(0, Date.now() - probeStart);
+      // Check if the total batch budget actually expired
+      if (Date.now() >= startTime + maxBatchDurationMs) {
+        stoppedEarly = true;
+        stopReason = MODEL_TEST_REASON.BATCH_TIMEOUT;
+        skipRemaining(i, stopReason);
+        break;
+      }
+      // Single model probe timed out within bounds: record as transport_indeterminate timeout
+      probeResult = {
+        ok: false,
+        status: 0,
+        error: "Probe timed out",
+        code: "timeout",
+      };
+    } else {
+      elapsedProbeMs = Math.max(0, Date.now() - probeStart);
+      probeResult = outcome.result;
+    }
 
     if (signal?.aborted) {
       const classification = classifyModelTestResult(probeResult);
@@ -603,6 +680,28 @@ export async function runModelTestBatch({
     if (disabledAt) modelRecord.disabledAt = disabledAt;
     if (persistenceError) modelRecord.persistenceError = persistenceError;
     setRow(modelId, modelRecord);
+
+    if (typeof onProgress === "function") {
+      try {
+        onProgress({
+          modelId,
+          index: i,
+          total: sanitizedIds.length,
+          record: modelRecord,
+          summary: { ...summary },
+        });
+      } catch {}
+    }
+
+    // Safety: if the probe timed out and failed to settle within the cleanup drain window,
+    // cleanup is unproven. Must NOT spawn next network probe while unresolved background probe remains.
+    // Terminate batch safely, marking remaining models skipped.
+    if (outcome.probeTimedOut && !probeSettled) {
+      stoppedEarly = true;
+      stopReason = MODEL_TEST_REASON.TRANSPORT_INDETERMINATE;
+      skipRemaining(i + 1, "unresolved_probe_cleanup");
+      break;
+    }
 
     if (classification.classification === MODEL_TEST_CLASSIFICATION.QUOTA_COST) {
       stoppedEarly = true;

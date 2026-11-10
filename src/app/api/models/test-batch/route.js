@@ -6,7 +6,7 @@ import { PROVIDER_ID_TO_ALIAS } from "open-sse/config/providerModels.js";
 import { UPDATER_CONFIG } from "@/shared/constants/config";
 import { pingModelByKind } from "@/app/api/models/test/ping.js";
 import { disableModelsWithAudit, getDisabledModelAuditByProvider } from "@/lib/db/repos/disabledModelsRepo.js";
-import { runModelTestBatch } from "@/lib/models/modelTestBatch.js";
+import { runModelTestBatch, DEFAULT_PROBE_TIMEOUT_MS } from "@/lib/models/modelTestBatch.js";
 
 export const dynamic = "force-dynamic";
 
@@ -110,6 +110,31 @@ async function isKnownProvider(providerId, db) {
 export async function POST(request) {
   let batchToken = null;
   let leasedAlias = null;
+  let leaseReleased = false;
+
+  const releaseLease = async () => {
+    if (leaseReleased || !leasedAlias || !batchToken) return;
+    leaseReleased = true;
+    const currentLeasedAlias = leasedAlias;
+    const currentBatchToken = batchToken;
+    if (inProcessLeases.get(currentLeasedAlias)?.token === currentBatchToken) {
+      inProcessLeases.delete(currentLeasedAlias);
+    }
+    try {
+      const db = await getAdapter();
+      db.immediate(() => {
+        const row = db.get("SELECT value FROM kv WHERE scope = ? AND key = ?", [LEASE_SCOPE, currentLeasedAlias]);
+        if (row) {
+          try {
+            const parsed = JSON.parse(row.value);
+            if (parsed?.token === currentBatchToken) {
+              db.run("DELETE FROM kv WHERE scope = ? AND key = ?", [LEASE_SCOPE, currentLeasedAlias]);
+            }
+          } catch {}
+        }
+      });
+    } catch {}
+  };
 
   try {
     const body = await request.json().catch(() => null);
@@ -221,61 +246,130 @@ export async function POST(request) {
 
     const probe = async (canonicalId, { signal }) => {
       const qualifiedModel = `${providerAlias}/${canonicalId}`;
-      return pingModelByKind(qualifiedModel, "llm", baseUrl, { signal });
+      return pingModelByKind(qualifiedModel, "llm", baseUrl, { signal, timeoutMs: DEFAULT_PROBE_TIMEOUT_MS });
     };
 
     const disableModel = async ({ id, reason, disabledAt, batchId }) => {
       await disableModelsWithAudit(providerAlias, [id], { reason, disabledAt, batchId });
     };
 
-    // 7. Execute bounded batch with request.signal passed down
-    const batchResult = await runModelTestBatch({
-      modelIds: canonicalModelIds,
-      probe,
-      autoDisable: autoDisable === true,
-      disableModel,
-      signal: request.signal,
-      maxBatchDurationMs: BATCH_DURATION_MS,
-      intervalMs: respectRateLimit !== false ? 1000 : 0,
-      rateLimitThreshold: 3,
-      botBlockThreshold: 2,
-    });
+    const wantsStream = request.headers?.get?.("accept")?.includes("application/x-ndjson");
 
-    return NextResponse.json({
-      batchId: batchResult.batchId,
-      providerId,
-      providerAlias,
-      connectionId,
-      executionScope: "provider",
-      executionNote:
-        "Probes execute through KhatamRouter's provider routing aggregate across active connections. connectionId provides authorization and catalog scope.",
-      summary: batchResult.summary,
-      results: batchResult.results,
-      stoppedEarly: batchResult.stoppedEarly,
-      stopReason: batchResult.stopReason,
-    });
-  } catch {
-    return NextResponse.json({ error: "Batch test execution failed" }, { status: 500 });
-  } finally {
-    if (leasedAlias && batchToken) {
-      if (inProcessLeases.get(leasedAlias)?.token === batchToken) {
-        inProcessLeases.delete(leasedAlias);
-      }
-      try {
-        const db = await getAdapter();
-        db.immediate(() => {
-          const row = db.get("SELECT value FROM kv WHERE scope = ? AND key = ?", [LEASE_SCOPE, leasedAlias]);
-          if (row) {
+    if (wantsStream) {
+      const encoder = new TextEncoder();
+      const abortController = new AbortController();
+      let resolveStreamDone;
+      const streamDonePromise = new Promise((resolve) => {
+        resolveStreamDone = resolve;
+      });
+
+      const onReqAbort = () => abortController.abort();
+      if (request.signal?.aborted) abortController.abort();
+      else request.signal?.addEventListener?.("abort", onReqAbort, { once: true });
+
+      const stream = new ReadableStream({
+        async start(ctrl) {
+          let batchResult = null;
+          try {
+            batchResult = await runModelTestBatch({
+              modelIds: canonicalModelIds,
+              probe,
+              autoDisable: autoDisable === true,
+              disableModel,
+              signal: abortController.signal,
+              maxBatchDurationMs: BATCH_DURATION_MS,
+              probeTimeoutMs: DEFAULT_PROBE_TIMEOUT_MS,
+              intervalMs: respectRateLimit !== false ? 1000 : 0,
+              rateLimitThreshold: 3,
+              botBlockThreshold: 2,
+              onProgress: (progress) => {
+                try {
+                  ctrl.enqueue(encoder.encode(JSON.stringify({ type: "progress", ...progress }) + "\n"));
+                } catch {}
+              },
+            });
+
+            ctrl.enqueue(
+              encoder.encode(
+                JSON.stringify({
+                  type: "done",
+                  batchId: batchResult.batchId,
+                  providerId,
+                  providerAlias,
+                  connectionId,
+                  executionScope: "provider",
+                  executionNote:
+                    "Probes execute through KhatamRouter's provider routing aggregate across active connections. connectionId provides authorization and catalog scope.",
+                  summary: batchResult.summary,
+                  results: batchResult.results,
+                  stoppedEarly: batchResult.stoppedEarly,
+                  stopReason: batchResult.stopReason,
+                }) + "\n"
+              )
+            );
+          } catch {
             try {
-              const parsed = JSON.parse(row.value);
-              if (parsed?.token === batchToken) {
-                db.run("DELETE FROM kv WHERE scope = ? AND key = ?", [LEASE_SCOPE, leasedAlias]);
-              }
+              ctrl.enqueue(encoder.encode(JSON.stringify({ type: "error", error: "Batch test execution failed" }) + "\n"));
             } catch {}
+          } finally {
+            if (request.signal && onReqAbort) {
+              request.signal.removeEventListener?.("abort", onReqAbort);
+            }
+            await releaseLease();
+            try { ctrl.close(); } catch {}
+            resolveStreamDone?.();
           }
-        });
-      } catch {}
+        },
+        async cancel() {
+          abortController.abort();
+          await streamDonePromise;
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "application/x-ndjson; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+          "X-Accel-Buffering": "no",
+        },
+      });
     }
+
+    // 7. Execute bounded batch with request.signal passed down
+    let batchResult = null;
+    try {
+      batchResult = await runModelTestBatch({
+        modelIds: canonicalModelIds,
+        probe,
+        autoDisable: autoDisable === true,
+        disableModel,
+        signal: request.signal,
+        maxBatchDurationMs: BATCH_DURATION_MS,
+        probeTimeoutMs: DEFAULT_PROBE_TIMEOUT_MS,
+        intervalMs: respectRateLimit !== false ? 1000 : 0,
+        rateLimitThreshold: 3,
+        botBlockThreshold: 2,
+      });
+
+      return NextResponse.json({
+        batchId: batchResult.batchId,
+        providerId,
+        providerAlias,
+        connectionId,
+        executionScope: "provider",
+        executionNote:
+          "Probes execute through KhatamRouter's provider routing aggregate across active connections. connectionId provides authorization and catalog scope.",
+        summary: batchResult.summary,
+        results: batchResult.results,
+        stoppedEarly: batchResult.stoppedEarly,
+        stopReason: batchResult.stopReason,
+      });
+    } finally {
+      await releaseLease();
+    }
+  } catch {
+    await releaseLease();
+    return NextResponse.json({ error: "Batch test execution failed" }, { status: 500 });
   }
 }
 

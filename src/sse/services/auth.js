@@ -6,6 +6,7 @@ import { resolveProviderId, FREE_PROVIDERS } from "@/shared/constants/providers.
 import { getAntigravityQuotaCache, getAntigravityModelQuota } from "./antigravityQuota.js";
 import { authenticateApiKey } from "@/lib/auth/apiKeyCache.js";
 import { isPoolFit } from "open-sse/services/proxyPoolFitness.js";
+import { normalizeProxyFailoverSettings } from "@/lib/network/proxyFailover.js";
 import { selectEligiblePools } from "@/lib/network/proxyHealthPolicy.js";
 import * as log from "../utils/logger.js";
 
@@ -54,17 +55,27 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       // The WARP lane defaults to its managed sidecar instead of "direct": it
       // exists precisely to avoid sending the shared server IP at the free tier.
       let pickedId = override.proxyPoolId || FREE_PROVIDERS[providerId]?.managedSidecarPoolId || null;
+      let proxyRotation = null;
       if (strategy !== "none") {
         const allPools = await getProxyPools({ isActive: true });
-        const poolIds = allPools.filter(p => p.proxyUrl || p.type === "psiphon" || p.data?.type === "psiphon").map(p => p.id);
-        // Skip pools cooling down after a proxy failure for this provider; if
-        // every pool is cooling, keep them all so the request is not dropped.
-        const eligible = selectEligiblePools(poolIds, (id) => isPoolFit(id, `${providerId}::*`));
+        const poolIds = allPools.filter(p => p.isActive !== false && (p.proxyUrl || p.type === "psiphon" || p.data?.type === "psiphon")).map(p => p.id);
+        const configuredIds = Array.isArray(override.proxyPoolIds) ? override.proxyPoolIds : poolIds;
+        const candidates = poolIds.filter(id => configuredIds.includes(id));
+        const failover = normalizeProxyFailoverSettings(settings.proxyFailover);
+        const strictSelection = failover.ok && failover.value.enabled;
+        const eligible = strictSelection
+          ? candidates.filter(id => isPoolFit(id, `${providerId}::*`))
+          : selectEligiblePools(candidates, id => isPoolFit(id, `${providerId}::*`));
+        if (strictSelection && eligible.length === 0) {
+          return { allRateLimited: true, lastError: "No eligible configured proxy available", retryAfterHuman: "proxy cooldown", retryAfter: 1 };
+        }
         pickedId = pickProxyPoolId(eligible, strategy, providerId);
+        proxyRotation = { strategy, candidatePoolIds: [...candidates] };
       }
       const resolvedProxy = await resolveConnectionProxyConfig({ proxyPoolId: pickedId || "" });
       return {
         id: "noauth",
+        _proxyRotation: proxyRotation,
         connectionName: "Public",
         isActive: true,
         accessToken: "public",
