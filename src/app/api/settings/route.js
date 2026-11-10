@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSettings, updateSettings } from "@/lib/localDb";
 import { applyOutboundProxyEnv } from "@/lib/network/outboundProxy";
-import { resetComboRotation, normalizeMemberCooldownMs } from "open-sse/services/combo.js";
+import { resetComboRotation, normalizeMemberCooldownMs, isValidMemberCooldown, clearComboCooldowns, isComboCooldownDisabled } from "open-sse/services/combo.js";
 import { normalizeProxyHealthSettings } from "@/lib/network/proxyHealthPolicy.js";
+import { normalizeProxyFailoverSettings } from "@/lib/network/proxyFailover.js";
 import bcrypt from "bcryptjs";
 
 export const dynamic = "force-dynamic";
@@ -51,6 +52,12 @@ export async function PATCH(request) {
       body.proxyHealth = value;
     }
 
+    if (Object.prototype.hasOwnProperty.call(body, "proxyFailover")) {
+      const { ok, value, errors } = normalizeProxyFailoverSettings(body.proxyFailover);
+      if (!ok) return NextResponse.json({ error: errors.join("; ") }, { status: 400 });
+      body.proxyFailover = value;
+    }
+
     // If updating password, hash it
     if (body.newPassword) {
       const settings = await getSettings();
@@ -89,11 +96,16 @@ export async function PATCH(request) {
       if (body.comboStrategies !== null && typeof body.comboStrategies === "object" && !Array.isArray(body.comboStrategies)) {
         for (const [comboName, strat] of Object.entries(body.comboStrategies)) {
           if (strat !== null && typeof strat === "object" && !Array.isArray(strat)) {
+            if (strat.disableCooldown !== undefined && typeof strat.disableCooldown !== "boolean") {
+              return NextResponse.json(
+                { error: `Invalid disableCooldown for combo "${comboName}". Must be a boolean.` },
+                { status: 400 }
+              );
+            }
             if (strat.memberCooldownMs !== undefined && strat.memberCooldownMs !== null && strat.memberCooldownMs !== "") {
-              const normalized = normalizeMemberCooldownMs(strat.memberCooldownMs);
-              if (normalized === null) {
+              if (!isValidMemberCooldown(strat.memberCooldownMs)) {
                 return NextResponse.json(
-                  { error: `Invalid memberCooldownMs for combo "${comboName}". Must be 10s..24h (integer ms) or preset (1m, 5m, 1h).` },
+                  { error: `Invalid memberCooldownMs for combo "${comboName}". Must be "disabled", 10s..24h (integer ms), or preset (1m, 5m, 1h).` },
                   { status: 400 }
                 );
               }
@@ -128,6 +140,13 @@ export async function PATCH(request) {
       Object.prototype.hasOwnProperty.call(body, "comboStrategies")
     ) {
       resetComboRotation();
+      if (body.comboStrategies && typeof body.comboStrategies === "object") {
+        for (const [comboName, strat] of Object.entries(body.comboStrategies)) {
+          if (strat && isComboCooldownDisabled(strat)) {
+            clearComboCooldowns(comboName);
+          }
+        }
+      }
     }
 
     if (

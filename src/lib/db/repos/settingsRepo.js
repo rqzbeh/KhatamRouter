@@ -24,6 +24,9 @@ export const DEFAULT_SETTINGS = {
   // region block, transport) and let it back in after cooldownMs. Off by default.
   // Validated by normalizeProxyHealthSettings in src/lib/network/proxyHealthPolicy.js.
   proxyHealth: { enabled: false, cooldownMs: 300000, probeEnabled: false, probeIntervalMs: 300000, statuses: [403, 429, 451, 502, 503, 504] },
+  // Bounded proxy failover (Spec 021): silently retry a custom count or all distinct
+  // eligible proxies within the configured rotation set on proxy/IP faults. Default off.
+  proxyFailover: { enabled: false, mode: "none", maxRetries: 0, strategy: "round-robin" },
   quotaVisibility: {},
   comboStrategy: "fallback",
   comboStickyRoundRobinLimit: 1,

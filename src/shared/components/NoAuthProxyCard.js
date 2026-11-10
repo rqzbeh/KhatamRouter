@@ -29,6 +29,9 @@ export default function NoAuthProxyCard({ providerId }) {
   const [savedFlash, setSavedFlash] = useState(false);
   const [cooldown, setCooldown] = useState("off");
   const [cooldownError, setCooldownError] = useState("");
+  const [failoverMode, setFailoverMode] = useState("none");
+  const [customRetries, setCustomRetries] = useState("5");
+  const [maxRetriesError, setMaxRetriesError] = useState("");
   const [daemonStatus, setDaemonStatus] = useState("");
   const [poolError, setPoolError] = useState("");
 
@@ -45,9 +48,84 @@ export default function NoAuthProxyCard({ providerId }) {
       setRotateStrategy(override.rotateStrategy || "none");
       const health = settingsData.proxyHealth || {};
       setCooldown(health.enabled ? String(health.cooldownMs) : "off");
+      const failover = settingsData.proxyFailover || {};
+      const mr = failover.maxRetries ?? 0;
+      if (failover.enabled === false || mr === 0 || failover.mode === "none") {
+        setFailoverMode("none");
+      } else if (failover.mode === "all" || mr === "all") {
+        setFailoverMode("all");
+      } else if (Number.isInteger(Number(mr)) && Number(mr) > 0) {
+        setFailoverMode("custom");
+        setCustomRetries(String(mr));
+      } else {
+        setFailoverMode("none");
+      }
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [providerId]);
+
+  const saveFailoverSetting = async (nextFailover, prevMode, prevCustom) => {
+    setMaxRetriesError("");
+    setSaving(true);
+    try {
+      const saveRes = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          proxyFailover: nextFailover,
+        }),
+      });
+      if (!saveRes.ok) {
+        const err = await saveRes.json().catch(() => ({}));
+        setFailoverMode(prevMode);
+        setCustomRetries(prevCustom);
+        setMaxRetriesError(err.error || "Could not save failover budget setting");
+        return;
+      }
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 1500);
+    } catch (e) {
+      setFailoverMode(prevMode);
+      setCustomRetries(prevCustom);
+      setMaxRetriesError("Could not save failover budget setting");
+      console.log("Save proxy failover error:", e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleFailoverModeChange = async (newMode) => {
+    const prevMode = failoverMode;
+    const prevCustom = customRetries;
+    setFailoverMode(newMode);
+    if (newMode === "none") {
+      await saveFailoverSetting({ enabled: false, mode: "none", maxRetries: 0 }, prevMode, prevCustom);
+    } else if (newMode === "all") {
+      await saveFailoverSetting({ enabled: true, mode: "all", maxRetries: "all" }, prevMode, prevCustom);
+    } else if (newMode === "custom") {
+      const parsed = Number(customRetries);
+      const val = Number.isInteger(parsed) && parsed >= 1 && parsed <= 1000 ? parsed : 5;
+      setCustomRetries(String(val));
+      await saveFailoverSetting({ enabled: true, mode: "custom", maxRetries: val }, prevMode, prevCustom);
+    }
+  };
+
+  const handleCustomRetriesChange = async (rawValue) => {
+    const prevMode = failoverMode;
+    const prevCustom = customRetries;
+    setCustomRetries(rawValue);
+    const trimmed = String(rawValue).trim();
+    if (!/^\d+$/.test(trimmed)) {
+      setMaxRetriesError("Enter a positive integer between 1 and 1000");
+      return;
+    }
+    const parsed = Number(trimmed);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 1000) {
+      setMaxRetriesError("Enter a positive integer between 1 and 1000");
+      return;
+    }
+    await saveFailoverSetting({ enabled: true, mode: "custom", maxRetries: parsed }, prevMode, prevCustom);
+  };
 
   // Proxy health is a global setting: it applies to every provider that rotates
   // across proxy pools, since a pool's failure is recorded per provider.
@@ -327,6 +405,46 @@ export default function NoAuthProxyCard({ providerId }) {
             pool is cooling, rotation uses them anyway rather than going direct.
           </p>
           {cooldownError && <p className="text-xs text-red-500">{cooldownError}</p>}
+        </div>
+      )}
+
+      {isRotation && (
+        <div className="flex flex-col gap-2 mt-4">
+          <label htmlFor="proxy-failover-mode" className="text-sm font-medium text-text-main">Proxy failover alternatives</label>
+          <select
+            id="proxy-failover-mode"
+            value={failoverMode}
+            onChange={(e) => handleFailoverModeChange(e.target.value)}
+            disabled={saving}
+            className="py-2 px-3 text-sm text-text-main bg-white dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-md focus:ring-1 focus:ring-primary/30 focus:border-primary/50 focus:outline-none transition-all disabled:opacity-50"
+          >
+            <option value="none">None (no failover)</option>
+            <option value="custom">Custom count</option>
+            <option value="all">All eligible available proxies</option>
+          </select>
+          {failoverMode === "custom" && (
+            <div className="flex items-center gap-2 mt-1">
+              <label htmlFor="proxy-failover-custom" className="text-xs text-text-muted whitespace-nowrap">Additional attempts:</label>
+              <input
+                id="proxy-failover-custom"
+                type="number"
+                min="1"
+                max="1000"
+                value={customRetries}
+                onChange={(e) => handleCustomRetriesChange(e.target.value)}
+                disabled={saving}
+                className="w-24 py-1.5 px-2 text-sm text-text-main bg-white dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-md focus:ring-1 focus:ring-primary/30 focus:border-primary/50 focus:outline-none transition-all disabled:opacity-50"
+              />
+            </div>
+          )}
+          <p className="text-xs text-text-muted">
+            {failoverMode === "none"
+              ? "When a proxy fails, the request returns the upstream error without trying other proxies."
+              : failoverMode === "all"
+              ? "Silently tries each distinct eligible proxy in this rotation set once before returning the real error. Never falls back to direct egress."
+              : `Silently tries up to ${customRetries || 5} distinct alternative eligible proxies in this rotation set before returning the real error. Never falls back to direct egress.`}
+          </p>
+          {maxRetriesError && <p className="text-xs text-red-500">{maxRetriesError}</p>}
         </div>
       )}
     </Card>

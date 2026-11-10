@@ -31,22 +31,22 @@ const ERROR_SCAN_CHARS = 2048;
 
 // Client and credential errors are the caller's fault, not the proxy's, so
 // they never take a pool out of rotation no matter what the body says.
-const NEVER_PROXY_FAULT = new Set([400, 401, 404, 409, 410, 422]);
+export const NEVER_PROXY_FAULT = new Set([400, 401, 404, 409, 410, 422]);
 
-const TRANSPORT_PATTERN = /ECONNRESET|ETIMEDOUT|ECONNREFUSED|EHOSTUNREACH|connect timeout|socket hang up|proxy (?:error|connect|tunnel)/i;
+export const TRANSPORT_PATTERN = /ECONNRESET|ETIMEDOUT|ECONNREFUSED|EHOSTUNREACH|connect timeout|socket hang up|proxy (?:error|connect|tunnel)/i;
 
 // Narrow explicit transport evidence for 403: truly CONNECT/tunnel fault,
 // never user text or error strings merely mentioning "proxy".
-const PROXY_TUNNEL_PATTERN = /(?:proxy|connect) tunnel (?:failed|error)|tunneling socket could not be established|failed to establish (?:a )?proxy tunnel|(?:proxy|tunnel) connect(?:ion)? failed|http connect failed/i;
+export const PROXY_TUNNEL_PATTERN = /(?:proxy|connect) tunnel (?:failed|error)|tunneling socket could not be established|failed to establish (?:a )?proxy tunnel|(?:proxy|tunnel) connect(?:ion)? failed|http connect failed/i;
 
 // Explicit regional access refusal. Words like "region", "country" or "geo"
 // alone are insufficient: only explicit phrases indicating regional access
 // is unavailable or unsupported qualify.
-const REGION_BLOCKED_PATTERN = /\b(?:not available|unavailable|not supported|blocked)\s+in\s+(?:your|this)\s+(?:region|country|territory|location)\b|\bunsupported\s+(?:location|region|country|territory)\b|\b(?:location|region|country|territory)\s+(?:is\s+)?not\s+supported\b/i;
+export const REGION_BLOCKED_PATTERN = /\b(?:not available|unavailable|not supported|blocked)\s+in\s+(?:your|this)\s+(?:region|country|territory|location)\b|\bunsupported\s+(?:location|region|country|territory)\b|\b(?:location|region|country|territory)\s+(?:is\s+)?not\s+supported\b/i;
 
 // Explicit source-IP denial phrases. Requires word boundary around IP token
 // so words like "membership" are never misclassified.
-const IP_BLOCKED_PATTERN = /\b(?:requests?\s+from\s+(?:this|your)\s+)?\bip(?:\s+address)?\s+(?:is|are|has\s+been)\s+blocked\b|\bip(?:\s+address)?\s+is\s+not\s+allowed\b/i;
+export const IP_BLOCKED_PATTERN = /\b(?:requests?\s+from\s+(?:this|your)\s+)?\bip(?:\s+address)?\s+(?:is|are|has\s+been)\s+blocked\b|\bip(?:\s+address)?\s+is\s+not\s+allowed\b/i;
 
 function defaults() {
   return { ...DEFAULT_PROXY_HEALTH, statuses: [...DEFAULT_PROXY_HEALTH.statuses] };

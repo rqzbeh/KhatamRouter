@@ -12,6 +12,7 @@ import {
   COOLDOWN_PRESET_OPTIONS,
   normalizeMemberCooldownMs,
   isValidMemberCooldown,
+  isComboCooldownDisabled,
 } from "open-sse/config/comboCooldown.js";
 
 export {
@@ -21,6 +22,7 @@ export {
   COOLDOWN_PRESET_OPTIONS,
   normalizeMemberCooldownMs,
   isValidMemberCooldown,
+  isComboCooldownDisabled,
 };
 
 /**
@@ -41,9 +43,9 @@ export function snapshotMutableCombo(combo) {
 /**
  * Calculate the updated comboStrategies object when updating or renaming a combo.
  * Migrates existing configuration from oldName to newName if renamed.
- * Applies or prunes memberCooldownMs.
+ * Applies or prunes memberCooldownMs and disableCooldown.
  */
-export function calculateComboStrategyUpdate(currentStrategies = {}, oldName, newName, memberCooldownMs) {
+export function calculateComboStrategyUpdate(currentStrategies = {}, oldName, newName, memberCooldownMs, disableCooldown) {
   const updated = { ...currentStrategies };
   let strategiesChanged = false;
 
@@ -54,17 +56,35 @@ export function calculateComboStrategyUpdate(currentStrategies = {}, oldName, ne
     strategiesChanged = true;
   }
 
-  // Apply memberCooldownMs if updated in form
-  if (memberCooldownMs !== undefined) {
+  // Apply memberCooldownMs and/or disableCooldown if updated in form
+  if (memberCooldownMs !== undefined || disableCooldown !== undefined) {
     const targetKey = newName || oldName;
     const target = updated[targetKey] ? { ...updated[targetKey] } : {};
-    if (memberCooldownMs === null || memberCooldownMs === "") {
-      delete target.memberCooldownMs;
-    } else {
-      target.memberCooldownMs = memberCooldownMs;
+
+    if (disableCooldown !== undefined) {
+      if (disableCooldown === true) {
+        target.disableCooldown = true;
+      } else {
+        delete target.disableCooldown;
+      }
     }
+
+    if (memberCooldownMs !== undefined) {
+      if (isComboCooldownDisabled(false, memberCooldownMs)) {
+        target.disableCooldown = true;
+        delete target.memberCooldownMs;
+      } else if (memberCooldownMs === null || memberCooldownMs === "") {
+        delete target.memberCooldownMs;
+      } else {
+        target.memberCooldownMs = memberCooldownMs;
+        if (disableCooldown === undefined) {
+          delete target.disableCooldown;
+        }
+      }
+    }
+
     const hasConfig = Object.keys(target).some(
-      (k) => target[k] !== undefined && target[k] !== null && target[k] !== ""
+      (k) => target[k] !== undefined && target[k] !== null && target[k] !== "" && target[k] !== false
     );
     if (hasConfig) {
       updated[targetKey] = target;
@@ -92,6 +112,7 @@ export async function executeComboUpdateTransaction({
   oldCombo,
   newComboData,
   memberCooldownMs,
+  disableCooldown,
   comboStrategies,
   updateComboApi,
   persistStrategiesApi,
@@ -125,7 +146,8 @@ export async function executeComboUpdateTransaction({
     comboStrategies,
     oldName,
     newComboData.name,
-    memberCooldownMs
+    memberCooldownMs,
+    disableCooldown
   );
 
   if (strategiesChanged) {
@@ -179,6 +201,7 @@ export async function executeComboUpdateTransaction({
 export async function executeComboCreateTransaction({
   comboData,
   memberCooldownMs,
+  disableCooldown,
   comboStrategies,
   createComboApi,
   deleteComboApi,
@@ -208,12 +231,19 @@ export async function executeComboCreateTransaction({
   }
 
   const created = createResult.data;
-  if (memberCooldownMs !== undefined && memberCooldownMs !== null && memberCooldownMs !== "") {
+  const isDisabled = isComboCooldownDisabled(disableCooldown, memberCooldownMs);
+  const hasCooldownMs = !isDisabled && memberCooldownMs !== undefined && memberCooldownMs !== null && memberCooldownMs !== "";
+  if (isDisabled || hasCooldownMs) {
     const updated = { ...comboStrategies };
-    updated[comboData.name] = {
-      ...(updated[comboData.name] || {}),
-      memberCooldownMs,
-    };
+    const entry = { ...(updated[comboData.name] || {}) };
+    if (isDisabled) {
+      entry.disableCooldown = true;
+      delete entry.memberCooldownMs;
+    } else if (hasCooldownMs) {
+      entry.memberCooldownMs = memberCooldownMs;
+      delete entry.disableCooldown;
+    }
+    updated[comboData.name] = entry;
 
     try {
       await persistStrategiesApi(updated);

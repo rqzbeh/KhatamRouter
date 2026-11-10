@@ -175,7 +175,7 @@ Main flow modules:
 ### Opt-In Free Proxy Ingestion (Backend API)
 - **Modules**: `src/lib/freeProxyProviders/index.js`, `src/app/api/settings/free-proxies/*`.
 - **Guard Rails**: Ingestion from explicitly allowlisted public, untrusted feeds (oneproxy, proxifly, iplocate) is disabled by default behind durable operator risk acknowledgement (`acknowledgedRisk: true`). Enforces a 2 MiB streaming cap (`MAX_FEED_BYTES`), 15s timeout, SSRF/private-IP candidate filtering, concurrency lease locking, and only imports candidates that answer the upstream through the proxy (live probe, bounded concurrency) — imports are created **active** and dead ones are pruned after an hour.
-- **UI Surface**: `FreeProxySourcesCard` on `/dashboard/proxy-pools` (PR #151). Mount reads policy only; sync is an explicit action.
+- **UI Surface**: `FreeProxySourcesCard` on `/dashboard/proxy-pools` (PR #151). Mount reads policy only; manual sync remains available. The leader's `freeProxyProviders/scheduler.js` checks opt-in policy at startup and every 6 hours (`FREE_PROXY_SYNC_INTERVAL_MS`, minimum 60 seconds); policy changes are picked up on the next tick, overlapping ticks are skipped, and shutdown clears the timer synchronously. Re-sync preserves operator-disabled pools.
 
 ## 3) Persistence and Acceleration Layer
 

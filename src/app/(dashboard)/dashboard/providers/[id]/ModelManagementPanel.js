@@ -170,6 +170,7 @@ export default function ModelManagementPanel({
   // -------------------------------------------------------------
   const [autoDisable, setAutoDisable] = useState(false);
   const [testingBatch, setTestingBatch] = useState(false);
+  const [testProgress, setTestProgress] = useState(null);
   const [testSummary, setTestSummary] = useState(null);
   const [testError, setTestError] = useState("");
   const [batchIndex, setBatchIndex] = useState(0);
@@ -177,6 +178,12 @@ export default function ModelManagementPanel({
   const [loadingAudit, setLoadingAudit] = useState(false);
   const [showAudit, setShowAudit] = useState(false);
   const abortControllerRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   const BATCH_SIZE = 100;
   const totalModels = allVisibleModels.length;
@@ -201,13 +208,29 @@ export default function ModelManagementPanel({
       return id;
     });
 
+    setTestProgress({
+      tested: 0,
+      total: rawModelIds.length,
+      currentModel: rawModelIds[0] || "",
+      passed: 0,
+      broken: 0,
+      quotaErrors: 0,
+      accessErrors: 0,
+      transportErrors: 0,
+    });
+
     const controller = new AbortController();
     abortControllerRef.current = controller;
+    const partialResults = Object.create(null);
+    let partialDisabledCount = 0;
 
     try {
       const res = await fetch("/api/models/test-batch", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/x-ndjson, application/json",
+        },
         signal: controller.signal,
         body: JSON.stringify({
           providerId,
@@ -218,8 +241,11 @@ export default function ModelManagementPanel({
         }),
       });
 
-      const data = await res.json().catch(() => ({}));
+      const contentType = res.headers?.get?.("content-type") || "";
+      let data = {};
+
       if (!res.ok) {
+        data = await res.json().catch(() => ({}));
         if (res.status === 409) {
           throw new Error(data.error || "Provider is currently busy with another test batch");
         }
@@ -227,6 +253,124 @@ export default function ModelManagementPanel({
           throw new Error(data.error || "Host concurrency limit reached. Please wait before retrying");
         }
         throw new Error(data.error || `Batch testing failed (HTTP ${res.status})`);
+      }
+
+      if (contentType.includes("application/x-ndjson") && typeof res.body?.getReader === "function") {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let donePayload = null;
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() ?? "";
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed) continue;
+              let event;
+              try {
+                event = JSON.parse(trimmed);
+              } catch {
+                continue;
+              }
+              if (event.type === "progress" && event.modelId) {
+                Object.defineProperty(partialResults, event.modelId, {
+                  value: event.record,
+                  enumerable: true,
+                  writable: true,
+                  configurable: true,
+                });
+                if (event.record?.disabled) {
+                  partialDisabledCount = event.summary?.disabled ?? partialDisabledCount + 1;
+                }
+                const liveCounts = summarizeModelTestResults(partialResults);
+                const testedCount = event.summary?.tested ?? Object.keys(partialResults).length;
+                const nextIdx = typeof event.index === "number" ? event.index + 1 : testedCount;
+                setTestProgress({
+                  tested: testedCount,
+                  total: rawModelIds.length,
+                  currentModel: rawModelIds[nextIdx] || "",
+                  ...liveCounts,
+                });
+              } else if (event.type === "done") {
+                donePayload = event;
+              } else if (event.type === "error") {
+                throw new Error(event.error || "Batch testing failed");
+              }
+            }
+          }
+        } catch (streamErr) {
+          try { await reader.cancel(); } catch {}
+          throw streamErr;
+        }
+
+        if (controller.signal.aborted && !donePayload) {
+          const abortErr = new Error("The operation was aborted");
+          abortErr.name = "AbortError";
+          throw abortErr;
+        }
+
+        if (buffer.trim()) {
+          try {
+            const trailing = JSON.parse(buffer.trim());
+            if (trailing.type === "done") donePayload = trailing;
+            else if (trailing.type === "error") throw new Error(trailing.error || "Batch testing failed");
+          } catch (e) {
+            if (e.message && !e.message.includes("JSON")) throw e;
+          }
+        }
+
+        if (!donePayload) {
+          const partialKeys = Object.keys(partialResults);
+          const finalResults = Object.assign(Object.create(null), partialResults);
+          let skippedCount = 0;
+          for (const id of rawModelIds) {
+            if (!Object.hasOwn(finalResults, id)) {
+              Object.defineProperty(finalResults, id, {
+                value: { tested: false, status: "skipped", reason: "stream_truncated", disabled: false },
+                enumerable: true,
+                writable: true,
+                configurable: true,
+              });
+              skippedCount++;
+            }
+          }
+          const counts = summarizeModelTestResults(finalResults);
+          setTestSummary({
+            executionScope: "provider",
+            totalTested: partialKeys.length,
+            total: rawModelIds.length,
+            passed: counts.passed,
+            broken: counts.broken,
+            quotaErrors: counts.quotaErrors,
+            accessErrors: counts.accessErrors,
+            transportErrors: counts.transportErrors,
+            disabledCount: partialDisabledCount,
+            skippedCount,
+            stoppedEarly: true,
+            stopReason: "stream_truncated",
+            results: finalResults,
+            batchNumber: batchIndex + 1,
+            totalBatches,
+          });
+          if (partialDisabledCount > 0) {
+            onChanged?.();
+          }
+          setTestError(
+            partialKeys.length > 0
+              ? `Batch testing stream ended prematurely without completion (${partialKeys.length} of ${rawModelIds.length} tested). Partial results preserved.`
+              : "Batch testing stream ended prematurely without completion."
+          );
+          return;
+        }
+
+        data = donePayload;
+      } else {
+        data = await res.json().catch(() => ({}));
       }
 
       const summary = data.summary || {};
@@ -260,13 +404,53 @@ export default function ModelManagementPanel({
         onChanged?.();
       }
     } catch (err) {
-      if (err.name === "AbortError") {
-        setTestError("Batch testing was cancelled by the user.");
+      if (err.name === "AbortError" || controller.signal.aborted) {
+        const partialKeys = Object.keys(partialResults);
+        if (partialKeys.length > 0) {
+          const finalResults = Object.assign(Object.create(null), partialResults);
+          let skippedCount = 0;
+          for (const id of rawModelIds) {
+            if (!Object.hasOwn(finalResults, id)) {
+              Object.defineProperty(finalResults, id, {
+                value: { tested: false, status: "skipped", reason: "aborted", disabled: false },
+                enumerable: true,
+                writable: true,
+                configurable: true,
+              });
+              skippedCount++;
+            }
+          }
+          const counts = summarizeModelTestResults(finalResults);
+          setTestSummary({
+            executionScope: "provider",
+            totalTested: partialKeys.length,
+            total: rawModelIds.length,
+            passed: counts.passed,
+            broken: counts.broken,
+            quotaErrors: counts.quotaErrors,
+            accessErrors: counts.accessErrors,
+            transportErrors: counts.transportErrors,
+            disabledCount: partialDisabledCount,
+            skippedCount,
+            stoppedEarly: true,
+            stopReason: "aborted",
+            results: finalResults,
+            batchNumber: batchIndex + 1,
+            totalBatches,
+          });
+          if (partialDisabledCount > 0) {
+            onChanged?.();
+          }
+          setTestError(`Batch testing was cancelled by the user (${partialKeys.length} of ${rawModelIds.length} tested).`);
+        } else {
+          setTestError("Batch testing was cancelled by the user.");
+        }
       } else {
         setTestError(err.message || "Error running batch model test");
       }
     } finally {
       setTestingBatch(false);
+      setTestProgress(null);
       abortControllerRef.current = null;
     }
   };
@@ -615,6 +799,47 @@ export default function ModelManagementPanel({
               </span>
             </div>
           </div>
+
+          {testingBatch && (
+            <div className="p-2.5 rounded-lg bg-surface-2 border border-border text-xs flex flex-col gap-1.5">
+              <div className="flex items-center justify-between text-[11px] text-text-muted">
+                <span className="flex items-center gap-1.5 font-medium text-text-main">
+                  <span className="material-symbols-outlined animate-spin text-sm text-primary">progress_activity</span>
+                  <span>
+                    {testProgress
+                      ? `Testing ${Math.min(testProgress.total, testProgress.tested + 1)} of ${testProgress.total} models${testProgress.currentModel ? ` (${testProgress.currentModel})` : ""}`
+                      : `Testing batch (${currentBatchModels.length} models)...`}
+                  </span>
+                </span>
+                {testProgress && (
+                  <span className="font-mono tabular-nums">
+                    {Math.round(((testProgress.tested) / (testProgress.total || 1)) * 100)}%
+                  </span>
+                )}
+              </div>
+              <div className="w-full bg-border-subtle rounded-full h-1.5 overflow-hidden">
+                <div
+                  className="bg-primary h-1.5 rounded-full transition-all duration-300"
+                  style={{
+                    width: `${Math.round(((testProgress?.tested || 0) / (testProgress?.total || currentBatchModels.length || 1)) * 100)}%`,
+                  }}
+                />
+              </div>
+              {testProgress && testProgress.tested > 0 && (
+                <div className="flex items-center gap-2 text-[10px] text-text-muted pt-0.5">
+                  <span className="text-green-500 font-medium">{testProgress.passed} passed</span>
+                  <span>•</span>
+                  <span className="text-red-500 font-medium">{testProgress.broken} broken</span>
+                  <span>•</span>
+                  <span className="text-amber-500 font-medium">{testProgress.quotaErrors} quota</span>
+                  <span>•</span>
+                  <span className="text-amber-500 font-medium">{testProgress.accessErrors} access</span>
+                  <span>•</span>
+                  <span className="text-amber-500 font-medium">{testProgress.transportErrors} transport</span>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="flex flex-wrap items-center gap-2">
             {!testingBatch ? (

@@ -13,7 +13,7 @@ import { handleChatCore } from "open-sse/handlers/chatCore.js";
 import { DEFAULT_HEADROOM_URL } from "@/lib/headroom/detect";
 import { getTransform as getPxpipeTransform } from "@/lib/pxpipe/loader.js";
 import { appendPxpipeEvent } from "@/lib/pxpipe/events.js";
-import { errorResponse, unavailableResponse } from "open-sse/utils/error.js";
+import { createErrorResult, errorResponse, unavailableResponse } from "open-sse/utils/error.js";
 import { upstreamResponseHeaders } from "open-sse/utils/upstreamHeaders.js";
 import { handleComboChat, handleFusionChat, detectRequiredCapabilities } from "open-sse/services/combo.js";
 import { augmentModelsWithCapacityAdapter, withCapacityAdapterStripping, getActiveAdapterStrategy } from "open-sse/services/capacityAdapter.js";
@@ -44,7 +44,21 @@ import { resolveSmartChoice } from "../services/systemoneRouter.js";
 import { rotate, recordUsage, shouldRotateOn } from "@/lib/network/psiphon/psiphonManager.js";
 import { stopSidecar } from "@/lib/network/opencode2api/sidecarManager.js";
 import { classifyProxyFailure } from "@/lib/network/proxyHealthPolicy.js";
-import { markPoolUnfit } from "open-sse/services/proxyPoolFitness.js";
+import { markPoolUnfit, isPoolFit } from "open-sse/services/proxyPoolFitness.js";
+import {
+  normalizeProxyFailoverSettings,
+  isProxyFailoverRetryable,
+  resolveRotationCandidates,
+  pickNextDistinctPool,
+  hasRemainingFailoverBudget,
+  applyProxyConfigToPsd,
+  cloneCredentials,
+  disposeResponse,
+  DEFAULT_FAILOVER_DEADLINE_MS,
+  DEFAULT_FAILOVER_ATTEMPT_TIMEOUT_MS,
+} from "@/lib/network/proxyFailover.js";
+import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy.js";
+import { getProxyPools } from "@/models";
 import { isLocalRequest } from "@/dashboardGuard.js";
 import { initializeOverrideCache } from "@/lib/models/overrideCache.js";
 
@@ -318,6 +332,7 @@ export async function handleChat(request, clientRawRequest = null) {
         : null,
       cooldownScope,
       memberCooldownMs: comboCfg.memberCooldownMs ?? null,
+      disableCooldown: comboCfg.disableCooldown ?? false,
       signal: request?.signal || null,
     }));
   }
@@ -441,6 +456,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
           : null,
         cooldownScope: nestedCooldownScope,
         memberCooldownMs: comboCfg.memberCooldownMs ?? null,
+        disableCooldown: comboCfg.disableCooldown ?? false,
         signal: request?.signal || null,
       });
     }
@@ -467,12 +483,25 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   let psiphonRotations = 0;
   let sidecarQuotaRetries = 0;
   let sidecarRestarts = 0;
+  let proxyFailoverRetries = 0;
+  let failoverCredentialsOverride = null;
+  let rotationSnapshot = null;
+  const attemptedPoolIds = new Set();
+  const failoverStartTime = Date.now();
+  const failoverSettings = normalizeProxyFailoverSettings((await getSettings())?.proxyFailover).value;
+  const failoverDeadline = failoverStartTime + failoverSettings.requestDeadlineMs;
 
   while (true) {
-    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, {
+    if (request?.signal?.aborted) return errorResponse(499, "Request aborted");
+    if (failoverSettings.enabled && Date.now() >= failoverDeadline) {
+      return errorResponse(HTTP_STATUS.GATEWAY_TIMEOUT, "Request deadline exceeded");
+    }
+    const rawCredentials = failoverCredentialsOverride || await getProviderCredentials(provider, excludeConnectionIds, model, {
       requestedModel: requestedModel || model,
       preferredConnectionId: preferredConnectionId && !excludeConnectionIds.has(preferredConnectionId) ? preferredConnectionId : null,
     });
+    failoverCredentialsOverride = null;
+    const credentials = cloneCredentials(rawCredentials);
 
     // All accounts unavailable
     if (!credentials || credentials.allRateLimited) {
@@ -488,6 +517,10 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       }
       log.warn("CHAT", "No more accounts available", { provider });
       return errorResponse(lastStatus || HTTP_STATUS.SERVICE_UNAVAILABLE, lastError || "All accounts unavailable", lastHeaders);
+    }
+
+    if (credentials?.providerSpecificData?.connectionProxyPoolId) {
+      attemptedPoolIds.add(credentials.providerSpecificData.connectionProxyPoolId);
     }
 
     // Wave 4 pre-dispatch gate. Inert unless KHATAM_RESILIENCE_CIRCUIT_BREAKER=1:
@@ -510,8 +543,27 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       }
     }
 
+    // Use shared chatCore
+    const chatSettings = await getSettings();
+    const requestDeadlineMs = failoverSettings.requestDeadlineMs || DEFAULT_FAILOVER_DEADLINE_MS;
+    const elapsedMs = Date.now() - failoverStartTime;
+    const remainingDeadlineMs = requestDeadlineMs - elapsedMs;
+
+    if (failoverSettings.enabled && remainingDeadlineMs <= 0) {
+      log.warn("PROXY_FAILOVER", `Overall request deadline (${requestDeadlineMs}ms) exceeded; terminating failover`);
+      return errorResponse(HTTP_STATUS.GATEWAY_TIMEOUT, "Request deadline exceeded");
+    }
+
+    if (failoverSettings.enabled && credentials?.providerSpecificData?.connectionProxyPoolId) {
+      credentials.providerSpecificData.strictProxy = true;
+    }
+
     // Account selection shown in the unified "▶" line (acc:...)
-    const refreshedCredentials = await checkAndRefreshToken(provider, credentials);
+    const refreshedRaw = await checkAndRefreshToken(provider, credentials);
+    const refreshedCredentials = cloneCredentials(refreshedRaw);
+    if (failoverSettings.enabled && refreshedCredentials?.providerSpecificData?.connectionProxyPoolId) {
+      refreshedCredentials.providerSpecificData.strictProxy = true;
+    }
 
     // Ensure real project ID is available for providers that need it (P0 fix: cold miss)
     if ((provider === "antigravity" || provider === "gemini-cli") && !refreshedCredentials.projectId) {
@@ -523,10 +575,51 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       }
     }
 
-    // Use shared chatCore
-    const chatSettings = await getSettings();
+    const dispatchBudgetMs = failoverDeadline - Date.now();
+    if (failoverSettings.enabled && dispatchBudgetMs <= 0) {
+      return errorResponse(HTTP_STATUS.GATEWAY_TIMEOUT, "Request deadline exceeded");
+    }
+    const attemptTimeoutMs = (failoverSettings.enabled && refreshedCredentials?.providerSpecificData?.connectionProxyPoolId)
+      ? Math.min(failoverSettings.attemptTimeoutMs || DEFAULT_FAILOVER_ATTEMPT_TIMEOUT_MS, dispatchBudgetMs)
+      : null;
+
+    const effectiveProviderOverrides = {
+      ...(chatSettings.providerOverrides || {})[provider] || {},
+    };
+    if (failoverSettings.enabled && refreshedCredentials?.providerSpecificData?.connectionProxyPoolId) {
+      // Shared retry budget: suppress nested retries & multi-URL fallback in BaseExecutor
+      effectiveProviderOverrides.disableAllRetries = true;
+      effectiveProviderOverrides.disableFallbackUrls = true;
+      effectiveProviderOverrides.retry = {
+        429: { attempts: 0, delayMs: 0 },
+        502: { attempts: 0, delayMs: 0 },
+        503: { attempts: 0, delayMs: 0 },
+        504: { attempts: 0, delayMs: 0 },
+      };
+      if (attemptTimeoutMs) {
+        effectiveProviderOverrides.timeoutMs = attemptTimeoutMs;
+      }
+    }
+
+    const attemptCtrl = new AbortController();
+    let attemptTimer = null;
+    let onClientAbort = null;
+    if (request?.signal) {
+      if (request.signal.aborted) {
+        attemptCtrl.abort(request.signal.reason || new Error("Request aborted"));
+      } else {
+        onClientAbort = () => attemptCtrl.abort(request.signal.reason || new Error("Request aborted"));
+        request.signal.addEventListener("abort", onClientAbort, { once: true });
+      }
+    }
+    if (attemptTimeoutMs && attemptTimeoutMs > 0) {
+      attemptTimer = setTimeout(() => {
+        attemptCtrl.abort(new Error("Proxy attempt timeout"));
+      }, attemptTimeoutMs);
+    }
+
     const providerThinking = (chatSettings.providerThinking || {})[provider] || null;
-    const result = await handleChatCore({
+    const corePromise = handleChatCore({
       body: { ...body, model: `${provider}/${model}` },
       modelInfo: { provider, model },
       credentials: refreshedCredentials,
@@ -557,7 +650,8 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       onPxpipeEvent: appendPxpipeEvent,
       providerThinking,
       // Per-provider user overrides (custom headers / connect timeout) from settings
-      providerOverrides: (chatSettings.providerOverrides || {})[provider] || null,
+      providerOverrides: effectiveProviderOverrides,
+      signal: attemptCtrl.signal,
       // Detect source format by endpoint + body
       sourceFormatOverride: request?.url ? detectFormatByEndpoint(new URL(request.url).pathname, body) : null,
       onCredentialsRefreshed: async (newCreds) => {
@@ -592,7 +686,55 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       }
     });
 
+    const raceAbortPromise = new Promise((resolve) => {
+      if (attemptCtrl.signal.aborted) {
+        resolve({ __aborted: true });
+        return;
+      }
+      attemptCtrl.signal.addEventListener("abort", () => resolve({ __aborted: true }), { once: true });
+    });
+
+    let result;
+    try {
+      result = await Promise.race([corePromise, raceAbortPromise]);
+    } catch (coreErr) {
+      if (attemptTimer) clearTimeout(attemptTimer);
+      if (onClientAbort && request?.signal) request.signal.removeEventListener("abort", onClientAbort);
+      result = createErrorResult(HTTP_STATUS.BAD_GATEWAY, coreErr?.message || "Upstream transport failure");
+    } finally {
+      if (attemptTimer) clearTimeout(attemptTimer);
+    }
+
+    if (result?.__aborted) {
+      if (onClientAbort && request?.signal) request.signal.removeEventListener("abort", onClientAbort);
+      // Ensure any late response from corePromise is disposed cleanly
+      corePromise.then((lateRes) => {
+        if (lateRes?.response) disposeResponse(lateRes.response);
+      }).catch(() => {});
+
+      if (request?.signal?.aborted) {
+        return errorResponse(499, "Request aborted");
+      }
+      let settled = false;
+      await Promise.race([
+        corePromise.then(() => { settled = true; }).catch(() => { settled = true; }),
+        new Promise((r) => setTimeout(r, 50)),
+      ]);
+      if (!settled) {
+        // Active transport ignored abort and remains unresolved: fail closed without overlapping attempts
+        return errorResponse(HTTP_STATUS.GATEWAY_TIMEOUT, "Upstream attempt timed out without abort cleanup");
+      }
+      result = {
+        success: false,
+        status: HTTP_STATUS.GATEWAY_TIMEOUT,
+        error: "Upstream attempt timed out",
+        response: errorResponse(HTTP_STATUS.GATEWAY_TIMEOUT, "Upstream attempt timed out"),
+      };
+    }
+
     if (result.success) {
+      // NOTE: Do NOT remove onClientAbort listener when streaming succeeds so client
+      // cancellation continues propagating to active streamController/upstream socket.
       const psiphonPoolId = credentials?.providerSpecificData?.psiphonPoolId;
       if (psiphonPoolId) {
         let tokens = 0;
@@ -604,6 +746,10 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         recordUsage(psiphonPoolId, { requests: 1, tokens });
       }
       return result.response;
+    }
+
+    if (onClientAbort && request?.signal) {
+      request.signal.removeEventListener("abort", onClientAbort);
     }
 
     // Proxy health: a failure that points at the proxy (rate limit, region
@@ -626,14 +772,97 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       }
     }
 
-    // Psiphon transport failure rotation:
-    // If request used a Psiphon pool and upstream emitted a transport/proxy failure (502/503 connect timeout/reset),
-    // rotate the tunnel (up to 4 times per request; promotion from the warm ring is
-    // served synchronously) and retry. Does NOT rotate on quota (429/403) or client abort.
+    // Bounded Proxy Failover (Spec 021): silently retry across distinct eligible
+    // alternative proxies within the configured rotation set on proxy/IP faults.
+    const isProxyRetryable = isProxyFailoverRetryable({
+      status: result.status,
+      errorText: typeof result.error === "string" ? result.error : "",
+      body: result.error,
+    });
+    const isClientAborted = Boolean(request?.signal?.aborted);
+    const deadlineRemainingMs = requestDeadlineMs - (Date.now() - failoverStartTime);
+
+    if (
+      failoverSettings.enabled &&
+      failedPoolId &&
+      isProxyRetryable &&
+      !isClientAborted &&
+      deadlineRemainingMs > 0 &&
+      hasRemainingFailoverBudget(failoverSettings, proxyFailoverRetries)
+    ) {
+      let currentActivePools = [];
+      try {
+        currentActivePools = await getProxyPools({ isActive: true });
+      } catch {}
+
+      if (!rotationSnapshot) {
+        rotationSnapshot = resolveRotationCandidates({
+          providerId: provider,
+          credentials,
+          settings: chatSettings,
+          allActivePools: currentActivePools,
+        });
+      }
+
+      const activePoolIds = new Set(
+        currentActivePools.filter((p) => p.isActive === true).map((p) => p.id)
+      );
+      const { strategy, candidatePoolIds } = rotationSnapshot;
+
+      if (strategy !== "none" && candidatePoolIds.length > 0) {
+        const nextPoolId = pickNextDistinctPool({
+          candidatePoolIds,
+          attemptedPoolIds,
+          activePoolIds,
+          strategy,
+          providerId: provider,
+          isPoolFitFn: (id, scope) => isPoolFit(id, scope),
+        });
+
+        if (nextPoolId) {
+          proxyFailoverRetries++;
+          attemptedPoolIds.add(nextPoolId);
+          log.warn(
+            "PROXY_FAILOVER",
+            `Pool ${failedPoolId} failed (${result.status}) → retrying distinct pool ${nextPoolId} (attempt ${proxyFailoverRetries + 1}${failoverSettings.mode === "all" ? "/all" : `/${failoverSettings.maxRetries + 1}`})`
+          );
+
+          await disposeResponse(result.response);
+
+          const nextProxy = await resolveConnectionProxyConfig({ proxyPoolId: nextPoolId });
+          credentials.providerSpecificData = applyProxyConfigToPsd(credentials.providerSpecificData, nextProxy);
+          failoverCredentialsOverride = cloneCredentials(credentials);
+
+          lastError = result.error;
+          lastStatus = result.status;
+          lastHeaders = upstreamResponseHeaders(result.response?.headers);
+
+          // Silent retry: keep original request open, bypass markAccountUnavailable
+          continue;
+        }
+      }
+    }
+
+    // If alternative proxy failover retries were attempted and exhausted, preserve the
+    // actual final upstream response/body/status/headers without penalizing the account.
+    if (failoverSettings.enabled && failedPoolId && isProxyRetryable) {
+      log.warn(
+        "PROXY_FAILOVER",
+        `Exhausted all ${proxyFailoverRetries} alternative proxy attempt(s); returning actual final failure [${result.status || lastStatus}]`
+      );
+      if (result.response) {
+        return result.response;
+      }
+      const finalStatus = result.status || lastStatus || HTTP_STATUS.SERVICE_UNAVAILABLE;
+      const finalError = result.error || lastError || "All alternative proxies exhausted";
+      const finalHeaders = upstreamResponseHeaders(result.response?.headers) || lastHeaders;
+      return errorResponse(finalStatus, finalError, finalHeaders);
+    }
+
+    // Psiphon transport failure rotation: disabled when Spec 021 failover owns the retry budget.
     const psiphonPoolId = credentials?.providerSpecificData?.psiphonPoolId;
     const isPsiphonUnavailable = credentials?.providerSpecificData?.psiphonUnavailable === true;
-    const isClientAborted = Boolean(request?.signal?.aborted);
-    if (psiphonPoolId && !isPsiphonUnavailable && !isClientAborted && shouldRotateOn(result) && psiphonRotations < 4) {
+    if (!failoverSettings.enabled && psiphonPoolId && !isPsiphonUnavailable && !isClientAborted && shouldRotateOn(result) && psiphonRotations < 4) {
       psiphonRotations++;
       const seenGeneration = credentials?.providerSpecificData?.psiphonGeneration;
       log.warn("PSIPHON", `Transport failure detected (${result.status}) on pool ${psiphonPoolId} (rotation ${psiphonRotations}/4) → rotating tunnel`);
@@ -656,7 +885,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     const sidecarPoolId = credentials?.providerSpecificData?.opencodeSidecarPoolId;
     const isSidecarUnavailable = credentials?.providerSpecificData?.opencodeSidecarUnavailable === true;
     const isSidecarUrlMissing = !credentials?.providerSpecificData?.opencodeSidecarUrl;
-    if (sidecarPoolId && !isClientAborted) {
+    if (!failoverSettings.enabled && sidecarPoolId && !isClientAborted) {
       const isQuotaSignal = result.status === 429 || result.status === 403;
       const needsRestart =
         isSidecarUnavailable ||

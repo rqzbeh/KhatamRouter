@@ -21,16 +21,20 @@ import {
   MEMBER_COOLDOWN_PRESETS_MS,
   MIN_MEMBER_COOLDOWN_MS,
   MAX_MEMBER_COOLDOWN_MS,
+  COOLDOWN_PRESET_OPTIONS,
   normalizeMemberCooldownMs,
   isValidMemberCooldown,
+  isComboCooldownDisabled,
 } from "../config/comboCooldown.js";
 
 export {
   MEMBER_COOLDOWN_PRESETS_MS,
   MIN_MEMBER_COOLDOWN_MS,
   MAX_MEMBER_COOLDOWN_MS,
+  COOLDOWN_PRESET_OPTIONS,
   normalizeMemberCooldownMs,
   isValidMemberCooldown,
+  isComboCooldownDisabled,
 };
 
 // --- 429 storm cooldown & scoped circuit breaking ---------------------------
@@ -179,7 +183,29 @@ export function getComboCooldownMapSize() {
   return comboModelCooldownMap.size;
 }
 
-export function clearComboCooldowns() {
+export function clearComboCooldowns(targetCombo, targetScope) {
+  if (typeof targetCombo === "string") {
+    const trimmedCombo = targetCombo.trim();
+    if (!trimmedCombo) return;
+    const hasScope = typeof targetScope === "string" && targetScope.trim();
+    const trimmedScope = hasScope ? targetScope.trim() : null;
+
+    for (const [key, entry] of comboModelCooldownMap.entries()) {
+      let match = false;
+      if (entry?.combo !== undefined) {
+        match = entry.combo === trimmedCombo && (!trimmedScope || entry.scope === trimmedScope);
+      } else {
+        const parts = key.split("::");
+        if (parts.length === 3) {
+          match = parts[1] === trimmedCombo && (!trimmedScope || parts[0] === trimmedScope);
+        }
+      }
+      if (match) {
+        comboModelCooldownMap.delete(key);
+      }
+    }
+    return;
+  }
   comboModelCooldownMap.clear();
 }
 
@@ -265,6 +291,9 @@ export function markComboModelCooldown(scopeOrCombo, comboOrModel, modelOrStatus
     errorText: String(errorText || ""),
     durationMs: safeMs,
     iso: toSafeIsoString(until),
+    scope,
+    combo: combo || "*",
+    model,
   });
 }
 
@@ -675,9 +704,11 @@ export async function handleComboChat({
   resolveSmartChoice = null,
   cooldownScope = null,
   memberCooldownMs = null,
+  disableCooldown = false,
   signal = null,
 }) {
-  const configuredMemberCooldownMs = normalizeMemberCooldownMs(memberCooldownMs);
+  const isCooldownDisabled = isComboCooldownDisabled(disableCooldown, memberCooldownMs);
+  const configuredMemberCooldownMs = isCooldownDisabled ? null : normalizeMemberCooldownMs(memberCooldownMs);
   const clientSignal = signal || body?.signal || null;
   if (clientSignal?.aborted) {
     return new Response(
@@ -823,8 +854,10 @@ export async function handleComboChat({
   let lastRawRetryAfter = null;
   let requestScopedResult = null;
 
-  const coolingCount = rotatedModels.filter((m) => isComboModelCooling(cooldownScope, comboName, m)).length;
-  const skipCooling = coolingCount > 0;
+  const coolingCount = isCooldownDisabled
+    ? 0
+    : rotatedModels.filter((m) => isComboModelCooling(cooldownScope, comboName, m)).length;
+  const skipCooling = !isCooldownDisabled && coolingCount > 0;
 
   const COMBO_RIDE_THROUGH_MS = 45 * 1000;
   const comboT0 = Date.now();
@@ -1091,7 +1124,7 @@ export async function handleComboChat({
 
       const isPolicy = isPolicyRefusal(errorText) || isPolicyRefusal(errorBody);
       const isExemptStatus = result.status === 400 || result.status === 404 || result.status === 422;
-      const shouldCoolMember = !isPolicy && !isExemptStatus && (
+      const shouldCoolMember = !isCooldownDisabled && !isPolicy && !isExemptStatus && (
         configuredMemberCooldownMs !== null
           ? MEMBER_COOLDOWN_STATUSES.has(result.status)
           : (result.status === 429 || result.status === 502 || result.status === 503 || result.status === 504)

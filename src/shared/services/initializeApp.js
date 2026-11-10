@@ -66,6 +66,9 @@ export async function initializeApp() {
             globalThis.__modelSyncScheduler.stop();
           }
         } catch { /* best effort */ }
+        try {
+          globalThis.__freeProxySyncScheduler?.stop();
+        } catch { /* best effort */ }
       };
       const onSignal = () => {
         if (!lifecycleOwned) {
@@ -157,6 +160,13 @@ async function runHeavyStartup() {
     import("@/lib/models/providerSyncRuntime.js")
       .then(({ startModelSyncScheduler }) => startModelSyncScheduler())
       .catch((e) => console.log("[ModelSync] scheduler start failed:", e?.message || e));
+  }
+
+  // Automatic free proxy sync scheduler
+  if (process.env.NEXT_PHASE !== "phase-production-build" && process.env.NODE_ENV !== "test") {
+    import("@/lib/freeProxyProviders/scheduler.js")
+      .then(({ startFreeProxySyncScheduler }) => startFreeProxySyncScheduler())
+      .catch((e) => console.log("[FreeProxySync] scheduler start failed:", e?.message || e));
   }
 }
 

@@ -15,6 +15,7 @@ import { aggregateComboCapabilities } from "open-sse/providers/capabilities.js";
 import { resolveProviderId, AI_PROVIDERS } from "@/shared/constants/providers";
 import {
   isValidMemberCooldown,
+  isComboCooldownDisabled,
   calculateComboStrategyUpdate,
   executeComboUpdateTransaction,
   executeComboCreateTransaction,
@@ -271,15 +272,16 @@ export default function CombosPage() {
   };
 
   const handleCreate = async (data) => {
-    const { memberCooldownMs, ...comboData } = data;
+    const { memberCooldownMs, disableCooldown, ...comboData } = data;
     if (!isValidMemberCooldown(memberCooldownMs)) {
-      alert("Invalid member failure cooldown. Must be 10s..24h or preset (1m, 5m, 1h).");
+      alert("Invalid member failure cooldown. Must be 10s..24h or preset (1m, 5m, 1h, disabled).");
       return;
     }
     try {
       const result = await executeComboCreateTransaction({
         comboData,
         memberCooldownMs,
+        disableCooldown,
         comboStrategies,
         createComboApi: async (body) => {
           const res = await fetch("/api/combos", {
@@ -323,10 +325,10 @@ export default function CombosPage() {
 
   const handleUpdate = async (id, data) => {
     const oldCombo = combos.find((c) => c.id === id);
-    const { memberCooldownMs, ...comboData } = data;
+    const { memberCooldownMs, disableCooldown, ...comboData } = data;
 
     if (!isValidMemberCooldown(memberCooldownMs)) {
-      alert("Invalid member failure cooldown. Must be 10s..24h or preset (1m, 5m, 1h).");
+      alert("Invalid member failure cooldown. Must be 10s..24h or preset (1m, 5m, 1h, disabled).");
       return;
     }
 
@@ -336,6 +338,7 @@ export default function CombosPage() {
         oldCombo,
         newComboData: comboData,
         memberCooldownMs,
+        disableCooldown,
         comboStrategies,
         updateComboApi: async (comboId, body) => {
           const res = await fetch(`/api/combos/${comboId}`, {
@@ -847,12 +850,17 @@ function ComboCard({ combo, getCaps, comboByName = {}, activeProviders = [], cop
                 <span>ctx {fmtK(comboCaps.contextWindow)}</span>
                 <span className="opacity-40">·</span>
                 <span>max {fmtK(comboCaps.maxOutput)}</span>
-                {strategy?.memberCooldownMs && (
+                {isComboCooldownDisabled(strategy) ? (
+                  <>
+                    <span className="opacity-40">·</span>
+                    <span className="font-mono text-amber-500">cooldown disabled</span>
+                  </>
+                ) : strategy?.memberCooldownMs ? (
                   <>
                     <span className="opacity-40">·</span>
                     <span className="font-mono text-primary">cooldown {typeof strategy.memberCooldownMs === "string" ? strategy.memberCooldownMs : `${strategy.memberCooldownMs / 1000}s`}</span>
                   </>
-                )}
+                ) : null}
               </div>
             )}
             {/* Fusion: judge picker (Auto = first model) */}
@@ -1328,15 +1336,18 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindF
   const [modelAliases, setModelAliases] = useState({});
 
   const initialCooldown = memberCooldownMs ?? strategy?.memberCooldownMs ?? null;
-  const initialMode = initialCooldown === 60_000 || initialCooldown === "1m"
-    ? "1m"
-    : initialCooldown === 300_000 || initialCooldown === "5m"
-      ? "5m"
-      : initialCooldown === 3_600_000 || initialCooldown === "1h"
-        ? "1h"
-        : (typeof initialCooldown === "number" || (typeof initialCooldown === "string" && /^\d+$/.test(initialCooldown)))
-          ? "custom"
-          : "default";
+  const isInitiallyDisabled = isComboCooldownDisabled(strategy, initialCooldown);
+  const initialMode = isInitiallyDisabled
+    ? "disabled"
+    : initialCooldown === 60_000 || initialCooldown === "1m"
+      ? "1m"
+      : initialCooldown === 300_000 || initialCooldown === "5m"
+        ? "5m"
+        : initialCooldown === 3_600_000 || initialCooldown === "1h"
+          ? "1h"
+          : (typeof initialCooldown === "number" || (typeof initialCooldown === "string" && /^\d+$/.test(initialCooldown)))
+            ? "custom"
+            : "default";
 
   const [cooldownMode, setCooldownMode] = useState(initialMode);
   const [customCooldownSec, setCustomCooldownSec] = useState(
@@ -1475,7 +1486,11 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindF
   const handleSave = async () => {
     if (!validateName(name) || !validateCooldown(cooldownMode, customCooldownSec)) return;
     let savedCooldown = null;
-    if (cooldownMode === "1m" || cooldownMode === "5m" || cooldownMode === "1h") {
+    let isCooldownDisabled = false;
+    if (cooldownMode === "disabled") {
+      isCooldownDisabled = true;
+      savedCooldown = null;
+    } else if (cooldownMode === "1m" || cooldownMode === "5m" || cooldownMode === "1h") {
       savedCooldown = cooldownMode;
     } else if (cooldownMode === "custom") {
       const sec = parseInt(customCooldownSec.trim(), 10);
@@ -1484,7 +1499,7 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindF
       }
     }
     setSaving(true);
-    await onSave({ name: name.trim(), models, memberCooldownMs: savedCooldown });
+    await onSave({ name: name.trim(), models, memberCooldownMs: savedCooldown, disableCooldown: isCooldownDisabled });
     setSaving(false);
   };
 

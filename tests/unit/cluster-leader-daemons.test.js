@@ -55,6 +55,7 @@ vi.mock("@/lib/mitmAliasCache", () => ({ syncToJson: vi.fn(async () => {}) }));
 vi.mock("@/lib/mcp/stdioSseBridge", () => ({ killAllBridges: vi.fn() }));
 vi.mock("@/shared/services/quotaAutoPing", () => ({ startQuotaAutoPing: vi.fn(async () => {}) }));
 vi.mock("@/sse/services/backgroundTokenRefresh.js", () => ({ startBackgroundTokenRefresh: vi.fn(async () => {}) }));
+vi.mock("@/lib/freeProxyProviders/scheduler.js", () => ({ startFreeProxySyncScheduler: vi.fn(async () => {}) }));
 
 import { initializeApp } from "@/shared/services/initializeApp.js";
 import * as localDb from "@/lib/localDb";
@@ -62,6 +63,7 @@ import * as tunnel from "@/lib/tunnel";
 import * as mitm from "@/mitm/manager";
 import * as quota from "@/shared/services/quotaAutoPing";
 import * as refresh from "@/sse/services/backgroundTokenRefresh.js";
+import * as freeProxy from "@/lib/freeProxyProviders/scheduler.js";
 
 const ALL_ON_SETTINGS = {
   tunnelEnabled: true,
@@ -172,6 +174,27 @@ describe("initializeApp leader-only daemons (cluster role gate)", () => {
     await bootWithRole("worker");
 
     expect(startedDaemons()).toEqual(ALL_OFF);
+  });
+
+  it.each(["leader", undefined, "worker"])("starts free-proxy scheduling only on a serving leader (%s)", async (role) => {
+    vi.stubEnv("NODE_ENV", "production");
+    try {
+      await bootWithRole(role, {});
+      expect(freeProxy.startFreeProxySyncScheduler).toHaveBeenCalledTimes(role === "worker" ? 0 : 1);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("does not start free-proxy scheduling during production build", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PHASE", "phase-production-build");
+    try {
+      await bootWithRole("leader", {});
+      expect(freeProxy.startFreeProxySyncScheduler).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("keeps request-serving init on followers: signal cleanup, exit callback, settings warm-up", async () => {
