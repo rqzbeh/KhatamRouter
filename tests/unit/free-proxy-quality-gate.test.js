@@ -283,7 +283,12 @@ describe("Free Proxy Quality Gate & Concurrency Control", () => {
     expect(pools.find((p) => p.id === deadId)).toBeUndefined();
   });
 
-  it("preserves an operator-disabled free pool with testStatus 'unknown' after sync", async () => {
+  it.each([
+    { label: "reactivates a verified legacy import", probeOk: true, operatorDisabled: false, expectedActive: true },
+    { label: "keeps an unreachable legacy import inactive", probeOk: false, operatorDisabled: false, expectedActive: false },
+    { label: "preserves an explicitly disabled import", probeOk: true, operatorDisabled: true, expectedActive: false },
+  ])("$label", async ({ probeOk, operatorDisabled, expectedActive }) => {
+    mocks.probeLatency.mockResolvedValue({ ok: probeOk });
     const poolUrl = "http://185.220.106.10:8080";
     const poolId = freeProxyCore.computeFreePoolId(poolUrl);
 
@@ -295,6 +300,7 @@ describe("Free Proxy Quality Gate & Concurrency Control", () => {
       type: "http",
       isActive: false,
       provenance: {
+        operatorDisabled,
         source: "free:oneproxy",
         lastSeenAt: new Date().toISOString(),
         untrusted: true,
@@ -328,7 +334,30 @@ describe("Free Proxy Quality Gate & Concurrency Control", () => {
     expect(result.updated).toBe(1);
 
     const after = await proxyPoolsRepo.getProxyPoolById(poolId);
-    expect(after.isActive).toBe(false);
+    expect(after.isActive).toBe(expectedActive);
+    expect(mocks.probeLatency).toHaveBeenCalledTimes(operatorDisabled ? 0 : 1);
+  });
+
+  it("honors an operator disable made while a legacy import is being revalidated", async () => {
+    const poolUrl = "http://185.220.106.30:8080";
+    const poolId = freeProxyCore.computeFreePoolId(poolUrl);
+    await freeProxyCore.createFreeProxyPool({
+      id: poolId, name: "legacy", proxyUrl: poolUrl, isActive: false,
+      provenance: { source: "free:oneproxy", untrusted: true },
+    });
+    mocks.probeLatency.mockImplementationOnce(async () => {
+      await proxyPoolsRepo.updateProxyPool(poolId, {
+        isActive: false, provenance: { source: "free:oneproxy", untrusted: true, operatorDisabled: true },
+      });
+      return { ok: true };
+    });
+    const customFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      proxies: [{ alive: true, ip: "185.220.106.30", port: 8080, protocol: "http" }],
+    }), { status: 200 }));
+    await freeProxyCore.runFreeProxySync({ customFetch });
+    const saved = await proxyPoolsRepo.getProxyPoolById(poolId);
+    expect(saved.isActive).toBe(false);
+    expect(saved.provenance.operatorDisabled).toBe(true);
   });
 
   it("keeps an inactive free pool with testStatus 'error' inactive after sync", async () => {

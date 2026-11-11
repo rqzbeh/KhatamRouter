@@ -180,7 +180,7 @@ describe("Bounded Proxy Failover Runtime Integration (Spec 021)", () => {
     // Never calls direct egress without a proxy
   });
 
-  it("does not retry unrelated pools when provider rotation is 'none'", async () => {
+  it("honors explicit failover even when the initial proxy assignment is static", async () => {
     settings.proxyFailover = { enabled: true, mode: "custom", maxRetries: 5 };
     settings.providerStrategies = { opencode: { rotateStrategy: "none", proxyPoolId: "pool-a" } };
 
@@ -191,10 +191,12 @@ describe("Bounded Proxy Failover Runtime Integration (Spec 021)", () => {
       })
     );
 
+    fetchMock.mockImplementationOnce(async () => new Response(SUCCESS_SSE, {
+      status: 200, headers: { "Content-Type": "text/event-stream" },
+    }));
     const res = await handleChat(createRequest());
-    expect(res.status).toBe(429);
-    // Should NOT retry pool-b or pool-c because rotation strategy is none
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("excludes account quota and billing exhaustion from proxy failover", async () => {
@@ -333,7 +335,7 @@ describe("Bounded Proxy Failover Runtime Integration (Spec 021)", () => {
     fetchMock.mockRejectedValue(new Error("ECONNRESET"));
     const res = await handleChat(createRequest());
     expect([502, 503]).toContain(res.status);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("mode 'all' with >10 distinct proxies: tests finite snapshot >10 without recycling", async () => {

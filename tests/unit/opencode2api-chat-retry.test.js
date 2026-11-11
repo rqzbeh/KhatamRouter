@@ -206,6 +206,43 @@ describe("chat.js sidecar retry semantics", () => {
     expect(sidecarSpawnCount()).toBe(1);
   }, 25000);
 
+  it("does not quarantine a healthy multi-exit daemon for an account quota rejection", async () => {
+    const { isPoolFit, resetPoolFitness } = await import("../../open-sse/services/proxyPoolFitness.js");
+    await resetPoolFitness();
+    mockSettings.proxyHealth = { enabled: true, cooldownMs: 300000, statuses: [429, 502, 503, 504] };
+    mockSettings.proxyFailover = { mode: "all", maxRetries: "all" };
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: { message: "account billing quota exhausted" } }), {
+      status: 429, headers: { "Content-Type": "application/json" },
+    }));
+    try {
+      const res = await handleChat(makePostRequest());
+      expect(res.status).toBe(429);
+      expect(isPoolFit("pool-o2a-1", "opencode::*")).toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      delete mockSettings.proxyHealth;
+      delete mockSettings.proxyFailover;
+      await resetPoolFitness();
+    }
+  }, 25000);
+
+  it("recovers a failed managed daemon with All failover without exceeding its retry budget", async () => {
+    mockSettings.proxyFailover = { mode: "all", maxRetries: "all" };
+    spawnBehaviour = "fail-first";
+    spawnAttempts = 0;
+    fetchMock.mockResolvedValue(new Response(SUCCESS_SSE, {
+      status: 200, headers: { "Content-Type": "text/event-stream" },
+    }));
+    try {
+      const res = await handleChat(makePostRequest());
+      expect(res.status).toBe(200);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(sidecarSpawnCount()).toBe(2);
+    } finally {
+      delete mockSettings.proxyFailover;
+    }
+  }, 25000);
+
   it("restarts a daemon that died, then serves the retry", async () => {
     // First launch cannot find the binary → the pass fails closed as
     // unavailable; chat.js must restart and the second launch succeeds.

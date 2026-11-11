@@ -37,6 +37,7 @@ import { getAdapter } from "@/lib/db/driver.js";
 import {
   updateProxyPool,
   getProxyPools,
+  getProxyPoolById,
   deleteProxyPool,
 } from "@/lib/db/repos/proxyPoolsRepo.js";
 import { getSettings, updateSettings } from "@/lib/db/repos/settingsRepo.js";
@@ -743,10 +744,25 @@ export async function runFreeProxySync({
           }
 
           const prevProvenance = existing.provenance || existing.data?.provenance || {};
+          // Older builds created imports disabled without recording operator intent.
+          // Revalidate those rows before restoring the active-on-import default.
+          let isActive = existing.isActive;
+          if (!isActive && prevProvenance.operatorDisabled !== true && existing.testStatus !== "error") {
+            isActive = await probeCandidate(candidate, { probeUrl });
+            if (totalProcessed >= MAX_POOLS_PER_SYNC) {
+              stopSource = true;
+              break;
+            }
+            const current = await getProxyPoolById(existing.id);
+            const currentProvenance = current?.provenance || current?.data?.provenance;
+            if (!current || currentProvenance?.operatorDisabled === true) {
+              skipped++;
+              continue;
+            }
+          }
           await updateProxyPool(existing.id, {
             updatedAt: now,
-            // A feed cannot distinguish legacy defaults from an operator's explicit disable.
-            isActive: existing.isActive,
+            isActive,
             provenance: {
               ...prevProvenance,
               source: `free:${source}`,

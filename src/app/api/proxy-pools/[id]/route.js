@@ -149,6 +149,16 @@ export async function PUT(request, { params }) {
       await stopSidecar(id);
     }
 
+    if (Object.prototype.hasOwnProperty.call(body, "isActive")) {
+      const provenance = existing.provenance || existing.data?.provenance;
+      if (typeof provenance?.source === "string" && provenance.source.startsWith("free:")) {
+        normalized.updates.provenance = {
+          ...provenance,
+          operatorDisabled: normalized.updates.isActive === false,
+        };
+      }
+    }
+
     const updated = await updateProxyPool(id, normalized.updates);
     return NextResponse.json({ proxyPool: updated });
   } catch (error) {
