@@ -66,6 +66,26 @@ describe("PATCH /api/proxy-pools/[id]", () => {
     expect(reRead.isActive).toBe(true);
   });
 
+  it("records explicit disable intent for feed imports and clears it on enable", async () => {
+    const { createFreeProxyPool } = await import("../../src/lib/freeProxyProviders/index.js");
+    const created = await createFreeProxyPool({
+      id: "test-import-intent",
+      name: "feed import", proxyUrl: "http://185.220.106.10:8080", type: "http", isActive: true,
+      provenance: { source: "free:oneproxy", untrusted: true },
+    });
+    for (const isActive of [false, true]) {
+      const res = await route.PATCH(
+        jsonRequest(`http://x/api/proxy-pools/${created.id}`, "PATCH", { isActive }),
+        { params: Promise.resolve({ id: created.id }) }
+      );
+      expect(res.status).toBe(200);
+      const saved = await repo.getProxyPoolById(created.id);
+      expect(saved.isActive).toBe(isActive);
+      expect(saved.provenance.operatorDisabled).toBe(!isActive);
+      expect(saved.provenance.source).toBe("free:oneproxy");
+    }
+  });
+
   it("still 404s an unknown pool", async () => {
     const res = await route.PATCH(
       jsonRequest("http://x/api/proxy-pools/nope", "PATCH", { isActive: true }),

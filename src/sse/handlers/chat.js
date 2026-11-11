@@ -766,10 +766,25 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         settings: proxyHealth,
         clientAborted: Boolean(request?.signal?.aborted),
       });
-      if (verdict) {
+      // A managed sidecar contains many exits; an upstream rate/region rejection
+      // does not establish that the daemon itself is unhealthy.
+      const managedSidecar = Boolean(credentials?.providerSpecificData?.opencodeSidecarPoolId);
+      if (verdict && (!managedSidecar || verdict.kind === "transport")) {
         await markPoolUnfit(failedPoolId, verdict.scope, Date.now() + verdict.durationMs, verdict.reason);
         log.warn("PROXY", `Pool ${failedPoolId} cooled for ${Math.round(verdict.durationMs / 1000)}s on ${provider}: ${verdict.reason}`);
       }
+    }
+
+    // An unavailable managed daemon has no functioning upstream to retry. Permit
+    // one bounded restart before considering alternate proxy pools, even when
+    // global failover is enabled. This never retries an upstream quota response.
+    const unavailableSidecarId = credentials?.providerSpecificData?.opencodeSidecarPoolId;
+    if (failoverSettings.enabled && unavailableSidecarId &&
+        credentials?.providerSpecificData?.opencodeSidecarUnavailable === true &&
+        sidecarRestarts === 0 && !request?.signal?.aborted && Date.now() < failoverDeadline) {
+      sidecarRestarts++;
+      await stopSidecar(unavailableSidecarId).catch(() => {});
+      continue;
     }
 
     // Bounded Proxy Failover (Spec 021): silently retry across distinct eligible

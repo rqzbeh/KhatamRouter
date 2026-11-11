@@ -233,7 +233,7 @@ export function isProxyFailoverRetryable({ status, errorText = "", body = null }
 
 /**
  * Resolve the authorized rotation candidate set and strategy for a provider.
- * If rotation strategy is 'none', returns empty candidates to prevent crossing pool boundaries.
+ * Initial selection can remain static; explicit failover policy enables recovery separately.
  */
 export function resolveRotationCandidates({ providerId, credentials = null, settings = {}, allActivePools = [] }) {
   if (credentials?._proxyRotation) {
@@ -247,8 +247,16 @@ export function resolveRotationCandidates({ providerId, credentials = null, sett
   const providerOverrides = (settings.providerStrategies || {})[providerId] || {};
   const connectionData = credentials?.providerSpecificData || {};
 
-  const strategy = providerOverrides.rotateStrategy || connectionData.rotateStrategy || "none";
-  if (strategy === "none") {
+  // The dedicated WARP lane must not silently switch to unrelated HTTP proxies.
+  if (providerId === "opencode-warp" && !(providerOverrides.proxyPoolIds?.length > 0) && !(connectionData.proxyPoolIds?.length > 0)) {
+    return { strategy: "none", candidatePoolIds: [] };
+  }
+  const initialStrategy = providerOverrides.rotateStrategy || connectionData.rotateStrategy || "none";
+  const failover = normalizeProxyFailoverSettings(settings.proxyFailover);
+  const strategy = initialStrategy === "none" && failover.ok && failover.value.enabled
+    ? failover.value.strategy
+    : initialStrategy;
+  if (strategy === "none" || connectionData.proxyPoolId === "__none__") {
     return { strategy: "none", candidatePoolIds: [] };
   }
 

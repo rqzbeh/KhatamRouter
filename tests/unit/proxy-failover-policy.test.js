@@ -187,6 +187,47 @@ describe("resolveRotationCandidates & pickNextDistinctPool", () => {
     expect(res.candidatePoolIds).toEqual([]);
   });
 
+  it("uses the explicit failover strategy for a static authenticated connection", () => {
+    const res = resolveRotationCandidates({
+      providerId: "antigravity",
+      credentials: { providerSpecificData: { proxyPoolId: "pool-1", connectionProxyPoolId: "pool-1" } },
+      settings: { proxyFailover: { mode: "all", maxRetries: "all", strategy: "random" } },
+      allActivePools: pools,
+    });
+    expect(res.strategy).toBe("random");
+    expect(res.candidatePoolIds).toEqual(["pool-1", "pool-2", "pool-3"]);
+  });
+
+  it("does not switch the dedicated WARP lane to unrelated proxies", () => {
+    const res = resolveRotationCandidates({
+      providerId: "opencode-warp",
+      credentials: { providerSpecificData: { connectionProxyPoolId: "warp" } },
+      settings: { providerStrategies: { "opencode-warp": { proxyPoolIds: [] } }, proxyFailover: { mode: "all", maxRetries: "all" } },
+      allActivePools: pools,
+    });
+    expect(res.candidatePoolIds).toEqual([]);
+  });
+
+  it("respects an explicit proxy opt-out even with All recovery enabled", () => {
+    const res = resolveRotationCandidates({
+      providerId: "antigravity",
+      credentials: { providerSpecificData: { proxyPoolId: "__none__" } },
+      settings: { proxyFailover: { mode: "all", maxRetries: "all" } },
+      allActivePools: pools,
+    });
+    expect(res.candidatePoolIds).toEqual([]);
+  });
+
+  it("keeps an explicitly restricted candidate list during static failover", () => {
+    const res = resolveRotationCandidates({
+      providerId: "antigravity",
+      credentials: { providerSpecificData: { proxyPoolId: "pool-1", proxyPoolIds: ["pool-1", "pool-3"] } },
+      settings: { proxyFailover: { mode: "all", maxRetries: "all" } },
+      allActivePools: pools,
+    });
+    expect(res.candidatePoolIds).toEqual(["pool-1", "pool-3"]);
+  });
+
   it("returns active pool candidates when rotation is round-robin or random", () => {
     const res = resolveRotationCandidates({
       providerId: "opencode",
