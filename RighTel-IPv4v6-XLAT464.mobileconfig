@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>PayloadContent</key>
+    <array>
+        <dict>
+            <key>APNs</key>
+            <array>
+                <dict>
+                    <key>AllowedProtocolMask</key>
+                    <integer>3</integer>
+                    <key>AllowedProtocolMaskInDomesticRoaming</key>
+                    <integer>3</integer>
+                    <key>AllowedProtocolMaskInRoaming</key>
+                    <integer>3</integer>
+                    <key>AuthenticationType</key>
+                    <string>CHAP</string>
+                    <key>DefaultProtocolMask</key>
+                    <integer>3</integer>
+                    <key>EnableXLAT464</key>
+                    <true/>
+                    <key>Name</key>
+                    <string>RighTel</string>
+                </dict>
+            </array>
+            <key>AttachAPN</key>
+            <dict>
+                <key>AllowedProtocolMask</key>
+                <integer>3</integer>
+                <key>AuthenticationType</key>
+                <string>CHAP</string>
+                <key>Name</key>
+                <string>RighTel</string>
+            </dict>
+            <key>PayloadDescription</key>
+            <string>Configures RighTel cellular data with dual-stack IPv4/IPv6 and 464XLAT</string>
+            <key>PayloadDisplayName</key>
+            <string>RighTel IPv4/IPv6 + 464XLAT</string>
+            <key>PayloadIdentifier</key>
+            <string>ir.rightel.cellular.xlat464</string>
+            <key>PayloadType</key>
+            <string>com.apple.cellular</string>
+            <key>PayloadUUID</key>
+            <string>5095856B-8E6D-4BAF-AB24-FFDB5549437D</string>
+            <key>PayloadVersion</key>
+            <integer>1</integer>
+        </dict>
+    </array>
+    <key>PayloadDisplayName</key>
+    <string>RighTel Dual-Stack IPv6 + 464XLAT</string>
+    <key>PayloadIdentifier</key>
+    <string>ir.rightel.profile.xlat464</string>
+    <key>PayloadRemovalDisallowed</key>
+    <false/>
+    <key>PayloadType</key>
+    <string>Configuration</string>
+    <key>PayloadUUID</key>
+    <string>5BD1A63D-DC2C-4192-AAC1-E10B932D54D3</string>
+    <key>PayloadVersion</key>
+    <integer>1</integer>
+</dict>
+</plist>
