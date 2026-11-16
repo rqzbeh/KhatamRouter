@@ -1,15 +1,15 @@
 {
-  "version": "v1.27.0",
+  "version": "v1.27.1",
   "assets": {
     "amd64": {
-      "url": "https://github.com/freeb5d/regionhop/releases/download/v1.27.0/regionhop-linux-amd64.tar.gz",
-      "sha256": "ff309a82f54500feb4a200590022a9ea4e8cd22de074f4cc332ed159723c5f77",
-      "size": 36476898
+      "url": "https://github.com/freeb5d/regionhop/releases/download/v1.27.1/regionhop-linux-amd64.tar.gz",
+      "sha256": "453d2462ba5eb85b481514b8ce196fcf16ccb53e794f9793d3d88ac3966f10be",
+      "size": 36567498
     },
     "arm64": {
-      "url": "https://github.com/freeb5d/regionhop/releases/download/v1.27.0/regionhop-linux-arm64.tar.gz",
-      "sha256": "88ef27ca2ddb5cc33f3bfccd4732bbd7bca31039e7b9d6c25586b7955d12787b",
-      "size": 33105059
+      "url": "https://github.com/freeb5d/regionhop/releases/download/v1.27.1/regionhop-linux-arm64.tar.gz",
+      "sha256": "446128828d7c64a0041675bc2f22561e1d5dee4c933876d317ce384c0ce02ea7",
+      "size": 33191536
     }
   }
 }
