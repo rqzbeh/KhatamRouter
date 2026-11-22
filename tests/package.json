@@ -10,7 +10,7 @@
     "postinstall": "bun ./__baseline__/setup-bun-vitest.mjs"
   },
   "devDependencies": {
-    "js-yaml": "^4.1.0",
+    "js-yaml": "^5.5.0",
     "react-test-renderer": "19.3.1",
     "vitest": "^5"
   },
