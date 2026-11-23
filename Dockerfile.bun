@@ -64,9 +64,9 @@ RUN bun run build
 # values is src/lib/network/psiphon/regionhopRelease.json; the upstream project
 # publishes no checksums, so the hashes are recorded in-repo and
 # tests/unit/regionhop-release-pin.test.js fails if these ARGs drift from it.
-ARG REGIONHOP_VERSION=v1.27.0
-ARG REGIONHOP_SHA256_AMD64=ff309a82f54500feb4a200590022a9ea4e8cd22de074f4cc332ed159723c5f77
-ARG REGIONHOP_SHA256_ARM64=88ef27ca2ddb5cc33f3bfccd4732bbd7bca31039e7b9d6c25586b7955d12787b
+ARG REGIONHOP_VERSION=v1.28.0
+ARG REGIONHOP_SHA256_AMD64=2b97df48a53e63bc7593f1ddcb0d648fff72b402fd4842f0a8d2156f18ce32fc
+ARG REGIONHOP_SHA256_ARM64=0e7114647305541e8f023b43ed8b34c9fc7b10e5d461b6edf7fbd7c778c4e1a3
 ARG TARGETARCH
 RUN set -eux; \
     ARCH="${TARGETARCH:-amd64}"; \
